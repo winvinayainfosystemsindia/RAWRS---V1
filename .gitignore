@@ -1,0 +1,88 @@
+# Claude Code session data
+.claude/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Test / coverage artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# Pipeline outputs (generated, not source)
+outputs/
+data/cache/
+data/processed/
+data/raw/
+
+# Model weights (large binary files — download on first run)
+*.gguf
+*.gguf.mmp
+*.bin
+*.pt
+*.safetensors
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Node / frontend build artifacts
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/build/
+
+# Research / audit screenshots (generated during sessions)
+outputs/_audit_screenshots/
+
+# Benchmark PDFs — copyrighted source documents (obtain separately; see README)
+samples/benchmark/pdfs/
+samples/benchmark/remediated_docx/
+
+# Regression source PDFs and generated outputs (copyrighted; obtain separately)
+samples/regressions/**/source_pdf/
+samples/regressions/**/generated_docx/
+
+# Mathpix binary exports — copyrighted DOCX files and extracted images
+samples/mathpix/**/*.docx
+samples/mathpix/**/images/
+
+# TypeScript incremental build info
+frontend/tsconfig.tsbuildinfo
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Windows
+ehthumbs.db
+$RECYCLE.BIN/

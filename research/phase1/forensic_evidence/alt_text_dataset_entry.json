@@ -1,0 +1,110 @@
+{
+  "source_pdf_path": "outputs\\uploads\\551dcd06ec9746d6a0818bf0863cac80.pdf",
+  "generated_at": "2026-06-22T11:48:16.481219+00:00",
+  "images": [
+    {
+      "image_id": "2515e1e008624d1b88b77b127d388a72",
+      "page_number": 1,
+      "file_path": "outputs\\_forensic\\images\\551dcd06ec9746d6a0818bf0863cac80\\page1_img1_2515e1e008624d1b88b77b127d388a72.jpeg",
+      "bbox": {
+        "x0": 314.7019958496094,
+        "y0": 63.38203430175781,
+        "x1": 433.958984375,
+        "y1": 79.4830322265625
+      },
+      "figure": {
+        "label": null,
+        "number": null,
+        "caption": null,
+        "is_referenced": false,
+        "alt_text": "Image from page 1: description pending human review",
+        "alt_text_status": "pending_review"
+      },
+      "nearby_text": [
+        "Article",
+        "Policy Futures in Education",
+        "Learner-centred education",
+        "2015, Vol. 13(3) 342\u2013359",
+        "! Author(s) 2015"
+      ]
+    },
+    {
+      "image_id": "299d72010d024d7ba3dbdc57a0ba733e",
+      "page_number": 1,
+      "file_path": "outputs\\_forensic\\images\\551dcd06ec9746d6a0818bf0863cac80\\page1_img2_299d72010d024d7ba3dbdc57a0ba733e.png",
+      "bbox": {
+        "x0": 25.0,
+        "y0": 5.0040283203125,
+        "x1": 89.0,
+        "y1": 18.0040283203125
+      },
+      "figure": {
+        "label": null,
+        "number": null,
+        "caption": null,
+        "is_referenced": false,
+        "alt_text": "Image from page 1: description pending human review",
+        "alt_text_status": "pending_review"
+      },
+      "nearby_text": [
+        "Article",
+        "Policy Futures in Education",
+        "Learner-centred education",
+        "2015, Vol. 13(3) 342\u2013359",
+        "! Author(s) 2015"
+      ]
+    },
+    {
+      "image_id": "f5feacebe55a48dba1772e941b060d9b",
+      "page_number": 6,
+      "file_path": "outputs\\_forensic\\images\\551dcd06ec9746d6a0818bf0863cac80\\page6_img1_f5feacebe55a48dba1772e941b060d9b.jpeg",
+      "bbox": {
+        "x0": 141.61900329589844,
+        "y0": 520.9509887695312,
+        "x1": 346.08001708984375,
+        "y1": 601.5679931640625
+      },
+      "figure": {
+        "label": "Figure 1",
+        "number": 1,
+        "caption": "Figure 1. State-wise differences in LCE pedagogy and belief scores.",
+        "is_referenced": false,
+        "alt_text": "Figure 1. State-wise differences in LCE pedagogy and belief scores.: description pending human review",
+        "alt_text_status": "pending_review"
+      },
+      "nearby_text": [
+        "Figure 1. State-wise differences in LCE pedagogy and belief scores.",
+        "High-LCE belief score",
+        "0",
+        "4",
+        "16"
+      ]
+    },
+    {
+      "image_id": "c303e3182b6f4bba99389c211711f12c",
+      "page_number": 12,
+      "file_path": "outputs\\_forensic\\images\\551dcd06ec9746d6a0818bf0863cac80\\page12_img1_c303e3182b6f4bba99389c211711f12c.jpeg",
+      "bbox": {
+        "x0": 75.51499938964844,
+        "y0": 377.85797119140625,
+        "x1": 412.4429931640625,
+        "y1": 601.8519897460938
+      },
+      "figure": {
+        "label": "Figure 2",
+        "number": 2,
+        "caption": "Figure 2. Factors shaping teachers\u2019 beliefs.",
+        "is_referenced": false,
+        "alt_text": "Figure 2. Factors shaping teachers\u2019 beliefs.: description pending human review",
+        "alt_text_status": "pending_review"
+      },
+      "nearby_text": [
+        "Figure 2. Factors shaping teachers\u2019 beliefs.",
+        "discussed brie\ufb02y below.",
+        "mediating factors did not support this shift. These \ufb01ve factors are shown in Figure 2 and",
+        "learner-centred beliefs, they failed to be translated into learner-centred practice when these",
+        "the relationship between beliefs and practice: in some cases even when teachers did have more"
+      ]
+    }
+  ]
+}

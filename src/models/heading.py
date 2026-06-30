@@ -1,0 +1,97 @@
+"""Heading model for RAWRS document structure.
+
+See docs/HEADING_RULES.md for the canonical hierarchy and validation rules.
+"""
+
+from enum import Enum, IntEnum
+from typing import Optional
+
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from src.models.lifecycle import ObjectLifecycleStatus
+
+
+class HeadingLevel(IntEnum):
+    """Heading hierarchy levels, H1 through H6.
+
+    H6 is reserved for PDF page markers rather than content headings
+    (see docs/HEADING_RULES.md and docs/PAGE_RULES.md).
+    """
+
+    H1 = 1
+    H2 = 2
+    H3 = 3
+    H4 = 4
+    H5 = 5
+    H6 = 6
+
+
+class HeadingReviewStatus(str, Enum):
+    """Human review lifecycle for a detected heading.
+
+    DETECTED: auto-detected, awaiting review.
+    APPROVED: reviewer confirmed level and text are correct.
+    LEVEL_CHANGED: reviewer corrected the heading level.
+    REJECTED: reviewer marked this as a false positive (not a real heading).
+    """
+
+    DETECTED = "detected"
+    APPROVED = "approved"
+    LEVEL_CHANGED = "level_changed"
+    REJECTED = "rejected"
+
+
+class Heading(BaseModel):
+    """A single heading detected in the document.
+
+    Represents both content headings (H1-H5) and PDF page markers
+    (H6, ``is_page_marker=True``). Page markers are modeled as headings
+    rather than a separate type so they participate naturally in DOCX
+    navigation structure and heading-hierarchy validation.
+
+    ``document_order`` is the position of this heading across the whole
+    document (not the page), since heading-sequence validation (e.g.
+    detecting an H1 -> H3 jump) must consider document-wide order, not
+    per-page order.
+
+    ``review_status`` tracks the human review lifecycle (FEATURE_016A).
+    ``reviewer_note`` holds an optional reviewer annotation.
+    """
+
+    level: HeadingLevel
+    text: str = Field(..., min_length=1)
+    page_number: int = Field(..., ge=1)
+    document_order: int = Field(..., ge=0)
+    is_page_marker: bool = False
+    review_status: HeadingReviewStatus = HeadingReviewStatus.DETECTED
+    reviewer_note: Optional[str] = None
+    # Universal lifecycle tracking (see src/models/lifecycle.py).
+    lifecycle_status: ObjectLifecycleStatus = ObjectLifecycleStatus.DETECTED
+    # Import provenance: "rawrs" (rule-based classifier), "mathpix" (imported),
+    # "rawrs_recovery" (RAWRS found it; provider missed it).
+    source: str = "rawrs"
+
+    @field_validator("text")
+    @classmethod
+    def text_must_not_be_blank(cls, value: str) -> str:
+        """Reject whitespace-only heading text.
+
+        Empty headings are an explicit validation concern in
+        docs/HEADING_RULES.md, so this is rejected at the model level.
+        """
+        if not value.strip():
+            raise ValueError("Heading text must not be blank")
+        return value
+
+    @model_validator(mode="after")
+    def page_marker_must_be_h6(self) -> "Heading":
+        """Enforce that H6 and is_page_marker imply each other.
+
+        docs/HEADING_RULES.md reserves H6 exclusively for PDF page
+        markers, so level == H6 and is_page_marker must always agree.
+        """
+        if self.level == HeadingLevel.H6 and not self.is_page_marker:
+            raise ValueError("H6 headings must have is_page_marker=True")
+        if self.is_page_marker and self.level != HeadingLevel.H6:
+            raise ValueError("Page markers must use level=H6")
+        return self

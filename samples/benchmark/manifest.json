@@ -1,0 +1,109 @@
+{
+  "schema_version": 1,
+  "description": "Single source of truth for samples/benchmark/pdfs/ capability metadata. Tests must select benchmark PDFs by capability via tests/conftest.py's benchmark_pdfs_with()/benchmark_pdfs_without() helpers instead of hardcoding a filename, indexing into a sorted glob() result, or filtering by a filename substring - see the Benchmark Infrastructure Audit for why those patterns broke when the corpus grew from 4 to 10 files.",
+  "methodology": "born_digital/scanned/ocr_required determined by running src.ocr.extractor.extract_text with OCR disabled and checking the fraction of pages with extractable text (>=50% extractable => born_digital). footnotes/front_matter determined by running src.footnotes.footnote_detector.detect_footnotes and src.frontmatter.front_matter_extractor.extract_front_matter against each born-digital PDF. figures determined by running src.images.image_extractor.extract_images and checking for at least one non-decorative extracted image. tables is a caption-text heuristic only ('Table 1'/'TABLE 1' present in extracted text) - RAWRS has no dedicated table-structure detector yet, so this flag means 'a table is visually present in the source', not 'the pipeline models it as a table'.",
+  "pdfs": {
+    "1. Nature of Enquiry.pdf": {
+      "born_digital": true,
+      "scanned": false,
+      "ocr_required": false,
+      "figures": false,
+      "footnotes": false,
+      "front_matter": false,
+      "tables": true,
+      "expected_table_count": 1,
+      "notes": "28/28 pages extractable. 'Table 1'-style caption text present but no embedded raster images were extracted (0 images) - tables flag is text-presence only, not a detected structure."
+    },
+    "1.Aims of Education and the teacher_Dhankar_PhilPers (1).pdf": {
+      "born_digital": true,
+      "scanned": false,
+      "ocr_required": false,
+      "figures": false,
+      "footnotes": false,
+      "front_matter": false,
+      "tables": false,
+      "notes": "4/4 pages extractable. No figure/table caption text found."
+    },
+    "2. Social research strategies Bryman.pdf": {
+      "born_digital": false,
+      "scanned": true,
+      "ocr_required": true,
+      "figures": false,
+      "footnotes": false,
+      "front_matter": false,
+      "tables": false,
+      "notes": "0/26 pages extractable via direct extraction (32MB print-to-PDF scan). Figures/footnotes/front_matter/tables not inspected - text layer does not exist without OCR."
+    },
+    "2.FolkPedagogy_Bruner_PsychDimensions_New.pdf": {
+      "born_digital": true,
+      "scanned": false,
+      "ocr_required": false,
+      "figures": false,
+      "footnotes": false,
+      "front_matter": false,
+      "tables": false,
+      "notes": "26/26 pages extractable. No figure/table caption text found; 0 images extracted."
+    },
+    "3. sockett_profession.pdf": {
+      "born_digital": true,
+      "scanned": false,
+      "ocr_required": false,
+      "figures": false,
+      "footnotes": false,
+      "front_matter": false,
+      "tables": false,
+      "notes": "9/9 pages extractable. No figure/table caption text found; 0 images extracted."
+    },
+    "4. O Leary_Developing the research questions.pdf": {
+      "born_digital": false,
+      "scanned": true,
+      "ocr_required": true,
+      "figures": false,
+      "footnotes": false,
+      "front_matter": false,
+      "tables": false,
+      "notes": "0/13 pages extractable via direct extraction. This is the original scanned fixture used by the OCR/router/structure-detector test suites (formerly hardcoded by filename in 5 separate test files)."
+    },
+    "4.Teaching as a professional discipline-Chapter 1.pdf": {
+      "born_digital": true,
+      "scanned": false,
+      "ocr_required": false,
+      "figures": true,
+      "footnotes": false,
+      "front_matter": false,
+      "tables": false,
+      "notes": "25/27 pages extractable. 2 embedded images extracted (no caption linked to either)."
+    },
+    "5.Teachingas a profession_Calderhead.pdf": {
+      "born_digital": true,
+      "scanned": false,
+      "ocr_required": false,
+      "figures": false,
+      "footnotes": false,
+      "front_matter": false,
+      "tables": false,
+      "notes": "4/4 pages extractable. Original born-digital fixture used as A_DIGITAL_SAMPLE_PDF in tests/test_pipeline.py."
+    },
+    "6. Fullan&Hargreaves_teacherasaperson.pdf": {
+      "born_digital": true,
+      "scanned": false,
+      "ocr_required": false,
+      "figures": false,
+      "footnotes": false,
+      "front_matter": false,
+      "tables": false,
+      "notes": "6/6 pages extractable. No figure/table caption text found; 0 images extracted."
+    },
+    "7.brinkman-learner-centred-education-reform-india-missing-beliefs.pdf": {
+      "born_digital": true,
+      "scanned": false,
+      "ocr_required": false,
+      "figures": true,
+      "footnotes": true,
+      "front_matter": true,
+      "tables": true,
+      "expected_table_count": 5,
+      "notes": "18/18 pages extractable. 3 endnotes detected; title/author/affiliation front matter detected; 4 images extracted with 2 captions linked (Figure 1, Figure 2); 5 tables confirmed by expected_md inspection: Table 1 (PDF p.6, 3-col beliefs-vs-pedagogy), Table 2 (PDF p.7-8, 5-col equality-beliefs split across page break), Table 3 (PDF p.9, 5-col knowledge-transmitted-vs-constructed), Table 4 (PDF p.11, 5-col why-students-fail), Table 5 (PDF p.15-16, 3-col key-differences split across page break). The bug_001/bug_005/feature_005 regression fixture - also lives standalone under samples/regressions/bug_001_brinkman_word_splitting/source_pdf/."
+    }
+  }
+}

@@ -1,0 +1,194 @@
+{
+  "source_pdf_path": "outputs\\uploads\\551dcd06ec9746d6a0818bf0863cac80.pdf",
+  "generated_at": "2026-06-22T11:48:17.369881+00:00",
+  "summary": {
+    "error": 0,
+    "warning": 22,
+    "info": 4,
+    "total": 26
+  },
+  "issues": [
+    {
+      "severity": "warning",
+      "rule_id": "PAGE_003",
+      "message": "Reading order anomaly on page 1: 1 backward vertical jump(s).",
+      "page_number": 1,
+      "suggested_action": "Review this page's content order; the extracted text may not follow a single coherent top-to-bottom sequence (e.g. a multi-column layout)."
+    },
+    {
+      "severity": "warning",
+      "rule_id": "PAGE_003",
+      "message": "Reading order anomaly on page 2: 1 backward vertical jump(s).",
+      "page_number": 2,
+      "suggested_action": "Review this page's content order; the extracted text may not follow a single coherent top-to-bottom sequence (e.g. a multi-column layout)."
+    },
+    {
+      "severity": "warning",
+      "rule_id": "PAGE_003",
+      "message": "Reading order anomaly on page 3: 1 backward vertical jump(s).",
+      "page_number": 3,
+      "suggested_action": "Review this page's content order; the extracted text may not follow a single coherent top-to-bottom sequence (e.g. a multi-column layout)."
+    },
+    {
+      "severity": "warning",
+      "rule_id": "PAGE_003",
+      "message": "Reading order anomaly on page 4: 1 backward vertical jump(s).",
+      "page_number": 4,
+      "suggested_action": "Review this page's content order; the extracted text may not follow a single coherent top-to-bottom sequence (e.g. a multi-column layout)."
+    },
+    {
+      "severity": "warning",
+      "rule_id": "PAGE_003",
+      "message": "Reading order anomaly on page 5: 1 backward vertical jump(s).",
+      "page_number": 5,
+      "suggested_action": "Review this page's content order; the extracted text may not follow a single coherent top-to-bottom sequence (e.g. a multi-column layout)."
+    },
+    {
+      "severity": "warning",
+      "rule_id": "PAGE_003",
+      "message": "Reading order anomaly on page 6: 2 backward vertical jump(s).",
+      "page_number": 6,
+      "suggested_action": "Review this page's content order; the extracted text may not follow a single coherent top-to-bottom sequence (e.g. a multi-column layout)."
+    },
+    {
+      "severity": "warning",
+      "rule_id": "PAGE_003",
+      "message": "Reading order anomaly on page 7: 4 backward vertical jump(s).",
+      "page_number": 7,
+      "suggested_action": "Review this page's content order; the extracted text may not follow a single coherent top-to-bottom sequence (e.g. a multi-column layout)."
+    },
+    {
+      "severity": "warning",
+      "rule_id": "PAGE_003",
+      "message": "Reading order anomaly on page 8: 1 backward vertical jump(s).",
+      "page_number": 8,
+      "suggested_action": "Review this page's content order; the extracted text may not follow a single coherent top-to-bottom sequence (e.g. a multi-column layout)."
+    },
+    {
+      "severity": "warning",
+      "rule_id": "PAGE_003",
+      "message": "Reading order anomaly on page 9: 8 backward vertical jump(s).",
+      "page_number": 9,
+      "suggested_action": "Review this page's content order; the extracted text may not follow a single coherent top-to-bottom sequence (e.g. a multi-column layout)."
+    },
+    {
+      "severity": "warning",
+      "rule_id": "PAGE_003",
+      "message": "Reading order anomaly on page 10: 1 backward vertical jump(s).",
+      "page_number": 10,
+      "suggested_action": "Review this page's content order; the extracted text may not follow a single coherent top-to-bottom sequence (e.g. a multi-column layout)."
+    },
+    {
+      "severity": "warning",
+      "rule_id": "PAGE_003",
+      "message": "Reading order anomaly on page 11: 5 backward vertical jump(s).",
+      "page_number": 11,
+      "suggested_action": "Review this page's content order; the extracted text may not follow a single coherent top-to-bottom sequence (e.g. a multi-column layout)."
+    },
+    {
+      "severity": "warning",
+      "rule_id": "PAGE_003",
+      "message": "Reading order anomaly on page 12: 1 backward vertical jump(s).",
+      "page_number": 12,
+      "suggested_action": "Review this page's content order; the extracted text may not follow a single coherent top-to-bottom sequence (e.g. a multi-column layout)."
+    },
+    {
+      "severity": "warning",
+      "rule_id": "PAGE_003",
+      "message": "Reading order anomaly on page 13: 1 backward vertical jump(s).",
+      "page_number": 13,
+      "suggested_action": "Review this page's content order; the extracted text may not follow a single coherent top-to-bottom sequence (e.g. a multi-column layout)."
+    },
+    {
+      "severity": "warning",
+      "rule_id": "PAGE_003",
+      "message": "Reading order anomaly on page 14: 1 backward vertical jump(s).",
+      "page_number": 14,
+      "suggested_action": "Review this page's content order; the extracted text may not follow a single coherent top-to-bottom sequence (e.g. a multi-column layout)."
+    },
+    {
+      "severity": "warning",
+      "rule_id": "PAGE_003",
+      "message": "Reading order anomaly on page 15: 4 backward vertical jump(s).",
+      "page_number": 15,
+      "suggested_action": "Review this page's content order; the extracted text may not follow a single coherent top-to-bottom sequence (e.g. a multi-column layout)."
+    },
+    {
+      "severity": "warning",
+      "rule_id": "PAGE_003",
+      "message": "Reading order anomaly on page 16: 1 backward vertical jump(s).",
+      "page_number": 16,
+      "suggested_action": "Review this page's content order; the extracted text may not follow a single coherent top-to-bottom sequence (e.g. a multi-column layout)."
+    },
+    {
+      "severity": "warning",
+      "rule_id": "PAGE_003",
+      "message": "Reading order anomaly on page 17: 1 backward vertical jump(s).",
+      "page_number": 17,
+      "suggested_action": "Review this page's content order; the extracted text may not follow a single coherent top-to-bottom sequence (e.g. a multi-column layout)."
+    },
+    {
+      "severity": "warning",
+      "rule_id": "PAGE_003",
+      "message": "Reading order anomaly on page 18: 1 backward vertical jump(s).",
+      "page_number": 18,
+      "suggested_action": "Review this page's content order; the extracted text may not follow a single coherent top-to-bottom sequence (e.g. a multi-column layout)."
+    },
+    {
+      "severity": "warning",
+      "rule_id": "DOC_004",
+      "message": "Removed 1 XML-invalid character(s) (U+0002) from page_text on page 6 before export.",
+      "page_number": 6,
+      "suggested_action": "Confirm the surrounding text still reads correctly. The source PDF contained one or more characters that cannot be represented in DOCX/XML output; they were automatically removed before export."
+    },
+    {
+      "severity": "warning",
+      "rule_id": "DOC_004",
+      "message": "Removed 1 XML-invalid character(s) (U+0002) from page_text on page 7 before export.",
+      "page_number": 7,
+      "suggested_action": "Confirm the surrounding text still reads correctly. The source PDF contained one or more characters that cannot be represented in DOCX/XML output; they were automatically removed before export."
+    },
+    {
+      "severity": "warning",
+      "rule_id": "DOC_004",
+      "message": "Removed 1 XML-invalid character(s) (U+0002) from text_block on page 6 before export.",
+      "page_number": 6,
+      "suggested_action": "Confirm the surrounding text still reads correctly. The source PDF contained one or more characters that cannot be represented in DOCX/XML output; they were automatically removed before export."
+    },
+    {
+      "severity": "warning",
+      "rule_id": "DOC_004",
+      "message": "Removed 1 XML-invalid character(s) (U+0002) from text_block on page 7 before export.",
+      "page_number": 7,
+      "suggested_action": "Confirm the surrounding text still reads correctly. The source PDF contained one or more characters that cannot be represented in DOCX/XML output; they were automatically removed before export."
+    },
+    {
+      "severity": "info",
+      "rule_id": "IMAGE_004",
+      "message": "Image '2515e1e008624d1b88b77b127d388a72' alt text is a placeholder pending human review.",
+      "page_number": 1,
+      "suggested_action": "Review and, if needed, replace the placeholder alt text before publishing this document."
+    },
+    {
+      "severity": "info",
+      "rule_id": "IMAGE_004",
+      "message": "Image '299d72010d024d7ba3dbdc57a0ba733e' alt text is a placeholder pending human review.",
+      "page_number": 1,
+      "suggested_action": "Review and, if needed, replace the placeholder alt text before publishing this document."
+    },
+    {
+      "severity": "info",
+      "rule_id": "IMAGE_004",
+      "message": "Image 'f5feacebe55a48dba1772e941b060d9b' alt text is a placeholder pending human review.",
+      "page_number": 6,
+      "suggested_action": "Review and, if needed, replace the placeholder alt text before publishing this document."
+    },
+    {
+      "severity": "info",
+      "rule_id": "IMAGE_004",
+      "message": "Image 'c303e3182b6f4bba99389c211711f12c' alt text is a placeholder pending human review.",
+      "page_number": 12,
+      "suggested_action": "Review and, if needed, replace the placeholder alt text before publishing this document."
+    }
+  ]
+}
