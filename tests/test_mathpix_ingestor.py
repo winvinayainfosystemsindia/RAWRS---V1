@@ -323,6 +323,33 @@ class TestMathpixImportProvider:
         assert t.row_count == 3  # header + 2 data rows
         assert t.col_count == 3
 
+    def test_bullet_list_becomes_list_block_not_flattened_paragraph(self, tmp_path):
+        mmd = "- First item\n- Second item\n- Third item"
+        doc = _run_import(mmd, page_count=1, tmp_path=tmp_path)
+        assert len(doc.lists) == 1
+        assert doc.lists[0].list_type.value == "bullet"
+        assert [i.text for i in doc.lists[0].items] == ["First item", "Second item", "Third item"]
+        # The exact defect this fixes: list item text must not also leak
+        # into page.cleaned_text as flattened paragraph lines.
+        combined_page_text = "\n".join(p.cleaned_text or "" for p in doc.pages)
+        assert "First item" not in combined_page_text
+
+    def test_numbered_list_becomes_list_block(self, tmp_path):
+        mmd = "1. Alpha\n2. Beta"
+        doc = _run_import(mmd, page_count=1, tmp_path=tmp_path)
+        assert len(doc.lists) == 1
+        assert doc.lists[0].list_type.value == "numbered"
+
+    def test_list_provenance_is_mathpix(self, tmp_path):
+        mmd = "- Only item"
+        doc = _run_import(mmd, page_count=1, tmp_path=tmp_path)
+        assert doc.lists[0].provenance.value == "mathpix"
+
+    def test_paragraph_between_two_lists_produces_two_list_blocks(self, tmp_path):
+        mmd = "- List one item\n\nAn intervening paragraph.\n\n- List two item"
+        doc = _run_import(mmd, page_count=1, tmp_path=tmp_path)
+        assert len(doc.lists) == 2
+
     def test_double_extension_file(self, tmp_path):
         mmd = "\\title{Double Extension}\n\n\\section*{Introduction}"
         mmd_file = tmp_path / "test.mmd.mmd"

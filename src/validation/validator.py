@@ -157,6 +157,7 @@ def validate_document(document: Document) -> List[ValidationIssue]:
     issues.extend(_check_footnotes_detected(document))
     issues.extend(_check_endnotes_detected(document))
     issues.extend(_check_table_accessibility(document))
+    issues.extend(_check_cross_source_verification(document))
 
     error_count = sum(1 for issue in issues if issue.severity == Severity.ERROR)
     warning_count = sum(1 for issue in issues if issue.severity == Severity.WARNING)
@@ -947,6 +948,23 @@ def _check_docx_embedding_failures(document: Document) -> List[ValidationIssue]:
             )
         )
     return issues
+
+
+def _check_cross_source_verification(document: Document) -> List[ValidationIssue]:
+    """Surfaces cross-source verification engine findings (src/verification/)
+    as ValidationIssues (IMAGE_VERIFY_00X today, for the figure asset type).
+
+    Generic by construction: this function never inspects an asset_type
+    itself — it hands document.verification_findings to the engine, which
+    looks up each finding's rule_id/severity via whichever AssetVerifier
+    registered for that finding's asset_type. Adding a heading/footnote/
+    table verifier later requires zero changes here.
+    """
+    if not document.verification_findings:
+        return []
+    from src.verification.engine import engine
+
+    return engine.findings_to_validation_issues(document, document.verification_findings)
 
 
 # --- Footnote/Endnote checks (Phase K) ---------------------------------

@@ -49,7 +49,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from time import perf_counter
-from typing import Dict, List, Optional, Union
+from typing import Callable, Dict, List, Optional, Union
 
 from loguru import logger
 
@@ -57,8 +57,9 @@ from src.config.page_numbering import PageNumberingPolicy
 from src.docx.docx_generator import generate_docx
 from src.footnotes.footnote_detector import detect_footnotes
 from src.frontmatter.front_matter_extractor import extract_front_matter
-from src.headings.heading_detector import detect_headings
-from src.images.image_extractor import extract_images
+from src.headings.heading_detector import detect_headings, detect_headings_from_pdf
+from src.lists.list_detector import detect_lists_from_pdf
+from src.images.image_extractor import _extract_images_from_pdf, extract_images
 from src.markdown.markdown_builder import build_markdown
 from src.models.contracts import Document, ProcessingStatus, Severity, ValidationIssue
 from src.ocr.docling_engine import OCRTimingMetrics, run_docling_ocr
@@ -105,6 +106,8 @@ def run_pipeline(
     enable_ocr: bool = True,
     page_numbering_policy: Optional[PageNumberingPolicy] = None,
     mmd_path: Optional[Path] = None,
+    image_dir: Optional[Path] = None,
+    on_stage_complete: Optional[Callable[[str], None]] = None,
 ) -> PipelineResult:
     """Run the full Phase 1 pipeline against a single PDF.
 
@@ -144,6 +147,15 @@ def run_pipeline(
             unchanged.  When None (default), the existing RAWRS-only
             extraction path runs exactly as before — zero behavioral
             change for all existing callers.
+        image_dir: Optional directory of uploaded image files that
+            accompanied the MMD (the "Mathpix package"). Only meaningful
+            when ``mmd_path`` is also supplied. Every uploaded image is
+            registered as a Document.images entry via the cross-source
+            verification engine (src/verification/) during Stage 2 — never
+            silently dropped, matched or not. Stage 4's PDF image
+            extraction still runs on the Mathpix path, but only to verify
+            the package (src/verification/figures.py's PDF matcher); it
+            never overwrites document.images there.
 
     Returns:
         A PipelineResult describing what was produced (or where and why
@@ -161,6 +173,7 @@ def run_pipeline(
     try:
         document = parse_pdf(pdf_path)
         logger.info("Stage 1/8 (Parse PDF) complete: {} page(s)", len(document.pages))
+        if on_stage_complete: on_stage_complete("parse_pdf")
     except Exception as exc:
         logger.error("Stage 1/8 (Parse PDF) failed: {}", exc)
         return _build_result(
@@ -191,7 +204,7 @@ def run_pipeline(
         if _mathpix_path:
             from src.mathpix.ingestor import MathpixImportProvider
             document = MathpixImportProvider().import_document(
-                document, mmd_path=mmd_path
+                document, mmd_path=mmd_path, image_dir=image_dir
             )
         else:
             document = extract_text(document)
@@ -206,6 +219,7 @@ def run_pipeline(
             "Stage 2/8 (Extract Text) complete [{}]",
             "mathpix" if _mathpix_path else "rawrs-native",
         )
+        if on_stage_complete: on_stage_complete("extract_text")
     except Exception as exc:
         logger.error("Stage 2/8 (Extract Text) failed: {}", exc)
         document.processing_status = ProcessingStatus.FAILED
@@ -251,6 +265,7 @@ def run_pipeline(
             "found" if document.front_matter and document.front_matter.title else "not found",
             len(document.tables),
         )
+        if on_stage_complete: on_stage_complete("detect_structure")
     except Exception as exc:
         logger.error("Stage 3/8 (Detect Structure) failed: {}", exc)
         document.processing_status = ProcessingStatus.FAILED
@@ -267,20 +282,37 @@ def run_pipeline(
             alt_text_dataset_path=alt_text_dataset_path,
         )
 
-    # Stage 4: Extract Images (Phase F.1-F.3 also link each retained
-    # image to a Figure with a position, any detected caption, and a
-    # deterministic placeholder alt text - see image_extractor.py).
-    # Phase F.5: a filesystem dataset sidecar capturing that same
-    # per-image context is written here too, as a side-output of this
-    # stage, mirroring how _write_validation_report is a side-output of
-    # the Validation stage below.
+    # Stage 4: Extract Images.
+    #
+    # RAWRS-native path: unchanged — extract_images() is the sole source
+    # of document.images (Phase F.1-F.3 link each retained image to a
+    # Figure with a position, any detected caption, and a deterministic
+    # placeholder alt text - see image_extractor.py).
+    #
+    # Mathpix path: document.images was already populated in Stage 2 from
+    # the uploaded package (authoritative). The PDF is opened here only to
+    # verify that package — via the cross-source verification engine
+    # (src/verification/) — never to replace it. _extract_images_from_pdf()
+    # returns a plain list rather than assigning document.images, so a
+    # PDF that fails to open or extract anything simply yields fewer
+    # verification signals; it can never remove a package-derived figure.
     try:
-        document = extract_images(document, output_dir=output_root / "images")
+        if _mathpix_path:
+            pdf_images = _extract_images_from_pdf(document, output_dir=output_root / "images")
+            from src.verification.engine import engine
+            import src.verification.figures  # noqa: F401 - registers FigureAssetVerifier
+
+            findings = engine.run_pdf_verification("figure", document.images, pdf_images)
+            document.verification_findings.extend(findings)
+            engine.findings_to_corrections(document, findings)
+        else:
+            document = extract_images(document, output_dir=output_root / "images")
         document.metadata.image_count = len(document.images)
         alt_text_dataset_path = _write_alt_text_dataset(
             document, output_root / "alt_text_dataset" / f"{stem}.json"
         )
         logger.info("Stage 4/8 (Extract Images) complete: {} image(s)", len(document.images))
+        if on_stage_complete: on_stage_complete("extract_images")
     except Exception as exc:
         logger.error("Stage 4/8 (Extract Images) failed: {}", exc)
         document.processing_status = ProcessingStatus.FAILED
@@ -298,16 +330,49 @@ def run_pipeline(
         )
 
     # Stage 5: Detect Headings
-    # Skipped on the Mathpix path — headings were populated by the import
-    # provider in Stage 2.  Phase M-2 will introduce a verify-only mode
-    # that cross-checks Mathpix heading levels against PDF font-size rank.
+    #
+    # RAWRS-native path: unchanged — detect_headings() is the sole source
+    # of document.headings.
+    #
+    # Mathpix path: document.headings was already populated in Stage 2
+    # from the imported package (authoritative). detect_headings_from_pdf()
+    # independently re-derives content headings (H1-H5) from the PDF's own
+    # typography, purely as verification evidence — via the same generic
+    # cross-source verification engine figures use (src/verification/) —
+    # never to replace Mathpix's headings. This is HeadingVerifier
+    # (src/verification/headings.py), the second registered asset type.
     try:
-        if not _mathpix_path:
+        if _mathpix_path:
+            pdf_headings = detect_headings_from_pdf(document.source_pdf_path)
+            content_headings = [h for h in document.headings if not h.is_page_marker]
+            from src.verification.engine import engine
+            import src.verification.headings  # noqa: F401 - registers HeadingVerifier
+
+            findings = engine.run_pdf_verification("heading", content_headings, pdf_headings)
+            document.verification_findings.extend(findings)
+            engine.findings_to_corrections(document, findings)
+
+            # Lists: document.lists was already populated in Stage 2 from
+            # the imported package's own list markup (see
+            # _group_list_items_to_lists() in src/mathpix/ingestor.py).
+            # detect_lists_from_pdf() independently re-derives lists from
+            # PDF geometry, purely to recover a real list Mathpix didn't
+            # even tag as one at all (flattened to plain paragraphs) —
+            # ListVerifier (src/verification/lists.py), the third
+            # registered asset type.
+            pdf_lists = detect_lists_from_pdf(document.source_pdf_path)
+            import src.verification.lists  # noqa: F401 - registers ListVerifier
+
+            list_findings = engine.run_pdf_verification("list", document.lists, pdf_lists)
+            document.verification_findings.extend(list_findings)
+            engine.findings_to_corrections(document, list_findings)
+        else:
             document = detect_headings(document, page_numbering_policy=page_numbering_policy)
             # Detect Headings re-sets OCR_COMPLETE; harmless no-op now that
             # Stage 2 already sets it correctly for its own (real) reason.
             document.processing_status = ProcessingStatus.OCR_COMPLETE
         logger.info("Stage 5/8 (Detect Headings) complete: {} heading(s)", len(document.headings))
+        if on_stage_complete: on_stage_complete("detect_headings")
     except Exception as exc:
         logger.error("Stage 5/8 (Detect Headings) failed: {}", exc)
         document.processing_status = ProcessingStatus.FAILED
@@ -333,6 +398,7 @@ def run_pipeline(
         markdown_path.write_text(markdown_content, encoding="utf-8")
         document.processing_status = ProcessingStatus.MARKDOWN_COMPLETE
         logger.info("Stage 6/8 (Generate Markdown) complete: {}", markdown_path)
+        if on_stage_complete: on_stage_complete("generate_markdown")
     except Exception as exc:
         logger.error("Stage 6/8 (Generate Markdown) failed: {}", exc)
         document.processing_status = ProcessingStatus.FAILED
@@ -357,6 +423,7 @@ def run_pipeline(
         )
         document.processing_status = ProcessingStatus.DOCX_COMPLETE
         logger.info("Stage 7/8 (Generate DOCX) complete: {}", docx_path)
+        if on_stage_complete: on_stage_complete("generate_docx")
     except Exception as exc:
         logger.error("Stage 7/8 (Generate DOCX) failed: {}", exc)
         document.processing_status = ProcessingStatus.FAILED
@@ -383,6 +450,7 @@ def run_pipeline(
             document, issues, output_root / "reports" / f"{stem}.json"
         )
         logger.info("Stage 8/8 (Run Validation) complete: {} issue(s)", len(issues))
+        if on_stage_complete: on_stage_complete("run_validation")
     except Exception as exc:
         logger.error("Stage 8/8 (Run Validation) failed: {}", exc)
         document.processing_status = ProcessingStatus.FAILED

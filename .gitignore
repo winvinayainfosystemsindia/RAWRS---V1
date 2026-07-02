@@ -36,6 +36,7 @@ outputs/
 data/cache/
 data/processed/
 data/raw/
+scripts/diag_output.txt
 
 # Model weights (large binary files — download on first run)
 *.gguf

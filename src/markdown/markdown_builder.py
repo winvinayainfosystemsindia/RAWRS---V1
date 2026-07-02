@@ -104,6 +104,8 @@ from src.models.contracts import (
     Heading,
     HeadingLevel,
     Image,
+    ListBlock,
+    ListType,
     NoteType,
     Page,
     Table,
@@ -128,6 +130,38 @@ def _group_tables_by_page(tables: List[Table]) -> Dict[int, List[Table]]:
     for table in tables:
         grouped.setdefault(table.page_number, []).append(table)
     return grouped
+
+
+def _group_lists_by_page(lists: List[ListBlock]) -> Dict[int, List[ListBlock]]:
+    grouped: Dict[int, List[ListBlock]] = {}
+    for lst in lists:
+        grouped.setdefault(lst.page_number, []).append(lst)
+    for page_lists in grouped.values():
+        page_lists.sort(key=lambda lst: lst.document_order)
+    return grouped
+
+
+def _render_lists(lists: List[ListBlock]) -> List[str]:
+    """Render each ListBlock as a real markdown list — the fix for
+    "lists becoming paragraphs" (see src/mathpix/ingestor.py's
+    _group_list_items_to_lists and src/verification/lists.py). Renders
+    after this page's body text and tables, mirroring _render_tables()'s
+    same per-page-only positioning (list content no longer has an
+    in-body-flow anchor once excluded from page.cleaned_text). The
+    ``<!-- list-id: {id} -->`` anchor is a no-op comment for the DOCX
+    generator's benefit — the rendered bullet/numbered lines themselves
+    already flow through its existing FEATURE_016C list-style rendering,
+    with no need for the DOCX side to look up the ListBlock model at all.
+    """
+    blocks: List[str] = []
+    for lst in lists:
+        if not lst.items:
+            continue
+        blocks.append(f"<!-- list-id: {lst.id} -->")
+        marker = "-" if lst.list_type == ListType.BULLET else "1."
+        lines = [f"{'  ' * item.level}{marker} {item.text}" for item in lst.items]
+        blocks.append("\n".join(lines))
+    return blocks
 
 
 def _render_pipe_table(table: Table) -> str:
@@ -194,6 +228,7 @@ def build_markdown(
     notes_by_body_page = _group_notes_by_body_page(document.footnotes)
     blocks_by_page = _group_blocks_by_page(document.blocks)
     tables_by_page = _group_tables_by_page(document.tables)
+    lists_by_page = _group_lists_by_page(document.lists)
     has_endnotes = any(note.note_type == NoteType.ENDNOTE for note in document.footnotes)
     sorted_pages = sorted(document.pages, key=lambda page: page.page_number)
 
@@ -209,6 +244,7 @@ def build_markdown(
             document.front_matter,
             page_numbering_policy,
             tables_by_page.get(page.page_number, []),
+            lists_by_page.get(page.page_number, []),
         )
         for page in sorted_pages
     ]
@@ -470,11 +506,15 @@ def _render_page(
     front_matter: Optional[FrontMatter],
     page_numbering_policy: Optional[PageNumberingPolicy] = None,
     page_tables: Optional[List[Table]] = None,
+    page_lists: Optional[List[ListBlock]] = None,
 ) -> str:
     """Render one page's marker (when policy permits), front matter
-    (page 1 only), headings, body text, footnotes, tables, and images."""
+    (page 1 only), headings, body text, footnotes, tables, lists, and
+    images."""
     if page_tables is None:
         page_tables = []
+    if page_lists is None:
+        page_lists = []
     marker = _find_page_marker(headings, page, page_numbering_policy)
     content_headings = sorted(
         (h for h in headings if h.page_number == page.page_number and not h.is_page_marker),
@@ -500,6 +540,7 @@ def _render_page(
         )
     )
     blocks.extend(_render_tables(page_tables))
+    blocks.extend(_render_lists(page_lists))
     blocks.extend(_render_images(page_images))
     blocks.append(PAGE_BREAK_MARKER)
 

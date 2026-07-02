@@ -321,3 +321,73 @@ class ExportReadinessOut(BaseModel):
     ready: bool
     overall_score: float
     categories: dict  # str → ReadinessCategoryOut (Dict not used for JSON compat)
+
+
+# --- Generic Accessibility Readiness (backend-driven, rule-id-prefix-based) --
+#
+# Distinct from ExportReadinessOut above (FEATURE_015.2's hand-written
+# per-category business logic, kept as-is for backward compatibility).
+# This endpoint groups document.validation_issues by rule_id prefix — the
+# convention every rule ID already follows (HEADING_001, LIST_VERIFY_002,
+# IMAGE_VERIFY_004, ...) — so a brand-new verifier's rules count toward
+# readiness automatically, with zero changes here or in the frontend.
+
+
+class ReadinessCategoryDetailOut(BaseModel):
+    category: str
+    label: str
+    error_count: int = 0
+    warning_count: int = 0
+    info_count: int = 0
+    ready: bool = True
+
+
+class ReadinessReportOut(BaseModel):
+    ready: bool
+    overall_score: float
+    categories: List[ReadinessCategoryDetailOut]
+
+
+# --- Generic Corrections API (Document Merge Layer reviewer surface) --------
+
+
+class CorrectionAction(str, Enum):
+    ACCEPT = "accept"
+    REJECT = "reject"
+    EDIT = "edit"
+    IGNORE = "ignore"
+    NEEDS_REVIEW = "needs_review"
+    UNDO = "undo"
+
+
+class EvidenceItemOut(BaseModel):
+    signal: str
+    detail: str
+
+
+class CorrectionOut(BaseModel):
+    """The reviewer-facing RepairSuggestion view of one CorrectionRecord."""
+
+    correction_id: str
+    object_type: str
+    object_id: Optional[str] = None
+    field: str
+    problem: str
+    current_value: str
+    suggested_value: str
+    reason: str
+    confidence: Optional[float] = None
+    evidence: List[EvidenceItemOut] = []
+    status: str
+    created_at: datetime
+    reviewer_notes: Optional[str] = None
+
+
+class CorrectionsResponse(BaseModel):
+    corrections: List[CorrectionOut]
+
+
+class CorrectionActionRequest(BaseModel):
+    action: CorrectionAction
+    proposed_value: Optional[str] = None  # required when action == "edit"
+    reviewer_notes: Optional[str] = None

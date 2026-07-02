@@ -21,7 +21,6 @@ Ownership model
 
 from __future__ import annotations
 
-import math
 import uuid
 from pathlib import Path
 from typing import Any, List, Optional
@@ -29,6 +28,7 @@ from typing import Any, List, Optional
 from loguru import logger
 
 from src.mathpix.mmd_parser import parse_mmd
+from src.mathpix.page_estimation import estimate_page
 from src.models.contracts import (
     Document,
     ExtractionMethod,
@@ -43,12 +43,15 @@ from src.models.contracts import (
     TableRow,
     TableStatus,
 )
+from src.models.list_block import ListBlock, ListItem, ListType
 from src.models.phase2_document import (
     P2BlockType,
     P2Footnote,
     P2Heading,
+    P2ListStyle,
     P2Table,
 )
+from src.models.semantic_object import ProvenanceSource
 
 
 class MathpixImportProvider:
@@ -80,10 +83,19 @@ class MathpixImportProvider:
         Keyword args:
             mmd_path (Path | str): Path to the Mathpix MMD file.
                 Handles double extensions (.mmd.mmd, .md.md) transparently.
+            image_dir (Path | str | None): Directory of uploaded image files
+                that accompanied the MMD. When supplied, every figure block
+                in the MMD is matched against an uploaded file (and every
+                uploaded file is registered even if unmatched) via the
+                cross-source verification engine (src/verification/) — see
+                that package for the matching/registration logic. When
+                omitted, no figures are registered here (the RAWRS-native
+                PDF image extractor remains the only source, unchanged).
 
         Returns:
             The same ``document`` with headings, page text, tables,
-            footnotes, and front_matter populated from the MMD.
+            footnotes, front_matter, and (when image_dir is supplied)
+            images populated from the MMD.
         """
         mmd_path = Path(kwargs["mmd_path"])
         content = mmd_path.read_text(encoding="utf-8")
@@ -113,7 +125,7 @@ class MathpixImportProvider:
         heading_order = 0
         for block in p2doc.blocks:
             if block.block_type == P2BlockType.HEADING and block.heading:
-                page_num = _estimate_page(
+                page_num = estimate_page(
                     block.source_line, total_blocks, page_count
                 )
                 h = _p2heading_to_heading(block.heading, page_num, heading_order)
@@ -123,6 +135,17 @@ class MathpixImportProvider:
 
         # ── 3. Page text (proportional distribution) ───────────────────
         _assign_page_text(document, p2doc, page_count, total_blocks)
+
+        # ── 3b. Lists ──────────────────────────────────────────────────
+        # Consecutive LIST_ITEM blocks are grouped into canonical
+        # ListBlocks here (mirroring how headings are built directly,
+        # not through engine.run_import — there is no second "uploaded
+        # asset" source for either). Previously these blocks were routed
+        # through _assign_page_text's _PARA_TYPES and flattened into
+        # plain paragraph text — the exact "lists becoming paragraphs"
+        # defect. ListVerifier (src/verification/lists.py) later recovers
+        # any real PDF list Mathpix didn't even tag as a list at all.
+        document.lists.extend(_group_list_items_to_lists(p2doc, page_count, total_blocks))
 
         # ── 4. Footnotes ───────────────────────────────────────────────
         for p2fn in p2doc.footnotes:
@@ -134,7 +157,7 @@ class MathpixImportProvider:
         table_count = 0
         for block in p2doc.blocks:
             if block.block_type == P2BlockType.TABLE and block.table:
-                page_num = _estimate_page(
+                page_num = estimate_page(
                     block.source_line, total_blocks, page_count
                 )
                 document.tables.append(
@@ -142,30 +165,58 @@ class MathpixImportProvider:
                 )
                 table_count += 1
 
+        # ── 6. Figures (uploaded Mathpix package images) ───────────────
+        # No matching/construction logic lives here — this only calls the
+        # cross-source verification engine (src/verification/), which
+        # dispatches to FigureAssetVerifier. Every uploaded image is
+        # registered, matched or not; the engine never drops one.
+        image_count = 0
+        image_dir = kwargs.get("image_dir")
+        if image_dir:
+            image_count = self._register_figures(document, p2doc, Path(image_dir), page_count, total_blocks)
+
         logger.info(
-            "Mathpix import complete: {} heading(s), {} table(s), {} footnote(s)",
+            "Mathpix import complete: {} heading(s), {} table(s), {} footnote(s), {} image(s)",
             len(document.headings),
             table_count,
             len(document.footnotes),
+            image_count,
         )
         return document
 
+    @staticmethod
+    def _register_figures(
+        document: Document,
+        p2doc: Any,
+        image_dir: Path,
+        page_count: int,
+        total_blocks: int,
+    ) -> int:
+        from src.verification.engine import engine
+        import src.verification.figures  # noqa: F401 - registers FigureAssetVerifier
+
+        figure_blocks = [
+            block for block in p2doc.blocks if block.block_type == P2BlockType.FIGURE
+        ]
+        uploaded_files = (
+            sorted(p for p in image_dir.iterdir() if p.is_file())
+            if image_dir.is_dir()
+            else []
+        )
+
+        images, findings = engine.run_import(
+            "figure",
+            figure_blocks,
+            uploaded_files,
+            page_count=page_count,
+            total_blocks=total_blocks,
+        )
+        document.images.extend(images)
+        document.verification_findings.extend(findings)
+        return len(images)
+
 
 # ── Conversion helpers ─────────────────────────────────────────────────
-
-def _estimate_page(source_line: int, total_lines: int, page_count: int) -> int:
-    """Estimate which physical page a block belongs to.
-
-    Uses proportional position in the MMD line sequence as a proxy for
-    position in the physical document.  This is an approximation; a later
-    phase will refine using DOCX H6 page markers when available.
-    """
-    if total_lines <= 0 or page_count <= 1:
-        return 1
-    frac = source_line / total_lines
-    page = math.ceil(frac * page_count)
-    return max(1, min(page, page_count))
-
 
 def _p2heading_to_heading(
     p2h: P2Heading, page_num: int, order: int
@@ -208,8 +259,12 @@ def _assign_page_text(
     on every page so downstream OCR routing knows these pages are already
     populated.
     """
-    # Bucket paragraph-type blocks by estimated page
-    _PARA_TYPES = {P2BlockType.PARAGRAPH, P2BlockType.LIST_ITEM, P2BlockType.ABSTRACT}
+    # Bucket paragraph-type blocks by estimated page.
+    # LIST_ITEM is deliberately excluded — those blocks are grouped into
+    # canonical ListBlocks instead (see _group_list_items_to_lists() and
+    # step 3b above); including them here would render list content
+    # twice, once as flattened paragraph text and once as a real list.
+    _PARA_TYPES = {P2BlockType.PARAGRAPH, P2BlockType.ABSTRACT}
     page_lines: dict[int, list[str]] = {p: [] for p in range(1, page_count + 1)}
 
     for block in p2doc.blocks:
@@ -217,7 +272,7 @@ def _assign_page_text(
             text = block.text or ""
             if not text:
                 continue
-            page_num = _estimate_page(block.source_line, total_blocks, page_count)
+            page_num = estimate_page(block.source_line, total_blocks, page_count)
             page_lines[page_num].append(text)
 
     for page in document.pages:
@@ -226,6 +281,51 @@ def _assign_page_text(
         page.raw_text = page.cleaned_text
         page.ocr_confidence = OCRConfidence.HIGH
         page.extraction_method = ExtractionMethod.MATHPIX_IMPORT
+
+
+def _group_list_items_to_lists(p2doc: Any, page_count: int, total_blocks: int) -> List[ListBlock]:
+    """Group consecutive P2BlockType.LIST_ITEM blocks into canonical
+    ListBlocks. A run ends at any non-list-item block, or at a change of
+    list_style (bullet -> numbered or vice versa) — either starts a new
+    ListBlock rather than merging unrelated lists together."""
+    lists: List[ListBlock] = []
+    order = 0
+    current_style: Optional[P2ListStyle] = None
+    current_items: List[ListItem] = []
+    current_page: Optional[int] = None
+
+    def flush() -> None:
+        nonlocal current_style, current_items, current_page, order
+        if current_style is not None and current_items:
+            lists.append(
+                ListBlock(
+                    list_type=ListType.BULLET if current_style == P2ListStyle.BULLET else ListType.NUMBERED,
+                    items=list(current_items),
+                    page_number=current_page,
+                    document_order=order,
+                    provenance=ProvenanceSource.MATHPIX,
+                )
+            )
+            order += 1
+        current_style = None
+        current_items = []
+        current_page = None
+
+    for block in p2doc.blocks:
+        if block.block_type != P2BlockType.LIST_ITEM:
+            flush()
+            continue
+        if current_style is not None and block.list_style != current_style:
+            flush()
+        if current_style is None:
+            current_style = block.list_style
+            current_page = estimate_page(block.source_line, total_blocks, page_count)
+        text = block.text or ""
+        if text:
+            current_items.append(ListItem(text=text, level=0))
+
+    flush()
+    return lists
 
 
 def _p2footnote_to_footnote(p2fn: P2Footnote, page_count: int) -> Optional[Footnote]:

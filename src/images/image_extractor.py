@@ -130,7 +130,15 @@ class ImageExtractionError(Exception):
 def extract_images(
     document: Document, output_dir: Union[str, Path] = DEFAULT_OUTPUT_DIR
 ) -> Document:
-    """Extract embedded content images from a Document's source PDF.
+    """Extract embedded content images from a Document's source PDF and
+    make them the Document's authoritative image list.
+
+    This is the RAWRS-native path's only image source. On the Mathpix
+    path, the Mathpix package's uploaded images are authoritative instead
+    (src/verification/figures.py via src/mathpix/ingestor.py); the PDF is
+    only consulted for verification there, via _extract_images_from_pdf()
+    below (called directly, without going through this function, so it
+    never overwrites document.images).
 
     Args:
         document: A Document whose source_pdf_path points to a readable
@@ -142,21 +150,40 @@ def extract_images(
 
     Returns:
         The same Document instance with document.images populated.
-        Images identified as non-content (page backgrounds, decorative
-        slivers, negligibly tiny graphics, or exact duplicates of an
-        already-extracted image) are filtered out entirely - unlike a
-        genuine extraction failure, they get no Image entry at all,
-        since they were never real content. Images that fail to extract
-        for technical reasons are still recorded, with
-        extraction_failed=True, so failures stay visible, but are not
-        linked to a Figure (see _link_figures()) - there is no file to
-        describe. Every successfully-extracted image gets a populated
-        Image.figure: a detected caption when one was found nearby
-        (Phase F.2), and always a placeholder Figure.alt_text with
-        Figure.alt_text_status=PENDING_REVIEW regardless (Phase F.3).
-        Figure/caption linking reads document.blocks (Phase H's
-        Structure Detection) - if that stage hasn't run, every image
-        simply gets no caption match, exactly as if none were found.
+
+    Raises:
+        FileNotFoundError: If document.source_pdf_path does not exist.
+        ImageExtractionError: If the PDF exists but cannot be opened.
+    """
+    document.images = _extract_images_from_pdf(document, output_dir)
+    return document
+
+
+def _extract_images_from_pdf(
+    document: Document, output_dir: Union[str, Path] = DEFAULT_OUTPUT_DIR
+) -> List[Image]:
+    """Extract embedded content images from a Document's source PDF.
+
+    Returns the list rather than assigning it to document.images, so
+    callers on the Mathpix path can use this purely for verification
+    (src/verification/figures.py's PDF matcher) without it silently
+    replacing the package-derived images already on the document.
+
+    Images identified as non-content (page backgrounds, decorative
+    slivers, negligibly tiny graphics, or exact duplicates of an
+    already-extracted image) are filtered out entirely - unlike a
+    genuine extraction failure, they get no Image entry at all,
+    since they were never real content. Images that fail to extract
+    for technical reasons are still recorded, with
+    extraction_failed=True, so failures stay visible, but are not
+    linked to a Figure (see _link_figures()) - there is no file to
+    describe. Every successfully-extracted image gets a populated
+    Image.figure: a detected caption when one was found nearby
+    (Phase F.2), and always a placeholder Figure.alt_text with
+    Figure.alt_text_status=PENDING_REVIEW regardless (Phase F.3).
+    Figure/caption linking reads document.blocks (Phase H's
+    Structure Detection) - if that stage hasn't run, every image
+    simply gets no caption match, exactly as if none were found.
 
     Raises:
         FileNotFoundError: If document.source_pdf_path does not exist.
@@ -232,8 +259,7 @@ def extract_images(
         linked_count,
     )
 
-    document.images = extracted_images
-    return document
+    return extracted_images
 
 
 def _filter_reason(info: Dict, page_area: float, seen_digests: Set[bytes]) -> Optional[str]:

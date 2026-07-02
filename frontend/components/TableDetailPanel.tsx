@@ -1,0 +1,421 @@
+"use client";
+
+import { useState } from "react";
+import { api, type CellUpdate, type TableItem, type TableReviewRequest } from "@/lib/api";
+
+interface Props {
+  table: TableItem;
+  jobId: string;
+  onClose: () => void;
+  onActionComplete: (updated: TableItem) => void;
+  onDelete: (tableId: string) => void;
+}
+
+interface SelectedCell {
+  rowIdx: number;
+  colIdx: number;
+}
+
+/** Build the screen reader announcement for a selected cell. */
+function buildAnnouncement(table: TableItem, rowIdx: number, colIdx: number): string {
+  const row = table.rows[rowIdx];
+  if (!row) return "";
+  const cell = row.cells[colIdx];
+  if (!cell) return "";
+
+  // Collect column header text from all header rows for this column.
+  const colHeaders: string[] = [];
+  for (const r of table.rows) {
+    if (!r.is_header_row) continue;
+    const hCell = r.cells[colIdx];
+    if (hCell?.text) colHeaders.push(hCell.text);
+  }
+
+  // Row header: leftmost header-column cell in this row (if header_col_count > 0).
+  let rowHeader = "";
+  if (table.header_col_count > 0 && !row.is_header_row) {
+    const rhCell = row.cells[0];
+    if (rhCell?.text && colIdx > 0) rowHeader = rhCell.text;
+  }
+
+  const parts: string[] = [];
+  if (colHeaders.length > 0) parts.push(colHeaders.join(" > "));
+  if (rowHeader) parts.push(rowHeader);
+  parts.push(cell.text || "(empty)");
+
+  return parts.join(" → ");
+}
+
+export function TableDetailPanel({ table, jobId, onClose, onActionComplete, onDelete }: Props) {
+  const [caption, setCaption] = useState(table.caption ?? "");
+  const [summary, setSummary] = useState(table.summary ?? "");
+  const [headerIndices, setHeaderIndices] = useState<Set<number>>(
+    new Set(table.rows.flatMap((r, i) => (r.is_header_row ? [i] : [])))
+  );
+  const [headerColCount, setHeaderColCount] = useState(table.header_col_count ?? 0);
+  const [selectedCell, setSelectedCell] = useState<SelectedCell | null>(null);
+  const [editMode, setEditMode] = useState(false);
+  const [editedCells, setEditedCells] = useState<Map<string, string>>(new Map());
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [currentTable, setCurrentTable] = useState<TableItem>(table);
+
+  function toggleHeaderRow(rowIdx: number) {
+    setHeaderIndices((prev) => {
+      const next = new Set(prev);
+      if (next.has(rowIdx)) next.delete(rowIdx);
+      else next.add(rowIdx);
+      return next;
+    });
+    // Clear screen reader simulation when header structure changes.
+    setSelectedCell(null);
+  }
+
+  function handleCellClick(rowIdx: number, colIdx: number, e: React.MouseEvent) {
+    if (editMode) return;
+    e.stopPropagation();
+    setSelectedCell((prev) =>
+      prev?.rowIdx === rowIdx && prev?.colIdx === colIdx ? null : { rowIdx, colIdx }
+    );
+  }
+
+  function handleCellEdit(rowIdx: number, colIdx: number, value: string) {
+    const key = `${rowIdx}-${colIdx}`;
+    setEditedCells((prev) => {
+      const next = new Map(prev);
+      next.set(key, value);
+      return next;
+    });
+  }
+
+  function getCellDisplayText(cell: { text: string }, rowIdx: number, colIdx: number): string {
+    return editedCells.get(`${rowIdx}-${colIdx}`) ?? cell.text;
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    setError(null);
+    try {
+      const cellUpdates: CellUpdate[] = [];
+      for (const [key, text] of editedCells) {
+        const [r, c] = key.split("-").map(Number);
+        cellUpdates.push({ row_index: r, col_index: c, text });
+      }
+      const body: TableReviewRequest = {
+        caption: caption || null,
+        summary: summary || null,
+        header_row_indices: Array.from(headerIndices),
+        header_col_count: headerColCount,
+        cells: cellUpdates.length > 0 ? cellUpdates : null,
+      };
+      const updated = await api.reviewTable(jobId, currentTable.table_id, body);
+      setCurrentTable(updated);
+      setEditedCells(new Map());
+      onActionComplete(updated);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleAnalyze() {
+    setAnalyzing(true);
+    setError(null);
+    try {
+      const updated = await api.analyzeTable(jobId, currentTable.table_id);
+      setCurrentTable(updated);
+      onActionComplete(updated);
+      // Pre-fill caption/summary from AI suggestions if currently empty.
+      if (!caption && updated.ai_suggestions?.suggested_caption) {
+        setCaption(updated.ai_suggestions.suggested_caption);
+      }
+      if (!summary && updated.ai_suggestions?.suggested_summary) {
+        setSummary(updated.ai_suggestions.suggested_summary);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "AI analysis failed");
+    } finally {
+      setAnalyzing(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (!confirm("Remove this table? This cannot be undone.")) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      await api.deleteTable(jobId, currentTable.table_id);
+      onDelete(currentTable.table_id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Delete failed");
+      setDeleting(false);
+    }
+  }
+
+  const announcement =
+    selectedCell !== null
+      ? buildAnnouncement(currentTable, selectedCell.rowIdx, selectedCell.colIdx)
+      : null;
+
+  const ai = currentTable.ai_suggestions;
+
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white p-4 space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900">
+            Table — Page {currentTable.page_number} ({currentTable.row_count}×{currentTable.col_count})
+          </h3>
+          {currentTable.status === "auto_detected" && currentTable.confidence < 0.7 && (
+            <p className="text-xs text-orange-600 mt-0.5">
+              Low confidence ({Math.round(currentTable.confidence * 100)}%) — verify structure carefully
+            </p>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="text-gray-400 hover:text-gray-600 text-lg leading-none"
+          aria-label="Close"
+        >
+          ×
+        </button>
+      </div>
+
+      {/* Table preview */}
+      <div className="overflow-x-auto rounded border border-gray-100 bg-gray-50 max-h-64">
+        <table className="text-xs border-collapse w-full">
+          <tbody>
+            {currentTable.rows.map((row, rowIdx) => (
+              <tr
+                key={rowIdx}
+                className={`transition-colors ${
+                  headerIndices.has(rowIdx) ? "bg-blue-50" : ""
+                }`}
+              >
+                {/* Row toggle: click to mark/unmark as header row */}
+                <td
+                  className="px-1 py-0.5 border border-gray-200 text-gray-400 text-center select-none w-6 cursor-pointer hover:bg-blue-100"
+                  title={`Click to toggle row ${rowIdx + 1} as header`}
+                  onClick={() => toggleHeaderRow(rowIdx)}
+                >
+                  {headerIndices.has(rowIdx) ? "H" : rowIdx + 1}
+                </td>
+                {row.cells.map((cell, colIdx) => {
+                  const isColHeader = colIdx < headerColCount && !headerIndices.has(rowIdx);
+                  const isSelected =
+                    selectedCell?.rowIdx === rowIdx && selectedCell?.colIdx === colIdx;
+                  const displayText = getCellDisplayText(cell, rowIdx, colIdx);
+                  return (
+                    <td
+                      key={colIdx}
+                      onClick={(e) => handleCellClick(rowIdx, colIdx, e)}
+                      className={`px-0 py-0 border border-gray-200 max-w-[160px] transition-colors ${
+                        editMode
+                          ? ""
+                          : isSelected
+                          ? "bg-indigo-100 ring-1 ring-indigo-400"
+                          : headerIndices.has(rowIdx)
+                          ? "font-semibold hover:bg-blue-100"
+                          : isColHeader
+                          ? "font-semibold text-green-800 bg-green-50 hover:bg-green-100"
+                          : "hover:bg-gray-100"
+                      }`}
+                      title={editMode ? "Edit cell text" : "Click to preview screen reader announcement"}
+                    >
+                      {editMode ? (
+                        <input
+                          type="text"
+                          value={displayText}
+                          onChange={(e) => handleCellEdit(rowIdx, colIdx, e.target.value)}
+                          className={`w-full px-2 py-1 bg-transparent focus:bg-white focus:outline focus:outline-1 focus:outline-blue-400 ${
+                            headerIndices.has(rowIdx) ? "font-semibold" : isColHeader ? "font-semibold text-green-800" : ""
+                          }`}
+                          aria-label={`Row ${rowIdx + 1}, Col ${colIdx + 1}`}
+                        />
+                      ) : (
+                        <span className="block px-2 py-1 truncate">
+                          {displayText || <span className="text-gray-300 italic">empty</span>}
+                        </span>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-gray-500">
+          {editMode
+            ? "Edit mode — type in any cell. Click Save to apply."
+            : `Click row number to toggle header row (H, blue). Click a data cell to preview screen reader announcement.${headerColCount > 0 ? " Green column = row headers." : ""}`}
+        </p>
+        <button
+          type="button"
+          onClick={() => {
+            setEditMode((v) => !v);
+            setSelectedCell(null);
+          }}
+          className={`shrink-0 ml-2 rounded px-2 py-0.5 text-xs font-medium ring-1 transition-colors ${
+            editMode
+              ? "bg-blue-100 text-blue-700 ring-blue-300 hover:bg-blue-200"
+              : "bg-gray-100 text-gray-600 ring-gray-300 hover:bg-gray-200"
+          }`}
+        >
+          {editMode ? "Done editing" : "Edit cells"}
+        </button>
+      </div>
+
+      {/* Screen reader simulation */}
+      {announcement !== null && (
+        <div className="rounded border border-indigo-200 bg-indigo-50 p-3">
+          <p className="text-xs font-semibold text-indigo-700 mb-1">Screen reader announcement</p>
+          <p className="text-sm text-indigo-900 font-mono">{announcement}</p>
+          <p className="text-xs text-indigo-500 mt-1">
+            Row {(selectedCell?.rowIdx ?? 0) + 1}, Col {(selectedCell?.colIdx ?? 0) + 1} —
+            NVDA/JAWS would announce this when navigating to this cell
+          </p>
+        </div>
+      )}
+
+      {/* Row header column */}
+      <div>
+        <label className="block text-xs font-medium text-gray-700 mb-1">
+          Row headers (stub column)
+        </label>
+        <select
+          value={headerColCount}
+          onChange={(e) => {
+            setHeaderColCount(Number(e.target.value));
+            setSelectedCell(null);
+          }}
+          className="rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
+        >
+          <option value={0}>None — no row header column</option>
+          <option value={1}>Column 1 — first column contains row labels</option>
+        </select>
+      </div>
+
+      {/* Caption */}
+      <div>
+        <label className="block text-xs font-medium text-gray-700 mb-1">
+          Caption
+        </label>
+        <input
+          type="text"
+          value={caption}
+          onChange={(e) => setCaption(e.target.value)}
+          placeholder="e.g. Table 1. Summary of results"
+          className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
+        />
+      </div>
+
+      {/* Accessibility summary */}
+      <div>
+        <label className="block text-xs font-medium text-gray-700 mb-1">
+          Accessibility summary
+          <span className="ml-1 text-gray-400 font-normal">(WCAG H73 — describe complex tables)</span>
+        </label>
+        <textarea
+          value={summary}
+          onChange={(e) => setSummary(e.target.value)}
+          placeholder="Describe what this table shows, for screen reader users."
+          rows={3}
+          className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none resize-none"
+        />
+      </div>
+
+      {/* AI suggestions panel */}
+      {ai && (
+        <div className="rounded border border-purple-200 bg-purple-50 p-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold text-purple-700">
+              AI suggestions ({Math.round(ai.confidence * 100)}% confidence)
+              {ai.table_type && (
+                <span className="ml-2 font-normal text-purple-500">{ai.table_type}</span>
+              )}
+            </p>
+          </div>
+          {ai.suggested_caption && (
+            <div>
+              <p className="text-xs text-purple-600 font-medium">Suggested caption:</p>
+              <p className="text-xs text-purple-900">{ai.suggested_caption}</p>
+              <button
+                type="button"
+                onClick={() => setCaption(ai.suggested_caption!)}
+                className="mt-0.5 text-xs text-purple-700 underline hover:text-purple-900"
+              >
+                Use this caption
+              </button>
+            </div>
+          )}
+          {ai.suggested_summary && (
+            <div>
+              <p className="text-xs text-purple-600 font-medium">Suggested summary:</p>
+              <p className="text-xs text-purple-900">{ai.suggested_summary}</p>
+              <button
+                type="button"
+                onClick={() => setSummary(ai.suggested_summary!)}
+                className="mt-0.5 text-xs text-purple-700 underline hover:text-purple-900"
+              >
+                Use this summary
+              </button>
+            </div>
+          )}
+          {ai.warnings.length > 0 && (
+            <div>
+              <p className="text-xs text-purple-600 font-medium">Accessibility warnings:</p>
+              <ul className="list-disc list-inside space-y-0.5">
+                {ai.warnings.map((w, i) => (
+                  <li key={i} className="text-xs text-orange-700">{w}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {(ai.header_rows_detected > 0 || ai.header_cols_detected > 0) && (
+            <p className="text-xs text-purple-700">
+              AI detected: {ai.header_rows_detected} header row(s),{" "}
+              {ai.header_cols_detected} row-header col(s)
+            </p>
+          )}
+        </div>
+      )}
+
+      {error && <p className="text-xs text-red-600">{error}</p>}
+
+      {/* Actions */}
+      <div className="flex gap-2 flex-wrap">
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={saving || deleting || analyzing}
+          className="flex-1 rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+        >
+          {saving ? "Saving…" : "Save"}
+        </button>
+        <button
+          type="button"
+          onClick={handleAnalyze}
+          disabled={saving || deleting || analyzing}
+          className="rounded bg-purple-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-purple-700 disabled:opacity-50"
+        >
+          {analyzing ? "Analyzing…" : "Analyze with AI"}
+        </button>
+        <button
+          type="button"
+          onClick={handleDelete}
+          disabled={saving || deleting || analyzing}
+          className="rounded bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 ring-1 ring-red-300 hover:bg-red-100 disabled:opacity-50"
+        >
+          {deleting ? "Removing…" : "Remove"}
+        </button>
+      </div>
+    </div>
+  );
+}

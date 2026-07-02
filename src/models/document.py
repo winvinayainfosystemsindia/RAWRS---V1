@@ -15,12 +15,14 @@ from src.models.footnote import Footnote
 from src.models.front_matter import FrontMatter
 from src.models.heading import Heading
 from src.models.image import Image
+from src.models.list_block import ListBlock
 from src.models.metadata import Metadata
 from src.models.page import Page
 from src.models.sanitization import SanitizationEvent
 from src.models.table import Table
 from src.models.text_block import TextBlock
 from src.models.validation_issue import ValidationIssue
+from src.models.verification import Finding
 
 
 class ProcessingStatus(str, Enum):
@@ -77,9 +79,16 @@ class Document(BaseModel):
     blocks: List[TextBlock] = Field(default_factory=list)
     footnotes: List[Footnote] = Field(default_factory=list)
     tables: List[Table] = Field(default_factory=list)
+    # Semantic lists (see src/models/list_block.py) — Mathpix-derived or
+    # recovered from PDF geometry via ListVerifier (src/verification/lists.py).
+    lists: List[ListBlock] = Field(default_factory=list)
     validation_issues: List[ValidationIssue] = Field(default_factory=list)
     sanitization_events: List[SanitizationEvent] = Field(default_factory=list)
     front_matter: Optional[FrontMatter] = None
     # Verification audit trail: every RAWRS correction to imported content.
     # Preserves original provider value + proposed correction + reviewer decision.
     corrections: List[CorrectionRecord] = Field(default_factory=list)
+    # Raw, asset-agnostic output of the cross-source verification engine
+    # (src/verification/engine.py) for this run — corrections and
+    # validation_issues are both derived views over the same findings.
+    verification_findings: List[Finding] = Field(default_factory=list)

@@ -18,26 +18,46 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional
+from typing import List, Optional
 
 from pydantic import BaseModel, Field
+
+from src.models.verification import EvidenceItem
 
 
 class CorrectionStatus(str, Enum):
     """Lifecycle of a single correction proposal.
 
+    The generic reviewer-action vocabulary (see the Corrections API,
+    src/api/routes.py) maps one-to-one onto these statuses: Accept ->
+    ACCEPTED, Reject -> REJECTED, Edit -> EDITED, Ignore -> IGNORED,
+    Needs Review -> PENDING_REVIEW, Undo -> REVERTED. Every current and
+    future verifier's reviewer step uses this same six-state lifecycle —
+    no per-object-type status enum is ever needed again.
+
     PROPOSED:      RAWRS identified a potential correction; awaiting review.
     AUTO_APPLIED:  Applied without review (high-confidence, low-risk).
     ACCEPTED:      Reviewer confirmed RAWRS's correction is correct.
-    REJECTED:      Reviewer kept the original provider value instead.
-    PENDING_REVIEW: Flagged for human attention; not yet decided.
+    REJECTED:      Reviewer kept the original provider value instead — "no,
+                   this was wrong."
+    EDITED:        Reviewer changed the proposed value before accepting it.
+    IGNORED:       Reviewer dismissed this specific instance without
+                   judging it right or wrong — "don't ask again," distinct
+                   from REJECTED's "no."
+    PENDING_REVIEW: Flagged for human attention; not yet decided ("Needs
+                   Review").
+    REVERTED:      A previously ACCEPTED/EDITED correction was undone —
+                   the document mutation was rolled back.
     """
 
     PROPOSED = "proposed"
     AUTO_APPLIED = "auto_applied"
     ACCEPTED = "accepted"
     REJECTED = "rejected"
+    EDITED = "edited"
+    IGNORED = "ignored"
     PENDING_REVIEW = "pending_review"
+    REVERTED = "reverted"
 
 
 class CorrectionRecord(BaseModel):
@@ -83,6 +103,11 @@ class CorrectionRecord(BaseModel):
     original_value: str
     proposed_value: str
     evidence: str = ""
+    # Structured evidence breakdown, mirrored from Finding.evidence_items
+    # (see engine.findings_to_corrections) — additive, existing readers of
+    # the free-text `evidence` string above are unaffected.
+    evidence_items: List[EvidenceItem] = Field(default_factory=list)
+    confidence: Optional[float] = None
     reason: str = ""
     reason_code: str = ""
     provider: str = "mathpix"

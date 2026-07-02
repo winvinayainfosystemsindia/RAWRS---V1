@@ -19,24 +19,38 @@ from src.models.front_matter import FrontMatter
 from src.models.heading import Heading, HeadingLevel, HeadingReviewStatus
 from src.models.image import Image
 from src.models.lifecycle import ObjectLifecycleStatus
+from src.models.list_block import ListBlock, ListItem, ListType
 from src.models.metadata import Metadata
 from src.models.page import ExtractionMethod, OCRConfidence, Page, PageType, ReadingOrderStatus, RoutingDecision
 from src.models.paragraph import Paragraph
 from src.models.sanitization import SanitizationEvent
+from src.models.semantic_object import ProvenanceSource, SemanticObject
 from src.models.span import Span
 from src.models.table import Table, TableAISuggestions, TableCell, TableRow, TableStatus
 from src.models.text_block import TextBlock
 from src.models.validation_issue import Severity, ValidationIssue
+from src.models.verification import (
+    BenchmarkOutcome,
+    EvidenceItem,
+    Finding,
+    ImportSource,
+    RepairSuggestion,
+    RuleSpec,
+    VerificationStatus,
+)
 
 __all__ = [
     "AltTextStatus",
+    "BenchmarkOutcome",
     "BoundingBox",
     "CorrectionRecord",
     "CorrectionStatus",
     "Document",
     "ProcessingStatus",
+    "EvidenceItem",
     "ExtractionMethod",
     "Figure",
+    "Finding",
     "Footnote",
     "FootnoteReviewStatus",
     "FrontMatter",
@@ -44,6 +58,10 @@ __all__ = [
     "HeadingLevel",
     "HeadingReviewStatus",
     "Image",
+    "ImportSource",
+    "ListBlock",
+    "ListItem",
+    "ListType",
     "Metadata",
     "ObjectLifecycleStatus",
     "NoteType",
@@ -51,9 +69,13 @@ __all__ = [
     "Page",
     "PageType",
     "Paragraph",
+    "ProvenanceSource",
     "ReadingOrderStatus",
+    "RepairSuggestion",
     "RoutingDecision",
+    "RuleSpec",
     "SanitizationEvent",
+    "SemanticObject",
     "Severity",
     "Span",
     "Table",
@@ -63,4 +85,5 @@ __all__ = [
     "TableStatus",
     "TextBlock",
     "ValidationIssue",
+    "VerificationStatus",
 ]

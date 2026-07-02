@@ -183,6 +183,13 @@ _TABLE_SUMMARY_COMMENT_PATTERN = re.compile(r"^<!-- table-summary: .+ -->$")
 # Table model and delegate to _add_semantic_table() instead of the plain
 # string-parsing _add_pipe_table() path.
 _TABLE_ID_COMMENT_PATTERN = re.compile(r"^<!-- table-id: (.+) -->$")
+# List-id anchor comment emitted by markdown_builder immediately before each
+# rendered list block (src/models/list_block.py). Purely a no-op marker here
+# — the bullet/numbered lines themselves already flow through the existing
+# FEATURE_016C list-style rendering below, so there is no ListBlock lookup
+# to perform; this pattern exists only so the comment itself is skipped
+# rather than rendered as literal body text.
+_LIST_ID_COMMENT_PATTERN = re.compile(r"^<!-- list-id: (.+) -->$")
 
 # Semantic list detection (FEATURE_016C): lines starting with a bullet
 # character or a numbered/lettered prefix are rendered with Word's built-in
@@ -278,6 +285,9 @@ def generate_docx(
         # Table-summary and table-id accessibility comments — handled
         # separately; never rendered as body text.
         if _TABLE_SUMMARY_COMMENT_PATTERN.match(line):
+            continue
+
+        if _LIST_ID_COMMENT_PATTERN.match(line):
             continue
 
         # Pipe table rows accumulate until a non-table line triggers flush.

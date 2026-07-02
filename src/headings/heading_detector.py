@@ -388,6 +388,110 @@ def detect_headings(
     return document
 
 
+def detect_headings_from_pdf(pdf_path: Path) -> List[Heading]:
+    """Pure PDF-side candidate source for cross-source verification
+    (src/verification/headings.py::HeadingVerifier).
+
+    Sources line text directly from PyMuPDF instead of
+    ``Document.pages[i].cleaned_text`` — on the Mathpix import path that
+    field holds Mathpix's text, not the PDF's own, so it cannot be reused
+    as independent PDF evidence. Reuses the exact same classification
+    helpers ``detect_headings()`` calls (``_build_layout_index``,
+    ``_build_fallback_tier_index``, ``_classify_line``,
+    ``_absorb_continuations``, ``_iter_candidate_lines``) — zero
+    duplicated classification logic, and ``detect_headings()`` itself is
+    completely untouched by this addition.
+
+    Content headings (H1-H5) only; H6 page markers are
+    ``detect_headings()``'s/the Mathpix import's concern (see
+    ``src/verification/pagelabels.py``, a future asset type — not this
+    one), not reproduced here.
+
+    Never touches a Document; never raises — an unreadable PDF yields [].
+    """
+    pdf_path = Path(pdf_path)
+    if not pdf_path.is_file():
+        return []
+
+    try:
+        pdf_document = fitz.open(pdf_path)
+    except Exception as exc:  # PyMuPDF raises various error types on bad input
+        logger.warning("Could not open PDF for heading candidate detection '{}': {}", pdf_path, exc)
+        return []
+    try:
+        page_texts: Dict[int, str] = {
+            page_index + 1: pdf_document[page_index].get_text()
+            for page_index in range(pdf_document.page_count)
+        }
+    finally:
+        pdf_document.close()
+
+    layout_index, body_profile, bbox_index = _build_layout_index(str(pdf_path))
+    fallback_index, body_font_name, signature_counts = _build_fallback_tier_index(str(pdf_path))
+
+    headings: List[Heading] = []
+    order = 0
+    h1_slot_open = True
+    emitted_heading_texts: Set[str] = set()
+
+    for page_number in sorted(page_texts):
+        text = page_texts[page_number]
+        page_layouts = layout_index.get(page_number, {})
+        page_bboxes = bbox_index.get(page_number, {})
+        page_fallback_signals = fallback_index.get(page_number, {})
+
+        page_lines = list(_iter_candidate_lines(text))
+        line_index = 0
+        while line_index < len(page_lines):
+            line = page_lines[line_index]
+            line_claims_h1_slot = h1_slot_open and _is_productive_h1_candidate(line)
+            layout = page_layouts.get(line)
+            level = _classify_line(
+                line,
+                is_h1_slot=line_claims_h1_slot,
+                layout=layout,
+                body_profile=body_profile,
+                fallback_signal=page_fallback_signals.get(line),
+                body_font_name=body_font_name,
+                signature_counts=signature_counts,
+                emitted_heading_texts=emitted_heading_texts,
+            )
+            if line_claims_h1_slot:
+                h1_slot_open = False
+
+            if level is None:
+                line_index += 1
+                continue
+
+            heading_text = line
+            lines_absorbed = 0
+            if layout is not None and layout[1]:
+                heading_text, lines_absorbed = _absorb_continuations(
+                    anchor_text=line,
+                    anchor_layout=layout,
+                    page_lines=page_lines,
+                    anchor_index=line_index,
+                    page_layouts=page_layouts,
+                    page_bboxes=page_bboxes,
+                )
+
+            emitted_heading_texts.add(heading_text)
+            headings.append(
+                Heading(
+                    level=level,
+                    text=heading_text,
+                    page_number=page_number,
+                    document_order=order,
+                    is_page_marker=False,
+                    source="pdf_native",
+                )
+            )
+            order += 1
+            line_index += 1 + lines_absorbed
+
+    return headings
+
+
 def _iter_candidate_lines(text: str) -> Iterator[str]:
     """Yield non-blank, whitespace-trimmed lines from page text."""
     for raw_line in text.splitlines():

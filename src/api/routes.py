@@ -12,6 +12,7 @@ distinct from 404 "no such job".
 
 import json
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -24,6 +25,11 @@ from src.api.schemas import (
     BlockOut,
     BulkActionRequest,
     CellUpdateRequest,
+    CorrectionAction,
+    CorrectionActionRequest,
+    CorrectionOut,
+    CorrectionsResponse,
+    EvidenceItemOut,
     EvidenceSignalOut,
     ExportReadinessOut,
     FigureOut,
@@ -43,7 +49,9 @@ from src.api.schemas import (
     PageOcrInfoOut,
     PageReadingOrderOut,
     PagesResponse,
+    ReadinessCategoryDetailOut,
     ReadinessCategoryOut,
+    ReadinessReportOut,
     ReadingOrderPatchRequest,
     ReadingOrderResponse,
     ReviewAction,
@@ -58,7 +66,10 @@ from src.api.schemas import (
     ValidationResponse,
 )
 from src.models.contracts import Document, HeadingLevel, HeadingReviewStatus, FootnoteReviewStatus, Severity
+from src.models.correction import CorrectionRecord, CorrectionStatus
 from src.models.figure import AltTextStatus
+from src.validation.readiness import compute_readiness
+from src.verification.engine import UnknownAssetTypeError, engine
 
 router = APIRouter(prefix="/api")
 
@@ -66,8 +77,16 @@ router = APIRouter(prefix="/api")
 # --- Upload / job lifecycle -------------------------------------------------
 
 
+_IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".tif", ".tiff")
+
+
 @router.post("/documents", response_model=UploadResponse)
-async def upload_document(file: UploadFile = File(...), enable_ocr: bool = True) -> UploadResponse:
+async def upload_document(
+    file: UploadFile = File(...),
+    mmd_file: Optional[UploadFile] = File(None),
+    image_files: List[UploadFile] = File(default=[]),
+    enable_ocr: bool = True,
+) -> UploadResponse:
     if file.filename is None or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only .pdf files are accepted.")
 
@@ -75,7 +94,29 @@ async def upload_document(file: UploadFile = File(...), enable_ocr: bool = True)
     if not pdf_bytes:
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
 
-    job = create_job(file.filename, pdf_bytes)
+    mmd_bytes: Optional[bytes] = None
+    if mmd_file is not None and mmd_file.filename:
+        name = mmd_file.filename.lower()
+        if not (name.endswith(".mmd") or name.endswith(".md")):
+            raise HTTPException(status_code=400, detail="MMD file must be a .mmd or .md file.")
+        mmd_bytes = await mmd_file.read()
+        if not mmd_bytes:
+            mmd_bytes = None  # treat empty file the same as not supplied
+
+    image_payload: List[tuple] = []
+    for image_file in image_files:
+        if not image_file.filename:
+            continue
+        if not image_file.filename.lower().endswith(_IMAGE_EXTENSIONS):
+            raise HTTPException(
+                status_code=400,
+                detail=f"'{image_file.filename}' is not a supported image type.",
+            )
+        data = await image_file.read()
+        if data:
+            image_payload.append((image_file.filename, data))
+
+    job = create_job(file.filename, pdf_bytes, mmd_bytes=mmd_bytes, image_files=image_payload)
     start_job(job.job_id, enable_ocr=enable_ocr)
     return UploadResponse(job_id=job.job_id, filename=job.filename, status=job.status)
 
@@ -963,6 +1004,129 @@ def get_export_readiness(job_id: str) -> ExportReadinessOut:
         overall_score=round(overall_score, 4),
         categories=categories,
     )
+
+
+# --- Accessibility Readiness (generic, rule-id-prefix-based) ---------------
+
+
+@router.get("/documents/{job_id}/readiness", response_model=ReadinessReportOut)
+def get_readiness(job_id: str) -> ReadinessReportOut:
+    """Backend-driven accessibility readiness, grouped by rule_id prefix.
+
+    Every current and future verifier's ValidationIssues count toward this
+    automatically (see src/validation/readiness.py) — the frontend renders
+    whatever this reports and never needs its own rule_id -> category map.
+    """
+    document = _require_document(job_id)
+    if document is None:
+        return ReadinessReportOut(ready=True, overall_score=1.0, categories=[])
+
+    report = compute_readiness(document)
+    return ReadinessReportOut(
+        ready=report.ready,
+        overall_score=round(report.overall_score, 4),
+        categories=[
+            ReadinessCategoryDetailOut(
+                category=c.category,
+                label=c.label,
+                error_count=c.error_count,
+                warning_count=c.warning_count,
+                info_count=c.info_count,
+                ready=c.ready,
+            )
+            for c in report.categories
+        ],
+    )
+
+
+# --- Generic Corrections (Document Merge Layer reviewer surface) -----------
+
+
+def _correction_out(correction: CorrectionRecord) -> CorrectionOut:
+    return CorrectionOut(
+        correction_id=correction.correction_id,
+        object_type=correction.object_type,
+        object_id=correction.object_id,
+        field=correction.field,
+        problem=correction.reason or correction.field,
+        current_value=correction.original_value,
+        suggested_value=correction.proposed_value,
+        reason=correction.reason,
+        confidence=correction.confidence,
+        evidence=[EvidenceItemOut(signal=e.signal, detail=e.detail) for e in correction.evidence_items],
+        status=correction.status.value,
+        created_at=correction.created_at,
+        reviewer_notes=correction.reviewer_notes,
+    )
+
+
+@router.get("/documents/{job_id}/corrections", response_model=CorrectionsResponse)
+def get_corrections(
+    job_id: str, object_type: Optional[str] = None, status: Optional[str] = None
+) -> CorrectionsResponse:
+    document = _require_document(job_id)
+    if document is None:
+        return CorrectionsResponse(corrections=[])
+
+    corrections = document.corrections
+    if object_type is not None:
+        corrections = [c for c in corrections if c.object_type == object_type]
+    if status is not None:
+        corrections = [c for c in corrections if c.status.value == status]
+
+    return CorrectionsResponse(corrections=[_correction_out(c) for c in corrections])
+
+
+@router.patch("/documents/{job_id}/corrections/{correction_id}", response_model=CorrectionOut)
+def review_correction(job_id: str, correction_id: str, body: CorrectionActionRequest) -> CorrectionOut:
+    """Apply a standardized reviewer action to one correction.
+
+    accept        -> engine.apply_correction() mutates the document; ACCEPTED.
+    reject        -> REJECTED, no mutation ("no, this was wrong").
+    edit          -> proposed_value replaced from the request, then applied; EDITED.
+    ignore        -> IGNORED, no mutation ("don't ask again", distinct from reject).
+    needs_review  -> PENDING_REVIEW (explicit escalation).
+    undo          -> engine.revert_correction() rolls back an ACCEPTED/EDITED
+                     mutation via the owning verifier's revert(); REVERTED.
+
+    This is the one endpoint every current and future verifier's reviewer
+    step uses — no new per-object-type PATCH endpoint is needed again.
+    """
+    document = _require_document(job_id)
+    if document is None:
+        raise HTTPException(status_code=404, detail="No document for this job.")
+    correction = next((c for c in document.corrections if c.correction_id == correction_id), None)
+    if correction is None:
+        raise HTTPException(status_code=404, detail=f"No correction '{correction_id}' on this document.")
+
+    with _lock:
+        try:
+            if body.action == CorrectionAction.ACCEPT:
+                engine.apply_correction(document, correction)
+                correction.status = CorrectionStatus.ACCEPTED
+            elif body.action == CorrectionAction.REJECT:
+                correction.status = CorrectionStatus.REJECTED
+            elif body.action == CorrectionAction.EDIT:
+                if body.proposed_value is None:
+                    raise HTTPException(status_code=422, detail="proposed_value is required for action='edit'.")
+                correction.proposed_value = body.proposed_value
+                engine.apply_correction(document, correction)
+                correction.status = CorrectionStatus.EDITED
+            elif body.action == CorrectionAction.IGNORE:
+                correction.status = CorrectionStatus.IGNORED
+            elif body.action == CorrectionAction.NEEDS_REVIEW:
+                correction.status = CorrectionStatus.PENDING_REVIEW
+            elif body.action == CorrectionAction.UNDO:
+                engine.revert_correction(document, correction)
+                correction.status = CorrectionStatus.REVERTED
+        except UnknownAssetTypeError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+        if body.reviewer_notes is not None:
+            correction.reviewer_notes = body.reviewer_notes
+        correction.reviewed_at = datetime.now(timezone.utc)
+
+    return _correction_out(correction)
 
 
 # --- Downloads ---------------------------------------------------------------

@@ -985,6 +985,55 @@ class TestValidationDoesNotMutateDocument:
         assert document.validation_issues == []  # validator never assigns into the Document
 
 
+class TestCrossSourceVerificationFindings:
+    """_check_cross_source_verification (src/validation/validator.py) is a
+    thin, generic bridge: it hands document.verification_findings to the
+    engine and trusts whatever RuleSpec the owning AssetVerifier registered.
+    These tests exercise that bridge directly with the real, registered
+    FigureAssetVerifier (src/verification/figures.py) rather than
+    re-deriving findings through a full pipeline run.
+    """
+
+    def test_no_findings_produces_no_issues(self) -> None:
+        document = _build_document(["body text"])
+        assert document.verification_findings == []
+        assert validate_document(document) == []
+
+    def test_figure_finding_becomes_image_verify_issue(self) -> None:
+        from src.models.verification import Finding
+        import src.verification.figures  # noqa: F401 - registers FigureAssetVerifier
+
+        document = _build_document(["body text"])
+        document.verification_findings.append(
+            Finding(
+                asset_type="figure",
+                kind="orphan",
+                object_id=None,
+                confidence=None,
+                evidence="uploaded_filename=fig1.png",
+                message="Uploaded image 'fig1.png' was not referenced by any figure in the MMD.",
+            )
+        )
+
+        issues = validate_document(document)
+
+        matches = [i for i in issues if i.rule_id == "IMAGE_VERIFY_003"]
+        assert len(matches) == 1
+        assert matches[0].severity == Severity.WARNING
+        assert "fig1.png" in matches[0].message
+
+    def test_unknown_kind_is_silently_skipped(self) -> None:
+        from src.models.verification import Finding
+        import src.verification.figures  # noqa: F401
+
+        document = _build_document(["body text"])
+        document.verification_findings.append(
+            Finding(asset_type="figure", kind="not_a_real_kind", message="should be ignored")
+        )
+
+        assert validate_document(document) == []
+
+
 @pytest.mark.parametrize("sample_pdf_path", SAMPLE_PDFS, ids=[p.name for p in SAMPLE_PDFS])
 class TestValidationWithRealPdfs:
     def test_runs_without_error_and_flags_known_pipeline_gaps(self, sample_pdf_path: Path) -> None:

@@ -6,9 +6,9 @@ See docs/HEADING_RULES.md for the canonical hierarchy and validation rules.
 from enum import Enum, IntEnum
 from typing import Optional
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 
-from src.models.lifecycle import ObjectLifecycleStatus
+from src.models.semantic_object import SemanticObject
 
 
 class HeadingLevel(IntEnum):
@@ -41,7 +41,7 @@ class HeadingReviewStatus(str, Enum):
     REJECTED = "rejected"
 
 
-class Heading(BaseModel):
+class Heading(SemanticObject):
     """A single heading detected in the document.
 
     Represents both content headings (H1-H5) and PDF page markers
@@ -56,8 +56,18 @@ class Heading(BaseModel):
 
     ``review_status`` tracks the human review lifecycle (FEATURE_016A).
     ``reviewer_note`` holds an optional reviewer annotation.
+
+    Migrated onto ``SemanticObject`` (id/bbox/provenance/confidence/
+    verification_status/lifecycle_status) for HeadingVerifier
+    (src/verification/headings.py). ``source``/``review_status`` stay as
+    their own real fields rather than being folded into ``provenance`` —
+    same reasoning as ``Image.import_source`` (see src/models/image.py):
+    collapsing them now would risk existing readers of these exact
+    values. ``id`` backfills from ``document_order`` since headings have
+    no independent identity field of their own.
     """
 
+    object_type: str = "heading"
     level: HeadingLevel
     text: str = Field(..., min_length=1)
     page_number: int = Field(..., ge=1)
@@ -65,11 +75,16 @@ class Heading(BaseModel):
     is_page_marker: bool = False
     review_status: HeadingReviewStatus = HeadingReviewStatus.DETECTED
     reviewer_note: Optional[str] = None
-    # Universal lifecycle tracking (see src/models/lifecycle.py).
-    lifecycle_status: ObjectLifecycleStatus = ObjectLifecycleStatus.DETECTED
     # Import provenance: "rawrs" (rule-based classifier), "mathpix" (imported),
-    # "rawrs_recovery" (RAWRS found it; provider missed it).
+    # "rawrs_recovery" (RAWRS found it; provider missed it), "pdf_native"
+    # (a PDF-side verification candidate — see detect_headings_from_pdf()).
     source: str = "rawrs"
+
+    @model_validator(mode="after")
+    def _backfill_semantic_object_id(self) -> "Heading":
+        if self.id is None:
+            self.id = f"heading-{self.document_order}"
+        return self
 
     @field_validator("text")
     @classmethod
