@@ -141,45 +141,44 @@ export function ImageDetailPanel({ image, jobId, aiStatus, onClose, onActionComp
         </div>
       </div>
 
-      {/* AI analysis */}
-      {figure?.ai_description && (
-        <div className="rounded-md bg-accent/10 p-3 space-y-2">
-          <p className="text-xs font-semibold text-accent uppercase tracking-wide">AI Analysis</p>
-          <DetailRow label="Description" value={figure.ai_description} />
-          <DetailRow label="Purpose" value={figure.ai_purpose} />
-          <DetailRow label="Visible Text" value={figure.ai_visible_text} />
-          {figure.ai_confidence !== null && (
-            <div>
-              <p className="text-xs font-medium text-accent mb-0.5">Confidence</p>
-              <div className="flex items-center gap-2">
-                <div className="flex-1 h-2 rounded-full bg-accent/20 overflow-hidden">
-                  <div
-                    className="h-full rounded-full bg-accent"
-                    style={{ width: `${Math.round((figure.ai_confidence ?? 0) * 100)}%` }}
-                  />
-                </div>
-                <span className="text-xs text-accent shrink-0">
-                  {Math.round((figure.ai_confidence ?? 0) * 100)}%
-                </span>
-              </div>
-            </div>
-          )}
-          {figure.ai_warnings.length > 0 && (
-            <div>
-              <p className="text-xs font-medium text-warning mb-0.5">Warnings</p>
-              <ul className="list-disc list-inside space-y-0.5">
-                {figure.ai_warnings.map((w, i) => (
-                  <li key={i} className="text-xs text-warning">{w}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
-      )}
-
       {/* Error */}
       {error && <p className="text-xs text-danger">{error}</p>}
         </div>
+      }
+      ai={
+        figure?.ai_description ? (
+          <div className="space-y-2">
+            <DetailRow label="Description" value={figure.ai_description} />
+            <DetailRow label="Purpose" value={figure.ai_purpose} />
+            <DetailRow label="Visible Text" value={figure.ai_visible_text} />
+            {figure.ai_confidence !== null && (
+              <div>
+                <p className="text-xs font-medium text-text-secondary mb-0.5">Confidence</p>
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 h-2 rounded-full bg-accent/20 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-accent"
+                      style={{ width: `${Math.round((figure.ai_confidence ?? 0) * 100)}%` }}
+                    />
+                  </div>
+                  <span className="text-xs text-text-secondary shrink-0">
+                    {Math.round((figure.ai_confidence ?? 0) * 100)}%
+                  </span>
+                </div>
+              </div>
+            )}
+            {figure.ai_warnings.length > 0 && (
+              <div>
+                <p className="text-xs font-medium text-warning mb-0.5">Warnings</p>
+                <ul className="list-disc list-inside space-y-0.5">
+                  {figure.ai_warnings.map((w, i) => (
+                    <li key={i} className="text-xs text-warning">{w}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        ) : undefined
       }
       correctionHistory={
         <CorrectionHistoryList

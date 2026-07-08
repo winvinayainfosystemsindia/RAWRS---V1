@@ -343,64 +343,60 @@ export function TableDetailPanel({ table, jobId, aiStatus, onClose, onActionComp
         />
       </div>
 
-      {/* AI suggestions panel */}
-      {ai && (
-        <div className="rounded border border-accent/30 bg-accent/10 p-3 space-y-2">
-          <div className="flex items-center justify-between">
-            <p className="text-xs font-semibold text-accent">
-              AI suggestions ({Math.round(ai.confidence * 100)}% confidence)
-              {ai.table_type && (
-                <span className="ml-2 font-normal text-accent/80">{ai.table_type}</span>
-              )}
-            </p>
-          </div>
-          {ai.suggested_caption && (
-            <div>
-              <p className="text-xs text-accent font-medium">Suggested caption:</p>
-              <p className="text-xs text-accent">{ai.suggested_caption}</p>
-              <button
-                type="button"
-                onClick={() => setCaption(ai.suggested_caption!)}
-                className="mt-0.5 text-xs text-accent underline hover:opacity-80"
-              >
-                Use this caption
-              </button>
-            </div>
-          )}
-          {ai.suggested_summary && (
-            <div>
-              <p className="text-xs text-accent font-medium">Suggested summary:</p>
-              <p className="text-xs text-accent">{ai.suggested_summary}</p>
-              <button
-                type="button"
-                onClick={() => setSummary(ai.suggested_summary!)}
-                className="mt-0.5 text-xs text-accent underline hover:opacity-80"
-              >
-                Use this summary
-              </button>
-            </div>
-          )}
-          {ai.warnings.length > 0 && (
-            <div>
-              <p className="text-xs text-accent font-medium">Accessibility warnings:</p>
-              <ul className="list-disc list-inside space-y-0.5">
-                {ai.warnings.map((w, i) => (
-                  <li key={i} className="text-xs text-warning">{w}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-          {(ai.header_rows_detected > 0 || ai.header_cols_detected > 0) && (
-            <p className="text-xs text-accent">
-              AI detected: {ai.header_rows_detected} header row(s),{" "}
-              {ai.header_cols_detected} row-header col(s)
-            </p>
-          )}
-        </div>
-      )}
-
       {error && <p className="text-xs text-danger">{error}</p>}
         </div>
+      }
+      ai={
+        ai ? (
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-text-secondary">
+              {Math.round(ai.confidence * 100)}% confidence
+              {ai.table_type && <span className="ml-2 text-text-secondary/80">{ai.table_type}</span>}
+            </p>
+            {ai.suggested_caption && (
+              <div>
+                <p className="text-xs text-text-secondary font-medium">Suggested caption:</p>
+                <p className="text-xs text-text-primary">{ai.suggested_caption}</p>
+                <button
+                  type="button"
+                  onClick={() => setCaption(ai.suggested_caption!)}
+                  className="mt-0.5 text-xs text-accent underline hover:opacity-80"
+                >
+                  Use this caption
+                </button>
+              </div>
+            )}
+            {ai.suggested_summary && (
+              <div>
+                <p className="text-xs text-text-secondary font-medium">Suggested summary:</p>
+                <p className="text-xs text-text-primary">{ai.suggested_summary}</p>
+                <button
+                  type="button"
+                  onClick={() => setSummary(ai.suggested_summary!)}
+                  className="mt-0.5 text-xs text-accent underline hover:opacity-80"
+                >
+                  Use this summary
+                </button>
+              </div>
+            )}
+            {ai.warnings.length > 0 && (
+              <div>
+                <p className="text-xs text-text-secondary font-medium">Accessibility warnings:</p>
+                <ul className="list-disc list-inside space-y-0.5">
+                  {ai.warnings.map((w, i) => (
+                    <li key={i} className="text-xs text-warning">{w}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {(ai.header_rows_detected > 0 || ai.header_cols_detected > 0) && (
+              <p className="text-xs text-text-secondary">
+                AI detected: {ai.header_rows_detected} header row(s),{" "}
+                {ai.header_cols_detected} row-header col(s)
+              </p>
+            )}
+          </div>
+        ) : undefined
       }
       correctionHistory={
         <CorrectionHistoryList

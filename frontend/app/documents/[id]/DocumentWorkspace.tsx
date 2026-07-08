@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { DocumentProvider } from "@/lib/store/DocumentProvider";
@@ -35,12 +35,32 @@ import { ContextInspectorRail } from "@/components/workspace/ContextInspectorRai
 import { BottomPanel } from "@/components/workspace/BottomPanel";
 import { ValidationIssueTable } from "@/components/ValidationIssueTable";
 import { ImageGrid } from "@/components/ImageGrid";
+import { TableGrid } from "@/components/TableGrid";
+import { HeadingGrid } from "@/components/HeadingGrid";
 import { MetadataPanel } from "@/components/MetadataPanel";
 import { OcrPageTable } from "@/components/OcrPageTable";
 import { ReadingOrderPanel } from "@/components/ReadingOrderPanel";
 import { PageLabelManagerPanel } from "@/components/PageLabelManagerPanel";
 import { CorrectionsPanel } from "@/components/CorrectionsPanel";
 import { ReadinessPanel } from "@/components/ReadinessPanel";
+
+// Naive positional line diff for the "flash changed lines" signal after a
+// live document_version regen — not a real LCS diff (would misreport a
+// single inserted line as N changed lines), but good enough to draw the
+// reviewer's eye toward what moved. Skips flashing entirely on a
+// large-scale rewrite, where line-by-line highlighting isn't useful signal.
+function computeChangedLines(oldText: string, newText: string, maxFlash = 80): number[] {
+  if (!oldText || oldText === newText) return [];
+  const oldLines = oldText.split("\n");
+  const newLines = newText.split("\n");
+  const changed: number[] = [];
+  const max = Math.max(oldLines.length, newLines.length);
+  for (let i = 0; i < max; i++) {
+    if (oldLines[i] !== newLines[i]) changed.push(i + 1);
+    if (changed.length > maxFlash) return [];
+  }
+  return changed;
+}
 
 // pdfjs-dist touches browser-only globals (DOMMatrix, etc.) that don't
 // exist during Next.js's SSR pass of client components — load it
@@ -66,6 +86,19 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
   const [activeSpecialView, setActiveSpecialView] = useState("");
   const [overviewOpen, setOverviewOpen] = useState(false);
   const elapsed = useElapsedSeconds(state.job);
+
+  // Diff against the markdown from before this render's update, so a live
+  // document_version regen can flash exactly what changed. The ref updates
+  // in an effect (after commit) so this render's diff still sees the old
+  // value — see computeChangedLines above.
+  const prevMarkdownRef = useRef(state.markdown);
+  const markdownFlashLines = useMemo(
+    () => computeChangedLines(prevMarkdownRef.current, state.markdown),
+    [state.markdown]
+  );
+  useEffect(() => {
+    prevMarkdownRef.current = state.markdown;
+  }, [state.markdown]);
 
   // Every hook must run unconditionally on every render, so this stays
   // above the notFound/loading early returns below — selectors here only
@@ -114,6 +147,7 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
   const isDone = job.status === "complete" || job.status === "failed";
 
   const tables = selectTables(state);
+  const headings = selectHeadings(state);
   const images = selectImages(state);
   const footnotes = selectFootnotes(state);
   const corrections = selectCorrections(state);
@@ -142,6 +176,8 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
   const specialViews: NavSection[] = [
     { id: "validation", label: "Validation", count: state.validationIssues.length },
     { id: "images", label: "Images", count: images.length },
+    { id: "tables", label: "Tables", count: tables.length },
+    { id: "headings", label: "Headings", count: headings.length },
     { id: "metadata", label: "Metadata" },
     { id: "ocr", label: "OCR Pages" },
     {
@@ -166,6 +202,23 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
             jobId={jobId}
             aiStatus={state.aiStatus}
             onImagesUpdated={(updated) => dispatch({ type: "REPLACE_IMAGES", images: updated })}
+          />
+        );
+      case "tables":
+        return (
+          <TableGrid
+            tables={tables}
+            jobId={jobId}
+            aiStatus={state.aiStatus}
+            onTablesUpdated={(updated) => dispatch({ type: "REPLACE_TABLES", tables: updated })}
+          />
+        );
+      case "headings":
+        return (
+          <HeadingGrid
+            headings={headings}
+            jobId={jobId}
+            onHeadingsUpdated={(updated) => dispatch({ type: "REPLACE_HEADINGS", headings: updated })}
           />
         );
       case "metadata":
@@ -314,14 +367,22 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
             markdown: (
               <div className="h-full p-4">
                 <MarkdownEditor
+                  key={`md-${job.document_version ?? 0}`}
                   initialContent={state.markdown}
                   readOnly
                   scrollToLine={mdJumpTarget?.line ?? null}
                   scrollNonce={mdJumpTarget?.nonce}
+                  flashLines={markdownFlashLines}
                 />
               </div>
             ),
-            docx: <DocxPreview jobId={jobId} available={job.docx_available} />,
+            docx: (
+              <DocxPreview
+                jobId={jobId}
+                available={job.docx_available}
+                documentVersion={job.document_version}
+              />
+            ),
           }}
           rightRail={<ContextInspectorRail jobId={jobId} aiStatus={state.aiStatus} />}
           specialView={renderSpecialView()}

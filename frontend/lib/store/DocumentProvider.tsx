@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { api, ApiError } from "@/lib/api";
 import { DocumentDataProvider, useDocumentDispatch } from "./DocumentDataContext";
 import { SelectionProvider } from "./SelectionContext";
@@ -8,9 +8,18 @@ import { PdfViewportProvider } from "./PdfViewportContext";
 import { MarkdownViewportProvider } from "./MarkdownViewportContext";
 
 const POLL_INTERVAL_MS = 3000;
+// ponytail: plain polling, not a websocket/SSE push. Fine at today's
+// single-reviewer-per-document scale; switch to a push channel if this
+// workspace ever needs many concurrent viewers watching one job.
+const VERSION_POLL_INTERVAL_MS = 4000;
 
 function DocumentPoller({ jobId }: { jobId: string }) {
   const dispatch = useDocumentDispatch();
+  // Tracks the last document_version this tab has loaded outputs for, so
+  // the post-completion watcher below only refetches Markdown when the
+  // canonical document actually changed (a correction accepted, a table
+  // saved, alt text approved, ...) rather than on every poll tick.
+  const knownVersionRef = useRef<number | null>(null);
 
   useEffect(() => {
     api.getAiStatus().then((aiStatus) => dispatch({ type: "SET_AI_STATUS", aiStatus }))
@@ -42,6 +51,7 @@ function DocumentPoller({ jobId }: { jobId: string }) {
         ? await api.getMarkdown(jobId).then((r) => r.content).catch(() => "")
         : "";
       if (cancelled) return;
+      knownVersionRef.current = summary.document_version;
       dispatch({
         type: "LOAD_RESULTS",
         payload: {
@@ -64,6 +74,32 @@ function DocumentPoller({ jobId }: { jobId: string }) {
       });
     }
 
+    // Once the pipeline finishes, switch from "wait for completion" polling
+    // to "watch for edits" polling — any reviewer action elsewhere (accept a
+    // correction, save a table, approve alt text, ...) bumps document_version
+    // server-side, and this is the only thing that would tell this tab so
+    // Markdown/DOCX previews stop going stale.
+    async function watchVersion() {
+      try {
+        const summary = await api.getDocument(jobId);
+        if (cancelled) return;
+        dispatch({ type: "SET_JOB", job: summary });
+
+        if (summary.document_version !== knownVersionRef.current) {
+          knownVersionRef.current = summary.document_version;
+          if (summary.markdown_available) {
+            const content = await api.getMarkdown(jobId).then((r) => r.content).catch(() => null);
+            if (!cancelled && content !== null) {
+              dispatch({ type: "UPDATE_MARKDOWN", markdown: content });
+            }
+          }
+        }
+      } catch {
+        // transient errors just get retried on the next tick
+      }
+      if (!cancelled) timer = setTimeout(watchVersion, VERSION_POLL_INTERVAL_MS);
+    }
+
     async function poll() {
       try {
         const summary = await api.getDocument(jobId);
@@ -72,6 +108,7 @@ function DocumentPoller({ jobId }: { jobId: string }) {
 
         if (summary.status === "complete" || summary.status === "failed") {
           await loadResults(summary);
+          if (!cancelled) timer = setTimeout(watchVersion, VERSION_POLL_INTERVAL_MS);
           return;
         }
         timer = setTimeout(poll, POLL_INTERVAL_MS);

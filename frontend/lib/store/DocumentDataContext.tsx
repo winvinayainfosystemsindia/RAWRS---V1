@@ -111,7 +111,8 @@ export type DocumentAction =
   | { type: "UPDATE_METADATA"; metadata: MetadataItem }
   | { type: "UPDATE_READING_ORDER_PAGE"; page: PageReadingOrder }
   | { type: "REPLACE_READING_ORDER"; pages: PageReadingOrder[] }
-  | { type: "UPDATE_PAGE_LABELS"; pages: PageLabel[]; sections: PageLabelSection[] };
+  | { type: "UPDATE_PAGE_LABELS"; pages: PageLabel[]; sections: PageLabelSection[] }
+  | { type: "UPDATE_MARKDOWN"; markdown: string };
 
 function keyBy<T>(items: T[], keyFn: (item: T) => string | number): Record<string | number, T> {
   const result: Record<string | number, T> = {};
@@ -203,6 +204,8 @@ function reducer(state: DocumentEntities, action: DocumentAction): DocumentEntit
         pageLabelsByPage: keyBy(action.pages, (p) => p.page_number),
         pageLabelSections: action.sections,
       };
+    case "UPDATE_MARKDOWN":
+      return { ...state, markdown: action.markdown };
     default:
       return state;
   }

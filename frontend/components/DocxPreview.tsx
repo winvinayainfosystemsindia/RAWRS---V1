@@ -12,9 +12,13 @@ type PreviewState =
 interface Props {
   jobId: string;
   available: boolean;
+  // Any change to document_version means the backend's on-demand export
+  // regen (_needs_export_regen in routes.py) will produce a fresh DOCX —
+  // re-run the conversion so this preview never shows stale content.
+  documentVersion?: number | null;
 }
 
-export function DocxPreview({ jobId, available }: Props) {
+export function DocxPreview({ jobId, available, documentVersion }: Props) {
   const [state, setState] = useState<PreviewState>({ kind: "idle" });
   const mountedRef = useRef(true);
 
@@ -68,7 +72,7 @@ export function DocxPreview({ jobId, available }: Props) {
     }
 
     load();
-  }, [jobId, available]);
+  }, [jobId, available, documentVersion]);
 
   if (!available) {
     return (

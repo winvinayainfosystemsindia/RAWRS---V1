@@ -141,18 +141,21 @@ function MathpixPackageZone({
         </p>
 
         {state.markdownFile ? (
-          <div className="flex items-center justify-between rounded-lg border border-success/30 bg-success/10 px-4 py-3">
-            <div className="flex items-center gap-2.5">
-              <svg className="h-4 w-4 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+          <div
+            className="group flex items-center justify-between gap-2 rounded-lg border border-success/30 bg-success/10 px-4 py-3"
+            title={`${state.markdownFile.name} — ${formatBytes(state.markdownFile.size)}`}
+          >
+            <div className="flex min-w-0 items-center gap-2.5">
+              <svg className="h-4 w-4 shrink-0 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
               </svg>
-              <span className="text-sm font-medium text-text-primary">{state.markdownFile.name}</span>
-              <span className="text-xs text-success">{formatBytes(state.markdownFile.size)}</span>
+              <span className="truncate text-sm font-medium text-text-primary">{state.markdownFile.name}</span>
+              <span className="shrink-0 text-xs text-success">{formatBytes(state.markdownFile.size)}</span>
             </div>
             <button
               type="button"
               onClick={() => onChange({ ...state, markdownFile: null })}
-              className="text-xs text-text-secondary hover:text-danger focus:outline-none focus-visible:ring-2 focus-visible:ring-danger rounded"
+              className="shrink-0 text-xs text-text-secondary opacity-0 transition-opacity hover:text-danger focus:outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-danger rounded group-hover:opacity-100"
               aria-label="Remove markdown file"
             >
               Remove
@@ -180,19 +183,22 @@ function MathpixPackageZone({
         </p>
 
         {state.imageFiles.length > 0 ? (
-          <div className="flex items-center justify-between rounded-lg border border-success/30 bg-success/10 px-4 py-3">
-            <div className="flex items-center gap-2.5">
-              <svg className="h-4 w-4 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+          <div
+            className="group flex items-center justify-between gap-2 rounded-lg border border-success/30 bg-success/10 px-4 py-3"
+            title={state.imageFiles.map((f) => f.name).join(", ")}
+          >
+            <div className="flex min-w-0 items-center gap-2.5">
+              <svg className="h-4 w-4 shrink-0 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
               </svg>
-              <span className="text-sm font-medium text-text-primary">
+              <span className="truncate text-sm font-medium text-text-primary">
                 {state.imageFiles.length} image{state.imageFiles.length === 1 ? "" : "s"} loaded
               </span>
             </div>
             <button
               type="button"
               onClick={() => onChange({ ...state, imageFiles: [] })}
-              className="text-xs text-text-secondary hover:text-danger focus:outline-none focus-visible:ring-2 focus-visible:ring-danger rounded"
+              className="shrink-0 text-xs text-text-secondary opacity-0 transition-opacity hover:text-danger focus:outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-danger rounded group-hover:opacity-100"
               aria-label="Remove image files"
             >
               Remove
@@ -276,18 +282,21 @@ function SourcePdfZone({
 
       {/* Drop zone or loaded state */}
       {file ? (
-        <div className="flex items-center justify-between rounded-lg border border-success/30 bg-success/10 px-4 py-3">
-          <div className="flex items-center gap-2.5">
-            <svg className="h-4 w-4 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+        <div
+          className="group flex items-center justify-between gap-2 rounded-lg border border-success/30 bg-success/10 px-4 py-3"
+          title={`${file.name} — ${formatBytes(file.size)}`}
+        >
+          <div className="flex min-w-0 items-center gap-2.5">
+            <svg className="h-4 w-4 shrink-0 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
             </svg>
-            <span className="text-sm font-medium text-text-primary">{file.name}</span>
-            <span className="text-xs text-success">{formatBytes(file.size)}</span>
+            <span className="truncate text-sm font-medium text-text-primary">{file.name}</span>
+            <span className="shrink-0 text-xs text-success">{formatBytes(file.size)}</span>
           </div>
           <button
             type="button"
             onClick={() => onChange(null)}
-            className="text-xs text-text-secondary hover:text-danger focus:outline-none focus-visible:ring-2 focus-visible:ring-danger rounded"
+            className="shrink-0 text-xs text-text-secondary opacity-0 transition-opacity hover:text-danger focus:outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-danger rounded group-hover:opacity-100"
             aria-label="Remove PDF file"
           >
             Remove
@@ -356,8 +365,9 @@ function RecentDocuments({ jobs }: { jobs: JobSummary[] | null }) {
           <a
             href={`/documents/${job.job_id}`}
             className="flex items-center justify-between gap-4 p-4 hover:bg-hover-row focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+            title={`${job.filename} — uploaded ${new Date(job.created_at).toLocaleString()}`}
           >
-            <span className="truncate text-sm font-medium text-text-primary">{job.filename}</span>
+            <span className="min-w-0 flex-1 truncate text-sm font-medium text-text-primary">{job.filename}</span>
             <span className="flex shrink-0 items-center gap-3 text-xs text-text-secondary">
               {(job.status === "queued" || job.status === "processing") && <ExtractedCounts job={job} />}
               {job.page_count !== null && <span>{job.page_count} pages</span>}
