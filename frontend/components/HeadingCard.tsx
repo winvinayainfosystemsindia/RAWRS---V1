@@ -19,10 +19,10 @@ function statusLabel(status: HeadingItem["review_status"]): string {
 
 function statusColor(status: HeadingItem["review_status"]): string {
   switch (status) {
-    case "detected": return "bg-yellow-100 text-yellow-800";
-    case "approved": return "bg-green-100 text-green-800";
-    case "level_changed": return "bg-blue-100 text-blue-800";
-    case "rejected": return "bg-red-100 text-red-800";
+    case "detected": return "bg-warning/10 text-warning";
+    case "approved": return "bg-success/10 text-success";
+    case "level_changed": return "bg-accent/10 text-accent";
+    case "rejected": return "bg-danger/10 text-danger";
   }
 }
 
@@ -32,10 +32,10 @@ function levelBadge(level: number): string {
 
 function levelColor(level: number): string {
   switch (level) {
-    case 1: return "bg-purple-100 text-purple-900 font-bold";
-    case 2: return "bg-indigo-100 text-indigo-900 font-semibold";
-    case 3: return "bg-blue-100 text-blue-900";
-    default: return "bg-gray-100 text-gray-700";
+    case 1: return "bg-accent/10 text-accent font-bold";
+    case 2: return "bg-accent/10 text-accent font-semibold";
+    case 3: return "bg-accent/10 text-accent";
+    default: return "bg-hover-row text-text-secondary";
   }
 }
 
@@ -44,8 +44,8 @@ export function HeadingCard({ heading, isSelected, onSelect }: Props) {
     <li
       className={`rounded-lg border p-3 cursor-pointer transition-colors ${
         isSelected
-          ? "border-blue-500 bg-blue-50"
-          : "border-gray-200 hover:border-gray-300 bg-white"
+          ? "border-accent bg-accent/10"
+          : "border-border hover:border-border-strong bg-surface-elevated"
       }`}
       onClick={onSelect}
     >
@@ -56,7 +56,7 @@ export function HeadingCard({ heading, isSelected, onSelect }: Props) {
           >
             {levelBadge(heading.level)}
           </span>
-          <p className="text-sm font-medium text-gray-900 truncate">{heading.text}</p>
+          <p className="text-sm font-medium text-text-primary truncate">{heading.text}</p>
         </div>
         <span
           className={`shrink-0 inline-flex items-center rounded px-2 py-0.5 text-xs font-medium ${statusColor(heading.review_status)}`}
@@ -64,9 +64,9 @@ export function HeadingCard({ heading, isSelected, onSelect }: Props) {
           {statusLabel(heading.review_status)}
         </span>
       </div>
-      <p className="text-xs text-gray-500">Page {heading.page_number}</p>
+      <p className="text-xs text-text-secondary">Page {heading.page_number}</p>
       {heading.reviewer_note && (
-        <p className="mt-1 text-xs text-gray-500 italic truncate">{heading.reviewer_note}</p>
+        <p className="mt-1 text-xs text-text-secondary italic truncate">{heading.reviewer_note}</p>
       )}
     </li>
   );

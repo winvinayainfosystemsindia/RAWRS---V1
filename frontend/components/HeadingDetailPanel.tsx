@@ -112,14 +112,14 @@ export function HeadingDetailPanel({ heading, jobId, onUpdated }: Props) {
         <div className="space-y-5">
       {/* Heading level */}
       <div>
-        <label htmlFor="heading-level" className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
+        <label htmlFor="heading-level" className="block text-xs font-semibold text-text-secondary uppercase tracking-wider mb-1">
           Heading Level
         </label>
         <select
           id="heading-level"
           value={level}
           onChange={(e) => setLevel(Number(e.target.value))}
-          className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          className="w-full rounded border border-border px-2 py-1.5 text-sm focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
           disabled={saving || isRejected}
         >
           {[1, 2, 3, 4, 5].map((l) => (
@@ -130,7 +130,7 @@ export function HeadingDetailPanel({ heading, jobId, onUpdated }: Props) {
 
       {/* Heading text */}
       <div>
-        <label htmlFor="heading-text" className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
+        <label htmlFor="heading-text" className="block text-xs font-semibold text-text-secondary uppercase tracking-wider mb-1">
           Heading Text
         </label>
         <input
@@ -138,31 +138,31 @@ export function HeadingDetailPanel({ heading, jobId, onUpdated }: Props) {
           type="text"
           value={text}
           onChange={(e) => setText(e.target.value)}
-          className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          className="w-full rounded border border-border px-2 py-1.5 text-sm focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
           disabled={saving || isRejected}
         />
       </div>
 
       {/* Screen reader simulation */}
-      <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-3">
-        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
+      <div className="rounded-lg border border-dashed border-border bg-surface-panel p-3">
+        <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-1.5">
           Screen Reader Announcement
         </p>
         <p
-          className="text-sm font-mono text-gray-800 leading-relaxed"
+          className="text-sm font-mono text-text-primary leading-relaxed"
           aria-label="Screen reader announcement preview"
         >
           &quot;{srAnnouncement}&quot;
         </p>
-        <p className="mt-1 text-xs text-gray-400">
-          NVDA/JAWS navigation: <kbd className="rounded bg-gray-200 px-1 py-0.5 text-xs">H</kbd> cycles through all headings at this level.
+        <p className="mt-1 text-xs text-text-secondary">
+          NVDA/JAWS navigation: <kbd className="rounded bg-hover-row px-1 py-0.5 text-xs">H</kbd> cycles through all headings at this level.
         </p>
       </div>
 
       {/* Reviewer note */}
       <div>
-        <label htmlFor="reviewer-note" className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
-          Reviewer Note <span className="font-normal text-gray-400">(optional)</span>
+        <label htmlFor="reviewer-note" className="block text-xs font-semibold text-text-secondary uppercase tracking-wider mb-1">
+          Reviewer Note <span className="font-normal text-text-secondary">(optional)</span>
         </label>
         <textarea
           id="reviewer-note"
@@ -170,7 +170,7 @@ export function HeadingDetailPanel({ heading, jobId, onUpdated }: Props) {
           value={note}
           onChange={(e) => setNote(e.target.value)}
           placeholder="Reason for level change, rejection, etc."
-          className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm resize-none focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          className="w-full rounded border border-border px-2 py-1.5 text-sm resize-none focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
           disabled={saving}
         />
       </div>

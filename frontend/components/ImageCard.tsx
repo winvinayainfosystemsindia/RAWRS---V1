@@ -78,8 +78,8 @@ export function ImageCard({
     <li
       className={`rounded-lg border p-3 cursor-pointer transition-colors ${
         isSelected
-          ? "border-blue-500 bg-blue-50"
-          : "border-gray-200 hover:border-gray-300 bg-white"
+          ? "border-accent bg-accent/10"
+          : "border-border hover:border-border-strong bg-surface-elevated"
       }`}
       onClick={onSelect}
     >
@@ -95,7 +95,7 @@ export function ImageCard({
           className="mt-1 shrink-0"
           aria-label={`Select image on page ${image.page_number}`}
         />
-        <div className="flex-1 flex aspect-[4/3] items-center justify-center overflow-hidden rounded-md bg-gray-50">
+        <div className="flex-1 flex aspect-[4/3] items-center justify-center overflow-hidden rounded-md bg-surface-panel">
           {image.url ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
@@ -104,23 +104,23 @@ export function ImageCard({
               className="max-h-full max-w-full object-contain"
             />
           ) : (
-            <span className="text-xs text-gray-400">Extraction failed</span>
+            <span className="text-xs text-text-secondary">Extraction failed</span>
           )}
         </div>
       </div>
 
       {/* Metadata */}
       <div className="space-y-1 mb-2">
-        <p className="text-xs text-gray-500">Page {image.page_number}</p>
+        <p className="text-xs text-text-secondary">Page {image.page_number}</p>
         {image.figure?.caption && (
-          <p className="text-sm font-medium text-gray-900 line-clamp-2">{image.figure.caption}</p>
+          <p className="text-sm font-medium text-text-primary line-clamp-2">{image.figure.caption}</p>
         )}
         <AltTextStatusBadge status={status} />
       </div>
 
       {/* Error */}
       {error && (
-        <p className="text-xs text-red-600 mb-2">{error}</p>
+        <p className="text-xs text-danger mb-2">{error}</p>
       )}
 
       {/* Action buttons */}
@@ -186,10 +186,10 @@ function ActionButton({
   const base =
     "inline-flex items-center rounded px-2 py-1 text-xs font-medium transition-opacity disabled:opacity-50";
   const styles: Record<string, string> = {
-    primary: "bg-blue-600 text-white hover:bg-blue-700",
-    success: "bg-green-600 text-white hover:bg-green-700",
-    danger: "bg-red-600 text-white hover:bg-red-700",
-    neutral: "bg-gray-100 text-gray-700 ring-1 ring-gray-300 hover:bg-gray-200",
+    primary: "bg-accent text-accent-contrast hover:opacity-90",
+    success: "bg-success text-accent-contrast hover:opacity-90",
+    danger: "bg-danger text-accent-contrast hover:opacity-90",
+    neutral: "bg-surface-panel text-text-primary ring-1 ring-border hover:bg-hover-row",
   };
   return (
     <button

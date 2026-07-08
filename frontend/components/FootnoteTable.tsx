@@ -25,10 +25,10 @@ function statusLabel(status: FootnoteItem["review_status"]): string {
 
 function statusColor(status: FootnoteItem["review_status"]): string {
   switch (status) {
-    case "detected": return "bg-yellow-100 text-yellow-800";
-    case "approved": return "bg-green-100 text-green-800";
-    case "edited": return "bg-blue-100 text-blue-800";
-    case "rejected": return "bg-red-100 text-red-800";
+    case "detected": return "bg-warning/10 text-warning";
+    case "approved": return "bg-success/10 text-success";
+    case "edited": return "bg-accent/10 text-accent";
+    case "rejected": return "bg-danger/10 text-danger";
   }
 }
 
@@ -103,7 +103,7 @@ export function FootnoteDetailPanel({ note, jobId, onUpdated }: DetailProps) {
         <div className="space-y-4">
       {/* Body text */}
       <div>
-        <label htmlFor="fn-body" className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
+        <label htmlFor="fn-body" className="block text-xs font-semibold text-text-secondary uppercase tracking-wider mb-1">
           Note Body
         </label>
         <textarea
@@ -111,29 +111,29 @@ export function FootnoteDetailPanel({ note, jobId, onUpdated }: DetailProps) {
           rows={4}
           value={body}
           onChange={(e) => setBody(e.target.value)}
-          className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm resize-none focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          className="w-full rounded border border-border px-2 py-1.5 text-sm resize-none focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
           disabled={saving || note.review_status === "rejected" || !canReview}
         />
       </div>
 
       {/* SR simulation */}
-      <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-3">
-        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
+      <div className="rounded-lg border border-dashed border-border bg-surface-panel p-3">
+        <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-1.5">
           Screen Reader Announcement
         </p>
-        <p className="text-sm font-mono text-gray-800 leading-relaxed">
+        <p className="text-sm font-mono text-text-primary leading-relaxed">
           &quot;{srAnnouncement}&quot;
         </p>
-        <p className="mt-1 text-xs text-gray-400">
-          NVDA/JAWS: <kbd className="rounded bg-gray-200 px-1 py-0.5 text-xs">F</kbd> navigates between footnote references.
+        <p className="mt-1 text-xs text-text-secondary">
+          NVDA/JAWS: <kbd className="rounded bg-hover-row px-1 py-0.5 text-xs">F</kbd> navigates between footnote references.
           Word renders this as a native <code className="text-xs">w:footnote</code> element.
         </p>
       </div>
 
       {/* Reviewer note */}
       <div>
-        <label htmlFor="fn-reviewer-note" className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
-          Reviewer Note <span className="font-normal text-gray-400">(optional)</span>
+        <label htmlFor="fn-reviewer-note" className="block text-xs font-semibold text-text-secondary uppercase tracking-wider mb-1">
+          Reviewer Note <span className="font-normal text-text-secondary">(optional)</span>
         </label>
         <input
           id="fn-reviewer-note"
@@ -141,7 +141,7 @@ export function FootnoteDetailPanel({ note, jobId, onUpdated }: DetailProps) {
           value={reviewerNote}
           onChange={(e) => setReviewerNote(e.target.value)}
           placeholder="Reason for edit or rejection"
-          className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          className="w-full rounded border border-border px-2 py-1.5 text-sm focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
           disabled={saving || !canReview}
         />
       </div>
@@ -239,7 +239,7 @@ export function FootnoteTable({ footnotes, jobId, onFootnotesUpdated }: Props) {
 
   if (footnotes.length === 0) {
     return (
-      <p className="text-sm text-gray-600">
+      <p className="text-sm text-text-secondary">
         No footnotes or endnotes were detected in this document.
       </p>
     );
@@ -250,10 +250,10 @@ export function FootnoteTable({ footnotes, jobId, onFootnotesUpdated }: Props) {
 
   return (
     <div>
-      <div className="mb-3 flex flex-wrap gap-3 text-xs text-gray-600">
+      <div className="mb-3 flex flex-wrap gap-3 text-xs text-text-secondary">
         <span>{footnotes.length} note{footnotes.length !== 1 ? "s" : ""}</span>
-        {pendingCount > 0 && <span className="text-yellow-700">{pendingCount} awaiting review</span>}
-        {approvedCount > 0 && <span className="text-green-700">{approvedCount} approved</span>}
+        {pendingCount > 0 && <span className="text-warning">{pendingCount} awaiting review</span>}
+        {approvedCount > 0 && <span className="text-success">{approvedCount} approved</span>}
       </div>
 
       <div className="flex flex-col gap-4">
@@ -268,8 +268,8 @@ export function FootnoteTable({ footnotes, jobId, onFootnotesUpdated }: Props) {
                   key={key}
                   className={`rounded-lg border p-3 cursor-pointer transition-colors ${
                     isSelected
-                      ? "border-blue-500 bg-blue-50"
-                      : "border-gray-200 hover:border-gray-300 bg-white"
+                      ? "border-accent bg-accent/10"
+                      : "border-border hover:border-border-strong bg-surface-elevated"
                   }`}
                   onClick={() => setSelectedKey(key)}
                 >
@@ -281,8 +281,8 @@ export function FootnoteTable({ footnotes, jobId, onFootnotesUpdated }: Props) {
                       {statusLabel(note.review_status)}
                     </span>
                   </div>
-                  <p className="text-xs text-gray-500 mb-0.5">Marker: <span className="font-mono">{note.marker}</span> · Page {note.anchor_page_number}</p>
-                  <p className="text-xs text-gray-700 line-clamp-2">{note.body}</p>
+                  <p className="text-xs text-text-secondary mb-0.5">Marker: <span className="font-mono">{note.marker}</span> · Page {note.anchor_page_number}</p>
+                  <p className="text-xs text-text-primary line-clamp-2">{note.body}</p>
                 </li>
               );
             })}

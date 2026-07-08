@@ -88,7 +88,7 @@ export function ImageDetailPanel({ image, jobId, aiStatus, onClose, onActionComp
         <div className="space-y-4">
       {/* Preview */}
       {image.url && (
-        <div className="flex items-center justify-center rounded-md bg-gray-50 overflow-hidden max-h-64">
+        <div className="flex items-center justify-center rounded-md bg-surface-panel overflow-hidden max-h-64">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={image.url.startsWith("http") ? image.url : `${api.baseUrl}${image.url}`}
@@ -101,20 +101,20 @@ export function ImageDetailPanel({ image, jobId, aiStatus, onClose, onActionComp
       {/* Caption */}
       {figure?.caption && (
         <div>
-          <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Caption</p>
-          <p className="text-sm text-gray-800">{figure.caption}</p>
+          <p className="text-xs font-medium text-text-secondary uppercase tracking-wide mb-1">Caption</p>
+          <p className="text-sm text-text-primary">{figure.caption}</p>
         </div>
       )}
 
       {/* Current alt text (editable) */}
       <div>
-        <label htmlFor="alt-text-edit" className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">
+        <label htmlFor="alt-text-edit" className="block text-xs font-medium text-text-secondary uppercase tracking-wide mb-1">
           Alt Text
         </label>
         <AltTextStatusBadge status={status} />
         <textarea
           id="alt-text-edit"
-          className="mt-2 w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          className="mt-2 w-full rounded border border-border px-3 py-2 text-sm text-text-primary focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
           rows={3}
           value={editText}
           onChange={(e) => setEditText(e.target.value)}
@@ -124,7 +124,7 @@ export function ImageDetailPanel({ image, jobId, aiStatus, onClose, onActionComp
         <div className="mt-1.5 flex gap-2">
           <button
             type="button"
-            className="rounded bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-50"
+            className="rounded bg-success px-3 py-1.5 text-xs font-medium text-accent-contrast hover:opacity-90 disabled:opacity-50"
             onClick={() => handleAction("approve", editText)}
             disabled={loading || !editText.trim()}
           >
@@ -132,7 +132,7 @@ export function ImageDetailPanel({ image, jobId, aiStatus, onClose, onActionComp
           </button>
           <button
             type="button"
-            className="rounded bg-gray-100 px-3 py-1.5 text-xs font-medium text-gray-700 ring-1 ring-gray-300 hover:bg-gray-200 disabled:opacity-50"
+            className="rounded bg-surface-panel px-3 py-1.5 text-xs font-medium text-text-primary ring-1 ring-border hover:bg-hover-row disabled:opacity-50"
             onClick={() => handleAction("edit", editText)}
             disabled={loading || !editText.trim()}
           >
@@ -143,22 +143,22 @@ export function ImageDetailPanel({ image, jobId, aiStatus, onClose, onActionComp
 
       {/* AI analysis */}
       {figure?.ai_description && (
-        <div className="rounded-md bg-blue-50 p-3 space-y-2">
-          <p className="text-xs font-semibold text-blue-900 uppercase tracking-wide">AI Analysis</p>
+        <div className="rounded-md bg-accent/10 p-3 space-y-2">
+          <p className="text-xs font-semibold text-accent uppercase tracking-wide">AI Analysis</p>
           <DetailRow label="Description" value={figure.ai_description} />
           <DetailRow label="Purpose" value={figure.ai_purpose} />
           <DetailRow label="Visible Text" value={figure.ai_visible_text} />
           {figure.ai_confidence !== null && (
             <div>
-              <p className="text-xs font-medium text-blue-800 mb-0.5">Confidence</p>
+              <p className="text-xs font-medium text-accent mb-0.5">Confidence</p>
               <div className="flex items-center gap-2">
-                <div className="flex-1 h-2 rounded-full bg-blue-200 overflow-hidden">
+                <div className="flex-1 h-2 rounded-full bg-accent/20 overflow-hidden">
                   <div
-                    className="h-full rounded-full bg-blue-600"
+                    className="h-full rounded-full bg-accent"
                     style={{ width: `${Math.round((figure.ai_confidence ?? 0) * 100)}%` }}
                   />
                 </div>
-                <span className="text-xs text-blue-700 shrink-0">
+                <span className="text-xs text-accent shrink-0">
                   {Math.round((figure.ai_confidence ?? 0) * 100)}%
                 </span>
               </div>
@@ -166,10 +166,10 @@ export function ImageDetailPanel({ image, jobId, aiStatus, onClose, onActionComp
           )}
           {figure.ai_warnings.length > 0 && (
             <div>
-              <p className="text-xs font-medium text-amber-800 mb-0.5">Warnings</p>
+              <p className="text-xs font-medium text-warning mb-0.5">Warnings</p>
               <ul className="list-disc list-inside space-y-0.5">
                 {figure.ai_warnings.map((w, i) => (
-                  <li key={i} className="text-xs text-amber-700">{w}</li>
+                  <li key={i} className="text-xs text-warning">{w}</li>
                 ))}
               </ul>
             </div>
@@ -253,8 +253,8 @@ function DetailRow({ label, value }: { label: string; value: string | null | und
   if (!value) return null;
   return (
     <div>
-      <p className="text-xs font-medium text-blue-800 mb-0.5">{label}</p>
-      <p className="text-xs text-blue-900">{value}</p>
+      <p className="text-xs font-medium text-accent mb-0.5">{label}</p>
+      <p className="text-xs text-accent">{value}</p>
     </div>
   );
 }

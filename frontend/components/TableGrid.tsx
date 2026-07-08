@@ -48,7 +48,7 @@ export function TableGrid({ tables, jobId, aiStatus, onTablesUpdated }: Props) {
     <div className="space-y-4">
       {/* Toolbar */}
       <div className="flex items-center justify-between">
-        <p className="text-sm text-gray-600">
+        <p className="text-sm text-text-secondary">
           {tables.length === 0
             ? "No tables detected automatically."
             : `${tables.length} table${tables.length === 1 ? "" : "s"} found.`}
@@ -57,20 +57,20 @@ export function TableGrid({ tables, jobId, aiStatus, onTablesUpdated }: Props) {
           type="button"
           onClick={handleCreate}
           disabled={creating}
-          className="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          className="rounded bg-accent px-3 py-1.5 text-xs font-medium text-accent-contrast hover:opacity-90 disabled:opacity-50"
         >
           {creating ? "Creating…" : "+ Add Table"}
         </button>
       </div>
 
-      {createError && <p className="text-xs text-red-600">{createError}</p>}
+      {createError && <p className="text-xs text-danger">{createError}</p>}
 
       {tables.length === 0 && (
-        <div className="rounded-lg border border-dashed border-gray-300 p-6 text-center">
-          <p className="text-sm text-gray-500 mb-1">
+        <div className="rounded-lg border border-dashed border-border-strong p-6 text-center">
+          <p className="text-sm text-text-secondary mb-1">
             No tables were detected in this document.
           </p>
-          <p className="text-xs text-gray-400">
+          <p className="text-xs text-text-secondary">
             Tables with visible borders are detected automatically.
             Use "+ Add Table" to manually define a table.
           </p>

@@ -18,12 +18,12 @@ interface Props {
  */
 export function ReadinessPanel({ readiness }: Props) {
   if (!readiness) {
-    return <p className="text-sm text-gray-600">Readiness data not available.</p>;
+    return <p className="text-sm text-text-secondary">Readiness data not available.</p>;
   }
 
   if (readiness.categories.length === 0) {
     return (
-      <p className="text-sm text-gray-600">
+      <p className="text-sm text-text-secondary">
         No validation issues recorded — nothing to report a readiness breakdown for yet.
       </p>
     );
@@ -34,31 +34,31 @@ export function ReadinessPanel({ readiness }: Props) {
       <div className="flex items-center gap-3">
         <span
           className={`inline-flex items-center rounded px-2.5 py-1 text-sm font-semibold ${
-            readiness.ready ? "bg-green-100 text-green-800" : "bg-yellow-100 text-yellow-800"
+            readiness.ready ? "bg-success/10 text-success" : "bg-warning/10 text-warning"
           }`}
         >
           {readiness.ready ? "Export Ready" : "Not Yet Ready"}
         </span>
-        <span className="text-sm text-gray-600">
+        <span className="text-sm text-text-secondary">
           {Math.round(readiness.overall_score * 100)}% of categories ready
         </span>
       </div>
 
-      <ul className="divide-y divide-gray-100 rounded-lg border border-gray-200 bg-white">
+      <ul className="divide-y divide-border rounded-lg border border-border bg-surface-elevated">
         {readiness.categories.map((category) => (
           <li key={category.category} className="flex items-center justify-between gap-4 px-4 py-3">
             <div>
-              <p className="text-sm font-medium text-gray-800">{category.label}</p>
-              <p className="text-xs text-gray-500">
-                {category.error_count > 0 && <span className="text-red-600">{category.error_count} error(s) </span>}
-                {category.warning_count > 0 && <span className="text-yellow-700">{category.warning_count} warning(s) </span>}
-                {category.info_count > 0 && <span className="text-gray-400">{category.info_count} info</span>}
+              <p className="text-sm font-medium text-text-primary">{category.label}</p>
+              <p className="text-xs text-text-secondary">
+                {category.error_count > 0 && <span className="text-danger">{category.error_count} error(s) </span>}
+                {category.warning_count > 0 && <span className="text-warning">{category.warning_count} warning(s) </span>}
+                {category.info_count > 0 && <span className="text-text-secondary">{category.info_count} info</span>}
                 {category.error_count === 0 && category.warning_count === 0 && category.info_count === 0 && "No issues"}
               </p>
             </div>
             <span
               className={`shrink-0 inline-flex items-center rounded px-2 py-0.5 text-xs font-medium ${
-                category.ready ? "bg-green-100 text-green-800" : "bg-yellow-100 text-yellow-800"
+                category.ready ? "bg-success/10 text-success" : "bg-warning/10 text-warning"
               }`}
             >
               {category.ready ? "Ready" : "Needs review"}

@@ -18,9 +18,9 @@ function statusLabel(status: TableItem["status"]): string {
 
 function statusColor(status: TableItem["status"]): string {
   switch (status) {
-    case "auto_detected": return "bg-yellow-100 text-yellow-800";
-    case "manually_created": return "bg-blue-100 text-blue-800";
-    case "reviewed": return "bg-green-100 text-green-800";
+    case "auto_detected": return "bg-warning/10 text-warning";
+    case "manually_created": return "bg-accent/10 text-accent";
+    case "reviewed": return "bg-success/10 text-success";
   }
 }
 
@@ -36,15 +36,15 @@ export function TableCard({ table, isSelected, onSelect }: Props) {
     <li
       className={`rounded-lg border p-3 cursor-pointer transition-colors ${
         isSelected
-          ? "border-blue-500 bg-blue-50"
-          : "border-gray-200 hover:border-gray-300 bg-white"
+          ? "border-accent bg-accent/10"
+          : "border-border hover:border-border-strong bg-surface-elevated"
       }`}
       onClick={onSelect}
     >
       <div className="flex items-start justify-between gap-2 mb-2">
         <div>
-          <p className="text-xs text-gray-500 mb-0.5">Page {table.page_number}</p>
-          <p className="text-sm font-medium text-gray-900">
+          <p className="text-xs text-text-secondary mb-0.5">Page {table.page_number}</p>
+          <p className="text-sm font-medium text-text-primary">
             {table.row_count} rows × {table.col_count} cols
           </p>
         </div>
@@ -55,7 +55,7 @@ export function TableCard({ table, isSelected, onSelect }: Props) {
             {statusLabel(table.status)}
           </span>
           {lowConfidence && (
-            <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-orange-100 text-orange-800">
+            <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-warning/10 text-warning">
               {Math.round(table.confidence * 100)}% confidence
             </span>
           )}
@@ -63,13 +63,13 @@ export function TableCard({ table, isSelected, onSelect }: Props) {
       </div>
 
       {table.caption ? (
-        <p className="text-sm text-gray-700 italic line-clamp-2 mb-1">{table.caption}</p>
+        <p className="text-sm text-text-primary italic line-clamp-2 mb-1">{table.caption}</p>
       ) : (
-        <p className="text-xs text-gray-400 italic mb-1">No caption</p>
+        <p className="text-xs text-text-secondary italic mb-1">No caption</p>
       )}
 
       {issueCount > 0 && (
-        <p className="text-xs text-amber-600">
+        <p className="text-xs text-warning">
           {issueCount} accessibility {issueCount === 1 ? "issue" : "issues"} —{" "}
           {[
             missingCaption && "no caption",

@@ -26,7 +26,7 @@ export function HeadingGrid({ headings, jobId, onHeadingsUpdated }: Props) {
 
   if (headings.length === 0) {
     return (
-      <p className="text-sm text-gray-500 py-4">
+      <p className="text-sm text-text-secondary py-4">
         No content headings detected in this document.
       </p>
     );
@@ -39,11 +39,11 @@ export function HeadingGrid({ headings, jobId, onHeadingsUpdated }: Props) {
   return (
     <div>
       {/* Summary bar */}
-      <div className="mb-3 flex flex-wrap gap-3 text-xs text-gray-600">
+      <div className="mb-3 flex flex-wrap gap-3 text-xs text-text-secondary">
         <span>{headings.length} heading{headings.length !== 1 ? "s" : ""}</span>
-        {pendingCount > 0 && <span className="text-yellow-700">{pendingCount} awaiting review</span>}
-        {approvedCount > 0 && <span className="text-green-700">{approvedCount} approved</span>}
-        {rejectedCount > 0 && <span className="text-red-700">{rejectedCount} rejected</span>}
+        {pendingCount > 0 && <span className="text-warning">{pendingCount} awaiting review</span>}
+        {approvedCount > 0 && <span className="text-success">{approvedCount} approved</span>}
+        {rejectedCount > 0 && <span className="text-danger">{rejectedCount} rejected</span>}
       </div>
 
       <div className="flex flex-col gap-4">

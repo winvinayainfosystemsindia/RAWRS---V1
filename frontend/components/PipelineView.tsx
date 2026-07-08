@@ -57,8 +57,8 @@ export function PipelineView({ status, elapsed }: Props) {
   }, [status, elapsed]);
 
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-5">
-      <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4">
+    <div className="rounded-lg border border-border bg-surface-panel p-5">
+      <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-4">
         Verification Pipeline
       </h2>
       <ol className="space-y-2" aria-label="Pipeline stages">
@@ -69,12 +69,12 @@ export function PipelineView({ status, elapsed }: Props) {
               <li key={stage.label} className="flex items-center gap-3">
                 <span
                   aria-hidden="true"
-                  className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-dashed border-violet-400 bg-violet-50 text-[9px] font-bold text-violet-500"
+                  className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-dashed border-border-strong bg-surface-elevated text-[9px] font-bold text-text-secondary"
                 >
                   2
                 </span>
-                <span className="flex-1 text-sm text-violet-700">{stage.label}</span>
-                <span className="shrink-0 rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-700">
+                <span className="flex-1 text-sm text-text-secondary">{stage.label}</span>
+                <span className="shrink-0 rounded-full bg-hover-row px-2 py-0.5 text-[10px] font-semibold text-text-secondary">
                   Phase 2
                 </span>
               </li>
@@ -91,45 +91,45 @@ export function PipelineView({ status, elapsed }: Props) {
                 aria-hidden="true"
                 className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full transition-colors ${
                   done
-                    ? "bg-green-500"
+                    ? "bg-success"
                     : failed
-                    ? "bg-red-500 text-white"
+                    ? "bg-danger text-accent-contrast"
                     : active
-                    ? "bg-blue-600"
-                    : "bg-gray-100"
+                    ? "bg-accent"
+                    : "bg-hover-row"
                 }`}
               >
                 {done ? (
-                  <svg className="h-3 w-3 text-white" viewBox="0 0 12 12" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <svg className="h-3 w-3 text-accent-contrast" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M2 6l3 3 5-5" />
                   </svg>
                 ) : failed ? (
-                  <svg className="h-3 w-3 text-white" viewBox="0 0 12 12" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <svg className="h-3 w-3 text-accent-contrast" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M3 3l6 6M9 3l-6 6" />
                   </svg>
                 ) : active ? (
-                  <span className="h-2 w-2 rounded-full bg-white" />
+                  <span className="h-2 w-2 rounded-full bg-accent-contrast" />
                 ) : (
-                  <span className="text-[9px] text-gray-400 font-medium">{i + 1}</span>
+                  <span className="text-[9px] text-text-secondary font-medium">{i + 1}</span>
                 )}
               </span>
 
               <span
                 className={`flex-1 text-sm leading-none ${
                   done
-                    ? "text-gray-900"
+                    ? "text-text-primary"
                     : failed
-                    ? "text-red-700"
+                    ? "text-danger"
                     : active
-                    ? "font-medium text-blue-700"
-                    : "text-gray-400"
+                    ? "font-medium text-accent"
+                    : "text-text-secondary"
                 }`}
               >
                 {stage.label}
               </span>
 
               {active && status === "processing" && (
-                <span className="shrink-0 text-xs font-medium text-blue-500" aria-live="polite">
+                <span className="shrink-0 text-xs font-medium text-accent" aria-live="polite">
                   Running<span className="animate-pulse">…</span>
                 </span>
               )}

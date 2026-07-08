@@ -18,7 +18,7 @@ export function ImageGrid({ images, jobId, aiStatus, onImagesUpdated }: Props) {
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
 
   if (images.length === 0) {
-    return <p className="text-sm text-gray-600">No images were retained from this document.</p>;
+    return <p className="text-sm text-text-secondary">No images were retained from this document.</p>;
   }
 
   function handleActionComplete(updated: ImageItem) {

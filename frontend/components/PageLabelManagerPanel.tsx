@@ -27,9 +27,9 @@ function statusLabel(status: PageLabelStatus): string {
 
 function statusColor(status: PageLabelStatus): string {
   switch (status) {
-    case "detected": return "bg-yellow-100 text-yellow-800";
-    case "approved": return "bg-green-100 text-green-800";
-    case "overridden": return "bg-blue-100 text-blue-800";
+    case "detected": return "bg-warning/10 text-warning";
+    case "approved": return "bg-success/10 text-success";
+    case "overridden": return "bg-accent/10 text-accent";
   }
 }
 
@@ -90,79 +90,79 @@ function SectionForm({
   }
 
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-4 space-y-3">
-      <h3 className="text-sm font-semibold text-gray-800">Bulk numbering (add a section)</h3>
-      <p className="text-xs text-gray-500">
+    <div className="rounded-lg border border-border bg-surface-elevated p-4 space-y-3">
+      <h3 className="text-sm font-semibold text-text-primary">Bulk numbering (add a section)</h3>
+      <p className="text-xs text-text-secondary">
         Applies to every page in the range. Covers offset (shift start number), restart numbering
         (a new section mid-document), roman numerals, and prefixes/suffixes — all via the fields below.
       </p>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-        <label className="text-xs text-gray-600">
+        <label className="text-xs text-text-secondary">
           Start page
           <input
             type="number"
             min={1}
             value={startPage}
             onChange={(e) => setStartPage(Number(e.target.value))}
-            className="mt-0.5 w-full rounded border border-gray-300 px-2 py-1 text-sm"
+            className="mt-0.5 w-full rounded border border-border px-2 py-1 text-sm"
           />
         </label>
-        <label className="text-xs text-gray-600">
+        <label className="text-xs text-text-secondary">
           End page
           <input
             type="number"
             min={1}
             value={endPage}
             onChange={(e) => setEndPage(Number(e.target.value))}
-            className="mt-0.5 w-full rounded border border-gray-300 px-2 py-1 text-sm"
+            className="mt-0.5 w-full rounded border border-border px-2 py-1 text-sm"
           />
         </label>
-        <label className="text-xs text-gray-600">
+        <label className="text-xs text-text-secondary">
           Style
           <select
             value={style}
             onChange={(e) => setStyle(e.target.value as PageLabelStyle)}
-            className="mt-0.5 w-full rounded border border-gray-300 px-2 py-1 text-sm"
+            className="mt-0.5 w-full rounded border border-border px-2 py-1 text-sm"
           >
             {STYLE_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>{opt.label}</option>
             ))}
           </select>
         </label>
-        <label className="text-xs text-gray-600">
+        <label className="text-xs text-text-secondary">
           Start number
           <input
             type="number"
             value={startNumber}
             onChange={(e) => setStartNumber(Number(e.target.value))}
-            className="mt-0.5 w-full rounded border border-gray-300 px-2 py-1 text-sm"
+            className="mt-0.5 w-full rounded border border-border px-2 py-1 text-sm"
           />
         </label>
-        <label className="text-xs text-gray-600">
+        <label className="text-xs text-text-secondary">
           Prefix
           <input
             type="text"
             value={prefix}
             onChange={(e) => setPrefix(e.target.value)}
-            className="mt-0.5 w-full rounded border border-gray-300 px-2 py-1 text-sm"
+            className="mt-0.5 w-full rounded border border-border px-2 py-1 text-sm"
           />
         </label>
-        <label className="text-xs text-gray-600">
+        <label className="text-xs text-text-secondary">
           Suffix
           <input
             type="text"
             value={suffix}
             onChange={(e) => setSuffix(e.target.value)}
-            className="mt-0.5 w-full rounded border border-gray-300 px-2 py-1 text-sm"
+            className="mt-0.5 w-full rounded border border-border px-2 py-1 text-sm"
           />
         </label>
       </div>
-      {error && <p className="text-xs text-red-600">{error}</p>}
+      {error && <p className="text-xs text-danger">{error}</p>}
       <button
         type="button"
         onClick={handleApply}
         disabled={saving}
-        className="rounded px-3 py-1.5 text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+        className="rounded px-3 py-1.5 text-xs font-semibold bg-accent text-accent-contrast hover:opacity-90 disabled:opacity-40 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
       >
         {saving ? "Applying…" : "Add section"}
       </button>
@@ -172,7 +172,7 @@ function SectionForm({
           {sections.map((s, i) => (
             <li
               key={i}
-              className="flex items-center justify-between gap-2 rounded border border-gray-200 px-2.5 py-1.5 text-xs text-gray-700"
+              className="flex items-center justify-between gap-2 rounded border border-border px-2.5 py-1.5 text-xs text-text-primary"
             >
               <span>
                 Pages {s.start_page}–{s.end_page}: {STYLE_OPTIONS.find((o) => o.value === s.style)?.label}
@@ -184,7 +184,7 @@ function SectionForm({
                 type="button"
                 onClick={() => handleRemove(i)}
                 disabled={saving}
-                className="text-gray-400 hover:text-red-600 disabled:opacity-40"
+                className="text-text-secondary hover:text-danger disabled:opacity-40"
               >
                 Remove
               </button>
@@ -239,26 +239,26 @@ function PageRow({
   }
 
   return (
-    <li className="flex flex-col gap-1.5 rounded-lg border border-gray-200 bg-white p-2.5">
+    <li className="flex flex-col gap-1.5 rounded-lg border border-border bg-surface-elevated p-2.5">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-gray-900">Page {page.page_number}</span>
-          <span className="text-xs text-gray-500">
+          <span className="text-sm font-medium text-text-primary">Page {page.page_number}</span>
+          <span className="text-xs text-text-secondary">
             detected: {page.printed_label ?? "—"}
           </span>
-          <span className="text-sm text-gray-800">→ {page.page_label ?? "(none)"}</span>
+          <span className="text-sm text-text-primary">→ {page.page_label ?? "(none)"}</span>
         </div>
         <div className="flex items-center gap-1.5">
           {page.label_conflict && (
             <span
               title="Multiple conflicting candidates were detected on this page"
-              className="inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-medium bg-red-100 text-red-800"
+              className="inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-medium bg-danger/10 text-danger"
             >
               Conflict
             </span>
           )}
           {page.label_confidence === null && !page.printed_label && (
-            <span className="text-[11px] text-gray-400">no detection</span>
+            <span className="text-[11px] text-text-secondary">no detection</span>
           )}
           <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-medium ${statusColor(page.page_label_status)}`}>
             {statusLabel(page.page_label_status)}
@@ -266,7 +266,7 @@ function PageRow({
           <button
             type="button"
             onClick={() => setEditing((v) => !v)}
-            className="rounded px-2 py-1 text-xs text-gray-600 hover:bg-gray-100"
+            className="rounded px-2 py-1 text-xs text-text-secondary hover:bg-hover-row"
           >
             {editing ? "Cancel" : "Override"}
           </button>
@@ -275,7 +275,7 @@ function PageRow({
               type="button"
               onClick={handleReset}
               disabled={saving}
-              className="rounded px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 disabled:opacity-40"
+              className="rounded px-2 py-1 text-xs text-text-secondary hover:bg-hover-row disabled:opacity-40"
             >
               Reset
             </button>
@@ -288,20 +288,20 @@ function PageRow({
             type="text"
             value={value}
             onChange={(e) => setValue(e.target.value)}
-            className="rounded border border-gray-300 px-2 py-1 text-sm"
+            className="rounded border border-border px-2 py-1 text-sm"
             placeholder="New label"
           />
           <button
             type="button"
             onClick={handleSave}
             disabled={saving || !value}
-            className="rounded px-3 py-1 text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40"
+            className="rounded px-3 py-1 text-xs font-semibold bg-accent text-accent-contrast hover:opacity-90 disabled:opacity-40"
           >
             {saving ? "Saving…" : "Save"}
           </button>
         </div>
       )}
-      {error && <p className="text-xs text-red-600">{error}</p>}
+      {error && <p className="text-xs text-danger">{error}</p>}
     </li>
   );
 }
@@ -323,10 +323,10 @@ export function PageLabelManagerPanel({ jobId, pages, sections, onUpdated }: Pro
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap gap-3 text-xs text-gray-600">
+      <div className="flex flex-wrap gap-3 text-xs text-text-secondary">
         <span>{pages.length} page{pages.length !== 1 ? "s" : ""}</span>
-        {conflictCount > 0 && <span className="text-red-700">{conflictCount} with conflicting detection</span>}
-        {overriddenCount > 0 && <span className="text-blue-700">{overriddenCount} manually overridden</span>}
+        {conflictCount > 0 && <span className="text-danger">{conflictCount} with conflicting detection</span>}
+        {overriddenCount > 0 && <span className="text-accent">{overriddenCount} manually overridden</span>}
       </div>
 
       <SectionForm jobId={jobId} sections={sections} onApplied={handleSectionsApplied} />

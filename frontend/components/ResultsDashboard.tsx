@@ -50,37 +50,37 @@ function VerificationSummarySection({ job }: { job: JobSummary }) {
     <section aria-labelledby="verification-summary-heading">
       <div className="flex items-center gap-2 mb-3">
         <span
-          className="flex h-5 w-5 items-center justify-center rounded-full border-2 border-dashed border-violet-400"
+          className="flex h-5 w-5 items-center justify-center rounded-full border-2 border-dashed border-border-strong"
           aria-hidden="true"
         >
-          <svg className="h-2.5 w-2.5 text-violet-500" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <svg className="h-2.5 w-2.5 text-text-secondary" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M1 5h3m5 0h-3m0 0V2m0 3v3" />
           </svg>
         </span>
-        <h2 id="verification-summary-heading" className="text-sm font-bold text-gray-900 uppercase tracking-wide">
+        <h2 id="verification-summary-heading" className="text-sm font-bold text-text-primary uppercase tracking-wide">
           Verification Summary
         </h2>
-        <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-700">
+        <span className="rounded-full bg-hover-row px-2 py-0.5 text-[10px] font-semibold text-text-secondary">
           Mathpix ↔ PDF Comparison
         </span>
       </div>
 
-      <div className="rounded-lg border border-violet-100 bg-white overflow-hidden">
-        <div className="border-b border-violet-100 bg-violet-50 px-4 py-2">
-          <p className="text-xs text-violet-700">
+      <div className="rounded-lg border border-border bg-surface-elevated overflow-hidden">
+        <div className="border-b border-border bg-surface-panel px-4 py-2">
+          <p className="text-xs text-text-secondary">
             <span className="font-semibold">Phase 2:</span> Direct Mathpix-to-PDF comparison is not yet implemented.
             Counts below reflect Phase 1 pipeline detection only — not cross-source verification.
           </p>
         </div>
-        <dl className="divide-y divide-gray-100">
+        <dl className="divide-y divide-border">
           {rows.map((row) => (
             <div key={row.label} className="flex items-center justify-between px-4 py-3">
-              <dt className="text-sm text-gray-700">{row.label}</dt>
+              <dt className="text-sm text-text-primary">{row.label}</dt>
               <dd className="flex items-center gap-2">
                 {row.source === "backend" ? (
-                  <span className="text-sm font-semibold tabular-nums text-gray-900">{row.value}</span>
+                  <span className="text-sm font-semibold tabular-nums text-text-primary">{row.value}</span>
                 ) : (
-                  <span className="rounded bg-violet-50 px-2 py-0.5 font-mono text-xs text-violet-600 border border-violet-200">
+                  <span className="rounded bg-surface-panel px-2 py-0.5 font-mono text-xs text-text-secondary border border-border">
                     TODO — Phase 2
                   </span>
                 )}
@@ -152,12 +152,12 @@ function VerifiedSection({ job, pages, tables }: { job: JobSummary; pages: PageO
   return (
     <section aria-labelledby="verified-heading">
       <div className="flex items-center gap-2 mb-3">
-        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-green-500 text-white" aria-hidden="true">
-          <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-success text-accent-contrast" aria-hidden="true">
+          <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M2 6l3 3 5-5" />
           </svg>
         </span>
-        <h2 id="verified-heading" className="text-sm font-bold text-gray-900 uppercase tracking-wide">
+        <h2 id="verified-heading" className="text-sm font-bold text-text-primary uppercase tracking-wide">
           Verified
         </h2>
       </div>
@@ -166,13 +166,13 @@ function VerifiedSection({ job, pages, tables }: { job: JobSummary; pages: PageO
           <div
             key={m.label}
             className={`rounded-lg border p-3 ${
-              m.available ? "border-green-200 bg-green-50" : "border-gray-100 bg-gray-50"
+              m.available ? "border-success/30 bg-success/10" : "border-border bg-surface-panel"
             }`}
           >
-            <dt className={`text-xs ${m.available ? "text-green-700" : "text-gray-400"}`}>{m.label}</dt>
+            <dt className={`text-xs ${m.available ? "text-success" : "text-text-secondary"}`}>{m.label}</dt>
             <dd
               className={`mt-1 text-xl font-bold tabular-nums ${
-                m.available ? "text-green-900" : "text-gray-400"
+                m.available ? "text-success" : "text-text-secondary"
               }`}
             >
               {m.available ? m.value : <span className="text-xs font-normal italic">{m.value}</span>}
@@ -270,37 +270,37 @@ function AutomaticRepairsSection({
   return (
     <section aria-labelledby="repairs-heading">
       <div className="flex items-center gap-2 mb-3">
-        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-blue-600 text-white" aria-hidden="true">
+        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-accent text-accent-contrast" aria-hidden="true">
           <svg className="h-3 w-3" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
             <path d="M9 2L3 8l2 2 6-6-2-2zm-5 7l-1.5 1.5L1 9l1-1 2 1z" />
           </svg>
         </span>
-        <h2 id="repairs-heading" className="text-sm font-bold text-gray-900 uppercase tracking-wide">
+        <h2 id="repairs-heading" className="text-sm font-bold text-text-primary uppercase tracking-wide">
           Automatic Repairs
         </h2>
       </div>
 
       {activeRepairs.length === 0 && unavailableRepairs.length === repairs.length ? (
-        <p className="text-sm text-gray-500">No automatic repairs were applied to this document.</p>
+        <p className="text-sm text-text-secondary">No automatic repairs were applied to this document.</p>
       ) : (
-        <div className="rounded-lg border border-gray-200 bg-white divide-y divide-gray-100">
+        <div className="rounded-lg border border-border bg-surface-elevated divide-y divide-border">
           {activeRepairs.map((r) => (
             <div key={r.label} className="flex items-center justify-between gap-4 px-4 py-3">
               <div className="flex items-center gap-2.5">
-                <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-blue-100" aria-hidden="true">
-                  <svg className="h-2.5 w-2.5 text-blue-600" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-accent/10" aria-hidden="true">
+                  <svg className="h-2.5 w-2.5 text-accent" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M1.5 5l2.5 2.5 4.5-4.5" />
                   </svg>
                 </span>
-                <span className="text-sm text-gray-900">{r.label}</span>
+                <span className="text-sm text-text-primary">{r.label}</span>
               </div>
-              <span className="text-xs text-blue-700 font-medium shrink-0">{r.value}</span>
+              <span className="text-xs text-accent font-medium shrink-0">{r.value}</span>
             </div>
           ))}
           {unavailableRepairs.map((r) => (
             <div key={r.label} className="flex items-center justify-between gap-4 px-4 py-2.5">
-              <span className="text-sm text-gray-400">{r.label}</span>
-              <span className="text-xs text-gray-400 italic shrink-0">Not Available</span>
+              <span className="text-sm text-text-secondary">{r.label}</span>
+              <span className="text-xs text-text-secondary italic shrink-0">Not Available</span>
             </div>
           ))}
         </div>
@@ -328,15 +328,15 @@ function ManualReviewSection({
   return (
     <section aria-labelledby="review-heading">
       <div className="flex items-center gap-2 mb-3">
-        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-amber-500 text-white" aria-hidden="true">
+        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-warning text-accent-contrast" aria-hidden="true">
           <svg className="h-3 w-3" viewBox="0 0 12 12" fill="currentColor">
-            <path d="M6 1L1 11h10L6 1zm0 3v3m0 2v1" stroke="white" strokeWidth="1" fill="none" strokeLinecap="round" />
+            <path d="M6 1L1 11h10L6 1zm0 3v3m0 2v1" stroke="currentColor" strokeWidth="1" fill="none" strokeLinecap="round" />
           </svg>
         </span>
-        <h2 id="review-heading" className="text-sm font-bold text-gray-900 uppercase tracking-wide">
+        <h2 id="review-heading" className="text-sm font-bold text-text-primary uppercase tracking-wide">
           Manual Review Required
           {hasItems && (
-            <span className="ml-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-100 px-1.5 text-[11px] font-semibold text-amber-800">
+            <span className="ml-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-warning/10 px-1.5 text-[11px] font-semibold text-warning">
               {reviewIssues.length + missingAltText.length}
             </span>
           )}
@@ -344,27 +344,27 @@ function ManualReviewSection({
       </div>
 
       {!hasItems ? (
-        <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3">
-          <p className="text-sm text-green-800 font-medium">No manual review items identified.</p>
+        <div className="rounded-lg border border-success/30 bg-success/10 px-4 py-3">
+          <p className="text-sm text-success font-medium">No manual review items identified.</p>
         </div>
       ) : (
         <ul className="space-y-2" aria-label="Manual review items">
           {missingAltText.map((img) => (
             <li
               key={img.image_id}
-              className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3"
+              className="rounded-lg border border-warning/30 bg-warning/10 px-4 py-3"
             >
               <div className="flex flex-wrap items-center gap-2 mb-1">
-                <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-amber-100 text-amber-800 ring-1 ring-inset ring-amber-300">
+                <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-warning/10 text-warning ring-1 ring-inset ring-warning/30">
                   WARNING
                 </span>
-                <span className="text-xs text-gray-500 font-mono">IMAGE_ALT</span>
+                <span className="text-xs text-text-secondary font-mono">IMAGE_ALT</span>
                 {img.page_number && (
-                  <span className="text-xs text-gray-500">Page {img.page_number}</span>
+                  <span className="text-xs text-text-secondary">Page {img.page_number}</span>
                 )}
               </div>
-              <p className="text-sm text-gray-900">Missing alt text for figure on page {img.page_number}.</p>
-              <p className="mt-1 text-xs text-gray-600">
+              <p className="text-sm text-text-primary">Missing alt text for figure on page {img.page_number}.</p>
+              <p className="mt-1 text-xs text-text-secondary">
                 <span className="font-medium">Suggested action: </span>
                 Add descriptive alt text via a future Review Workspace or manual DOCX edit.
               </p>
@@ -376,20 +376,20 @@ function ManualReviewSection({
               key={`${issue.rule_id}-${idx}`}
               className={`rounded-lg border px-4 py-3 ${
                 issue.severity === "error"
-                  ? "border-red-200 bg-red-50"
-                  : "border-amber-200 bg-amber-50"
+                  ? "border-danger/30 bg-danger/10"
+                  : "border-warning/30 bg-warning/10"
               }`}
             >
               <div className="flex flex-wrap items-center gap-2 mb-1">
                 <SeverityBadge severity={issue.severity} />
-                <span className="text-xs text-gray-500 font-mono">{issue.rule_id}</span>
+                <span className="text-xs text-text-secondary font-mono">{issue.rule_id}</span>
                 {issue.page_number !== null && (
-                  <span className="text-xs text-gray-500">Page {issue.page_number}</span>
+                  <span className="text-xs text-text-secondary">Page {issue.page_number}</span>
                 )}
               </div>
-              <p className="text-sm text-gray-900">{issue.message}</p>
+              <p className="text-sm text-text-primary">{issue.message}</p>
               {issue.suggested_action && (
-                <p className="mt-1 text-xs text-gray-600">
+                <p className="mt-1 text-xs text-text-secondary">
                   <span className="font-medium">Suggested action: </span>
                   {issue.suggested_action}
                 </p>

@@ -416,11 +416,11 @@ function StatusIcon({ status }: { status: CheckStatus }) {
   if (status === "complete") {
     return (
       <span
-        className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-green-500"
+        className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-success"
         aria-label="Complete"
         title="Complete"
       >
-        <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <svg className="h-3 w-3 text-accent-contrast" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <path d="M2 6l3 3 5-5" />
         </svg>
       </span>
@@ -429,11 +429,11 @@ function StatusIcon({ status }: { status: CheckStatus }) {
   if (status === "manual") {
     return (
       <span
-        className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-400"
+        className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-warning"
         aria-label="Manual review required"
         title="Manual review required"
       >
-        <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
+        <svg className="h-3 w-3 text-accent-contrast" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
           <path d="M6 3v3m0 2.5v.5" />
         </svg>
       </span>
@@ -442,18 +442,18 @@ function StatusIcon({ status }: { status: CheckStatus }) {
   if (status === "na") {
     return (
       <span
-        className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-gray-200 bg-gray-50"
+        className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border bg-surface-panel"
         aria-label="Not applicable"
         title="Not applicable"
       >
-        <span className="text-[10px] font-semibold text-gray-400 leading-none" aria-hidden="true">—</span>
+        <span className="text-[10px] font-semibold text-text-secondary leading-none" aria-hidden="true">—</span>
       </span>
     );
   }
   // not_impl
   return (
     <span
-      className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 border-gray-200"
+      className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 border-border"
       aria-label="Not yet implemented"
       title="Not yet implemented"
     />
@@ -474,19 +474,19 @@ const STATUS_LABELS: Record<CheckStatus, string> = {
 function CheckRow({ item }: { item: CheckItem }) {
   const labelColor =
     item.status === "complete"
-      ? "text-gray-900"
+      ? "text-text-primary"
       : item.status === "manual"
-      ? "text-gray-900"
-      : "text-gray-400";
+      ? "text-text-primary"
+      : "text-text-secondary";
 
   const badgeClass =
     item.status === "complete"
-      ? "bg-green-50 text-green-700 ring-1 ring-inset ring-green-200"
+      ? "bg-success/10 text-success ring-1 ring-inset ring-success/30"
       : item.status === "manual"
-      ? "bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-200"
+      ? "bg-warning/10 text-warning ring-1 ring-inset ring-warning/30"
       : item.status === "na"
-      ? "bg-gray-50 text-gray-400 ring-1 ring-inset ring-gray-200"
-      : "bg-gray-50 text-gray-400 ring-1 ring-inset ring-gray-100";
+      ? "bg-surface-panel text-text-secondary ring-1 ring-inset ring-border"
+      : "bg-surface-panel text-text-secondary ring-1 ring-inset ring-border";
 
   return (
     <li className="flex items-center gap-3 py-2.5 px-4">
@@ -494,7 +494,7 @@ function CheckRow({ item }: { item: CheckItem }) {
       <span className={`flex-1 text-sm ${labelColor}`}>{item.label}</span>
       <div className="flex items-center gap-2 shrink-0">
         {item.detail && (
-          <span className="hidden sm:inline text-xs text-gray-400 max-w-[200px] text-right leading-snug">
+          <span className="hidden sm:inline text-xs text-text-secondary max-w-[200px] text-right leading-snug">
             {item.detail}
           </span>
         )}
@@ -513,21 +513,21 @@ function CheckGroupBlock({ group }: { group: CheckGroup }) {
   const manualCount   = group.items.filter((i) => i.status === "manual").length;
 
   return (
-    <div className="rounded-lg border border-gray-200 bg-white overflow-hidden">
-      <div className="flex items-center justify-between gap-2 border-b border-gray-100 bg-gray-50 px-4 py-2">
-        <span className="text-xs font-semibold text-gray-700 uppercase tracking-wide">
+    <div className="rounded-lg border border-border bg-surface-elevated overflow-hidden">
+      <div className="flex items-center justify-between gap-2 border-b border-border bg-surface-panel px-4 py-2">
+        <span className="text-xs font-semibold text-text-primary uppercase tracking-wide">
           {group.label}
         </span>
-        <span className="text-[10px] text-gray-400 tabular-nums">
+        <span className="text-[10px] text-text-secondary tabular-nums">
           {completeCount}/{group.items.length}
           {manualCount > 0 && (
-            <span className="ml-1.5 text-amber-600 font-medium">
+            <span className="ml-1.5 text-warning font-medium">
               · {manualCount} review
             </span>
           )}
         </span>
       </div>
-      <ul role="list" className="divide-y divide-gray-50">
+      <ul role="list" className="divide-y divide-border">
         {group.items.map((item) => (
           <CheckRow key={item.label} item={item} />
         ))}
@@ -552,35 +552,35 @@ function SummaryBar({ groups }: { groups: CheckGroup[] }) {
   const completePct = total === 0 ? 100 : Math.round((completeCount / total) * 100);
 
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-4 space-y-3">
+    <div className="rounded-lg border border-border bg-surface-elevated p-4 space-y-3">
       <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
         <div className="flex items-center gap-2">
-          <span className="flex h-3 w-3 rounded-full bg-green-500" aria-hidden="true" />
-          <span className="text-sm text-gray-700">
+          <span className="flex h-3 w-3 rounded-full bg-success" aria-hidden="true" />
+          <span className="text-sm text-text-primary">
             <span className="font-semibold tabular-nums">{completeCount}</span> Complete
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <span className="flex h-3 w-3 rounded-full bg-amber-400" aria-hidden="true" />
-          <span className="text-sm text-gray-700">
+          <span className="flex h-3 w-3 rounded-full bg-warning" aria-hidden="true" />
+          <span className="text-sm text-text-primary">
             <span className="font-semibold tabular-nums">{manualCount}</span> Manual Review Required
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <span className="flex h-3 w-3 rounded-full border-2 border-gray-300" aria-hidden="true" />
-          <span className="text-sm text-gray-700">
+          <span className="flex h-3 w-3 rounded-full border-2 border-border-strong" aria-hidden="true" />
+          <span className="text-sm text-text-primary">
             <span className="font-semibold tabular-nums">{notImplCount}</span> Not Yet Implemented
           </span>
         </div>
-        <span className="ml-auto text-xs text-gray-400 tabular-nums">
+        <span className="ml-auto text-xs text-text-secondary tabular-nums">
           {completePct}% complete ({completeCount}/{total})
         </span>
       </div>
 
       {/* Progress bar */}
-      <div className="h-1.5 w-full rounded-full bg-gray-100 overflow-hidden" role="progressbar" aria-valuenow={completePct} aria-valuemin={0} aria-valuemax={100}>
+      <div className="h-1.5 w-full rounded-full bg-surface-panel overflow-hidden" role="progressbar" aria-valuenow={completePct} aria-valuemin={0} aria-valuemax={100}>
         <div
-          className="h-full rounded-full bg-green-500 transition-all"
+          className="h-full rounded-full bg-success transition-all"
           style={{ width: `${completePct}%` }}
         />
       </div>
@@ -605,15 +605,15 @@ export function ChecklistPanel({ job, issues, images, footnotes, pages, tables }
   return (
     <section aria-labelledby="checklist-heading">
       <div className="flex items-center gap-2 mb-3">
-        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-slate-700 text-white" aria-hidden="true">
-          <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-text-secondary text-surface-canvas" aria-hidden="true">
+          <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
             <path d="M2 3.5h8M2 6h5M2 8.5h3" />
           </svg>
         </span>
-        <h2 id="checklist-heading" className="text-sm font-bold text-gray-900 uppercase tracking-wide">
+        <h2 id="checklist-heading" className="text-sm font-bold text-text-primary uppercase tracking-wide">
           Accessibility Checklist
         </h2>
-        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
+        <span className="rounded-full bg-hover-row px-2 py-0.5 text-[10px] font-semibold text-text-secondary">
           WinVinaya Remediation Standard
         </span>
       </div>

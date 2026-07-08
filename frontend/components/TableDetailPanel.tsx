@@ -199,19 +199,19 @@ export function TableDetailPanel({ table, jobId, aiStatus, onClose, onActionComp
       metadata={
         <div className="space-y-4">
       {/* Table preview */}
-      <div className="overflow-x-auto rounded border border-gray-100 bg-gray-50 max-h-64">
+      <div className="overflow-x-auto rounded border border-border bg-surface-panel max-h-64">
         <table className="text-xs border-collapse w-full">
           <tbody>
             {currentTable.rows.map((row, rowIdx) => (
               <tr
                 key={rowIdx}
                 className={`transition-colors ${
-                  headerIndices.has(rowIdx) ? "bg-blue-50" : ""
+                  headerIndices.has(rowIdx) ? "bg-accent/10" : ""
                 }`}
               >
                 {/* Row toggle: click to mark/unmark as header row */}
                 <td
-                  className="px-1 py-0.5 border border-gray-200 text-gray-600 text-center select-none w-6 cursor-pointer hover:bg-blue-100"
+                  className="px-1 py-0.5 border border-border text-text-secondary text-center select-none w-6 cursor-pointer hover:bg-accent/10"
                   title={`Click to toggle row ${rowIdx + 1} as header`}
                   onClick={() => toggleHeaderRow(rowIdx)}
                 >
@@ -226,16 +226,16 @@ export function TableDetailPanel({ table, jobId, aiStatus, onClose, onActionComp
                     <td
                       key={colIdx}
                       onClick={(e) => handleCellClick(rowIdx, colIdx, e)}
-                      className={`px-0 py-0 border border-gray-200 max-w-[160px] transition-colors ${
+                      className={`px-0 py-0 border border-border max-w-[160px] transition-colors ${
                         editMode
                           ? ""
                           : isSelected
-                          ? "bg-indigo-100 ring-1 ring-indigo-400"
+                          ? "bg-accent/20 ring-1 ring-accent"
                           : headerIndices.has(rowIdx)
-                          ? "font-semibold hover:bg-blue-100"
+                          ? "font-semibold hover:bg-accent/10"
                           : isColHeader
-                          ? "font-semibold text-green-800 bg-green-50 hover:bg-green-100"
-                          : "hover:bg-gray-100"
+                          ? "font-semibold text-success bg-success/10 hover:bg-success/20"
+                          : "hover:bg-hover-row"
                       }`}
                       title={editMode ? "Edit cell text" : "Click to preview screen reader announcement"}
                     >
@@ -244,14 +244,14 @@ export function TableDetailPanel({ table, jobId, aiStatus, onClose, onActionComp
                           type="text"
                           value={displayText}
                           onChange={(e) => handleCellEdit(rowIdx, colIdx, e.target.value)}
-                          className={`w-full px-2 py-1 bg-transparent focus:bg-white focus:outline focus:outline-1 focus:outline-blue-400 ${
-                            headerIndices.has(rowIdx) ? "font-semibold" : isColHeader ? "font-semibold text-green-800" : ""
+                          className={`w-full px-2 py-1 bg-transparent focus:bg-surface-elevated focus:outline focus:outline-1 focus:outline-accent ${
+                            headerIndices.has(rowIdx) ? "font-semibold" : isColHeader ? "font-semibold text-success" : ""
                           }`}
                           aria-label={`Row ${rowIdx + 1}, Col ${colIdx + 1}`}
                         />
                       ) : (
                         <span className="block px-2 py-1 truncate">
-                          {displayText || <span className="text-gray-300 italic">empty</span>}
+                          {displayText || <span className="text-text-secondary italic">empty</span>}
                         </span>
                       )}
                     </td>
@@ -263,10 +263,10 @@ export function TableDetailPanel({ table, jobId, aiStatus, onClose, onActionComp
         </table>
       </div>
       <div className="flex items-center justify-between">
-        <p className="text-xs text-gray-500">
+        <p className="text-xs text-text-secondary">
           {editMode
             ? "Edit mode — type in any cell. Click Save to apply."
-            : `Click row number to toggle header row (H, blue). Click a data cell to preview screen reader announcement.${headerColCount > 0 ? " Green column = row headers." : ""}`}
+            : `Click row number to toggle header row (H, accent). Click a data cell to preview screen reader announcement.${headerColCount > 0 ? " Green column = row headers." : ""}`}
         </p>
         <button
           type="button"
@@ -276,8 +276,8 @@ export function TableDetailPanel({ table, jobId, aiStatus, onClose, onActionComp
           }}
           className={`shrink-0 ml-2 rounded px-2 py-0.5 text-xs font-medium ring-1 transition-colors ${
             editMode
-              ? "bg-blue-100 text-blue-700 ring-blue-300 hover:bg-blue-200"
-              : "bg-gray-100 text-gray-600 ring-gray-300 hover:bg-gray-200"
+              ? "bg-accent/10 text-accent ring-accent/30 hover:bg-accent/20"
+              : "bg-surface-panel text-text-secondary ring-border hover:bg-hover-row"
           }`}
         >
           {editMode ? "Done editing" : "Edit cells"}
@@ -286,10 +286,10 @@ export function TableDetailPanel({ table, jobId, aiStatus, onClose, onActionComp
 
       {/* Screen reader simulation */}
       {announcement !== null && (
-        <div className="rounded border border-indigo-200 bg-indigo-50 p-3">
-          <p className="text-xs font-semibold text-indigo-700 mb-1">Screen reader announcement</p>
-          <p className="text-sm text-indigo-900 font-mono">{announcement}</p>
-          <p className="text-xs text-indigo-500 mt-1">
+        <div className="rounded border border-accent/30 bg-accent/10 p-3">
+          <p className="text-xs font-semibold text-accent mb-1">Screen reader announcement</p>
+          <p className="text-sm text-accent font-mono">{announcement}</p>
+          <p className="text-xs text-accent/80 mt-1">
             Row {(selectedCell?.rowIdx ?? 0) + 1}, Col {(selectedCell?.colIdx ?? 0) + 1} —
             NVDA/JAWS would announce this when navigating to this cell
           </p>
@@ -298,7 +298,7 @@ export function TableDetailPanel({ table, jobId, aiStatus, onClose, onActionComp
 
       {/* Row header column */}
       <div>
-        <label className="block text-xs font-medium text-gray-700 mb-1">
+        <label className="block text-xs font-medium text-text-primary mb-1">
           Row headers (stub column)
         </label>
         <select
@@ -307,7 +307,7 @@ export function TableDetailPanel({ table, jobId, aiStatus, onClose, onActionComp
             setHeaderColCount(Number(e.target.value));
             setSelectedCell(null);
           }}
-          className="rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
+          className="rounded border border-border px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
         >
           <option value={0}>None — no row header column</option>
           <option value={1}>Column 1 — first column contains row labels</option>
@@ -316,7 +316,7 @@ export function TableDetailPanel({ table, jobId, aiStatus, onClose, onActionComp
 
       {/* Caption */}
       <div>
-        <label className="block text-xs font-medium text-gray-700 mb-1">
+        <label className="block text-xs font-medium text-text-primary mb-1">
           Caption
         </label>
         <input
@@ -324,44 +324,44 @@ export function TableDetailPanel({ table, jobId, aiStatus, onClose, onActionComp
           value={caption}
           onChange={(e) => setCaption(e.target.value)}
           placeholder="e.g. Table 1. Summary of results"
-          className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
+          className="w-full rounded border border-border px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
         />
       </div>
 
       {/* Accessibility summary */}
       <div>
-        <label className="block text-xs font-medium text-gray-700 mb-1">
+        <label className="block text-xs font-medium text-text-primary mb-1">
           Accessibility summary
-          <span className="ml-1 text-gray-400 font-normal">(WCAG H73 — describe complex tables)</span>
+          <span className="ml-1 text-text-secondary font-normal">(WCAG H73 — describe complex tables)</span>
         </label>
         <textarea
           value={summary}
           onChange={(e) => setSummary(e.target.value)}
           placeholder="Describe what this table shows, for screen reader users."
           rows={3}
-          className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none resize-none"
+          className="w-full rounded border border-border px-2 py-1.5 text-sm focus:border-accent focus:outline-none resize-none"
         />
       </div>
 
       {/* AI suggestions panel */}
       {ai && (
-        <div className="rounded border border-purple-200 bg-purple-50 p-3 space-y-2">
+        <div className="rounded border border-accent/30 bg-accent/10 p-3 space-y-2">
           <div className="flex items-center justify-between">
-            <p className="text-xs font-semibold text-purple-700">
+            <p className="text-xs font-semibold text-accent">
               AI suggestions ({Math.round(ai.confidence * 100)}% confidence)
               {ai.table_type && (
-                <span className="ml-2 font-normal text-purple-500">{ai.table_type}</span>
+                <span className="ml-2 font-normal text-accent/80">{ai.table_type}</span>
               )}
             </p>
           </div>
           {ai.suggested_caption && (
             <div>
-              <p className="text-xs text-purple-600 font-medium">Suggested caption:</p>
-              <p className="text-xs text-purple-900">{ai.suggested_caption}</p>
+              <p className="text-xs text-accent font-medium">Suggested caption:</p>
+              <p className="text-xs text-accent">{ai.suggested_caption}</p>
               <button
                 type="button"
                 onClick={() => setCaption(ai.suggested_caption!)}
-                className="mt-0.5 text-xs text-purple-700 underline hover:text-purple-900"
+                className="mt-0.5 text-xs text-accent underline hover:opacity-80"
               >
                 Use this caption
               </button>
@@ -369,12 +369,12 @@ export function TableDetailPanel({ table, jobId, aiStatus, onClose, onActionComp
           )}
           {ai.suggested_summary && (
             <div>
-              <p className="text-xs text-purple-600 font-medium">Suggested summary:</p>
-              <p className="text-xs text-purple-900">{ai.suggested_summary}</p>
+              <p className="text-xs text-accent font-medium">Suggested summary:</p>
+              <p className="text-xs text-accent">{ai.suggested_summary}</p>
               <button
                 type="button"
                 onClick={() => setSummary(ai.suggested_summary!)}
-                className="mt-0.5 text-xs text-purple-700 underline hover:text-purple-900"
+                className="mt-0.5 text-xs text-accent underline hover:opacity-80"
               >
                 Use this summary
               </button>
@@ -382,16 +382,16 @@ export function TableDetailPanel({ table, jobId, aiStatus, onClose, onActionComp
           )}
           {ai.warnings.length > 0 && (
             <div>
-              <p className="text-xs text-purple-600 font-medium">Accessibility warnings:</p>
+              <p className="text-xs text-accent font-medium">Accessibility warnings:</p>
               <ul className="list-disc list-inside space-y-0.5">
                 {ai.warnings.map((w, i) => (
-                  <li key={i} className="text-xs text-orange-700">{w}</li>
+                  <li key={i} className="text-xs text-warning">{w}</li>
                 ))}
               </ul>
             </div>
           )}
           {(ai.header_rows_detected > 0 || ai.header_cols_detected > 0) && (
-            <p className="text-xs text-purple-700">
+            <p className="text-xs text-accent">
               AI detected: {ai.header_rows_detected} header row(s),{" "}
               {ai.header_cols_detected} row-header col(s)
             </p>

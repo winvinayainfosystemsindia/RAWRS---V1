@@ -31,8 +31,8 @@ export function BulkActions({ jobId, selectedIds, onClearSelection, onActionComp
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2">
-      <span className="text-sm font-medium text-blue-900">
+    <div className="flex flex-wrap items-center gap-3 rounded-lg border border-accent/30 bg-accent/10 px-4 py-2">
+      <span className="text-sm font-medium text-accent">
         {selectedIds.length} selected
       </span>
       <div className="flex flex-wrap gap-2">
@@ -50,13 +50,13 @@ export function BulkActions({ jobId, selectedIds, onClearSelection, onActionComp
         </BulkButton>
         <button
           type="button"
-          className="text-xs text-blue-600 hover:underline"
+          className="text-xs text-accent hover:underline"
           onClick={onClearSelection}
         >
           Clear
         </button>
       </div>
-      {error && <p className="w-full text-xs text-red-600">{error}</p>}
+      {error && <p className="w-full text-xs text-danger">{error}</p>}
     </div>
   );
 }
@@ -75,9 +75,9 @@ function BulkButton({
   const base =
     "inline-flex items-center rounded px-2.5 py-1 text-xs font-medium transition-opacity disabled:opacity-50";
   const styles: Record<string, string> = {
-    success: "bg-green-600 text-white hover:bg-green-700",
-    danger: "bg-red-600 text-white hover:bg-red-700",
-    neutral: "bg-white text-gray-700 ring-1 ring-gray-300 hover:bg-gray-50",
+    success: "bg-success text-accent-contrast hover:opacity-90",
+    danger: "bg-danger text-accent-contrast hover:opacity-90",
+    neutral: "bg-surface-elevated text-text-primary ring-1 ring-border hover:bg-hover-row",
   };
   return (
     <button
