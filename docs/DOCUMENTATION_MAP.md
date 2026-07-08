@@ -68,8 +68,8 @@ The Phase 2 Engineering Blueprint (`RAWRS_Phase2_Engineering_Blueprint.md`) and 
 
 | Document | What it's for |
 |---|---|
-| `BENCHMARK_GAP_ANALYSIS.md` (root) | A point-in-time audit comparing RAWRS output against a 4-PDF benchmark set. Durable conclusions folded into `DECISIONS_LOG.md`/`KNOWN_LIMITATIONS.md`. Kept for its reasoning detail; don't treat its "current state" framing as current. |
-| `BENCHMARK_RECONCILIATION_AND_PHASE1_PLAN.md` (root) | The plan that resolved the nine conflicts (C1–C9) found in the gap analysis, including the source-of-truth precedence rule this very map extends. Same status as above. |
+| `research/phase1/benchmark_gap_analysis.md` | A point-in-time audit comparing RAWRS output against a 4-PDF benchmark set. Durable conclusions folded into `DECISIONS_LOG.md`/`KNOWN_LIMITATIONS.md`. Kept for its reasoning detail; don't treat its "current state" framing as current. |
+| `research/phase1/benchmark_reconciliation_and_phase1_plan.md` | The plan that resolved the nine conflicts (C1–C9) found in the gap analysis, including the source-of-truth precedence rule this very map extends. Same status as above. |
 
 ---
 
@@ -79,3 +79,14 @@ The Phase 2 Engineering Blueprint (`RAWRS_Phase2_Engineering_Blueprint.md`) and 
 * **8 existing documents amended in place:** `PHASE1_SCOPE.md`, `RAWRS_PROJECT_CONTEXT.md`, `ARCHITECTURE.md`, `HEADING_RULES.md`, `VALIDATION_RULES.md`, `OCR_RULES.md`, `TECH_STACK.md`, `CLAUDE_INSTRUCTIONS.md`, plus `TASKS.md`.
 * **1 document left unchanged:** `PAGE_RULES.md` (verified already accurate).
 * **No production code was changed.** This was a documentation-only pass, per instruction.
+
+---
+
+## Updates since this map was produced (not a full re-audit — see each doc's own change history)
+
+This map predates Phase M-1 (Mathpix Import Layer), Phase M-2 (cross-source verification engine, evidence fusion, Page Label Manager, `WorkspaceShell` frontend redesign), and FEATURE_012/015/016 entirely. Rather than rewrite this map's now-dated "5 new / 8 amended" framing, later work has been folded into the existing precedence structure as it happened:
+
+* `CURRENT_STATE.md`, `PHASE_STATUS.md`, `ARCHITECTURE_CURRENT.md` — kept current through Phase M-2 and the 2026-07-08 theming sweep + bug fixes (see each file's own dated entries).
+* `DECISIONS_LOG.md` — Parts 20–24 cover Phase 2 skeleton, FEATURE_015.3, Phase M-1, Phase M-2, and the theming/bugfix closure.
+* `VALIDATION_RULES.md`/`PAGE_RULES.md`/`KNOWN_LIMITATIONS.md` — updated in place alongside the Phase M-2 implementation (`HEADING_VERIFY_*`, `PAGE_004`–`008`, `CALLOUT_VERIFY_001` rule IDs added; validation rule count is now 41, not the 29 current when this map was written).
+* Two of the root-level paths this map originally listed (`BENCHMARK_GAP_ANALYSIS.md`, `BENCHMARK_RECONCILIATION_AND_PHASE1_PLAN.md`) had already moved to `research/phase1/` by the time of this correction; the Historical Record table above now points at their real location.

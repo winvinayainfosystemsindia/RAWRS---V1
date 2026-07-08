@@ -106,7 +106,26 @@ As of this reconciliation pass:
 * `frontend/` exists — but is **not** the stack `docs/TECH_STACK.md` names. The actual dependencies (`frontend/package.json`): `next`, `react`, `react-dom`, `react-markdown`, with `tailwindcss`/`typescript`/`eslint` as dev dependencies. No Vite, no Zustand, no shadcn/ui, no react-pdf, no Lucide React — `TECH_STACK.md` itself is out of scope for this reconciliation pass to correct further, so this discrepancy is recorded here rather than silently resolved.
 * `src/main.py` is still empty — it was never the real entry point; `src/api/main.py` is.
 
-`run_pipeline(pdf_path)` in `phase1_pipeline.py` remains the actual processing engine and is still callable directly (e.g. from a test or a script) — the platform layer is a real HTTP/UI wrapper around it, not a replacement for it. What the platform layer does **not** yet provide: any review/approve/correct action. It is a viewer/reporting dashboard (upload page, per-document tabbed workspace for Validation/Images/Footnotes/OCR/Markdown, download buttons), with in-memory-only job tracking (no database — consistent with the "no databases" architectural constraint) that does not survive a process restart. See `CURRENT_STATE.md` and `KNOWN_LIMITATIONS.md`.
+`run_pipeline(pdf_path)` in `phase1_pipeline.py` remains the actual processing engine and is still callable directly (e.g. from a test or a script) — the platform layer is a real HTTP/UI wrapper around it, not a replacement for it. **This section previously stated the platform layer provided no review/approve/correct action — that has not been true since FEATURE_016 and is even less true now.** As of Phase M-2 (see below), the platform is a full review-and-correction workspace, not just a viewer: reviewers approve/reject/edit headings, footnotes, images, tables, reading order, page labels, and metadata, and accept/reject/edit AI-proposed cross-source corrections via the Corrections API. Job tracking remains an in-memory dict (no database — consistent with the "no databases" architectural constraint) that does not survive a process restart. See `CURRENT_STATE.md` and `KNOWN_LIMITATIONS.md`.
+
+### Cross-source verification engine (Phase M-2, added 2026-07-01 through 2026-07-08)
+
+A generic `src/verification/` package, not present when this file's Module Inventory below was last written:
+
+| Module | Location | Responsibility |
+|---|---|---|
+| Base/registry | `src/verification/base.py`, `src/verification/engine.py` | `SemanticVerifier` abstract base (`build_pdf_matcher`/`to_canonical`/`classify`/`rule_table`/`apply`/`revert`); `VerificationEngine` registry each verifier module self-registers into |
+| Identity matching | `src/verification/matching.py` | `MultiSignalMatcher`/`WeightedSignal` — generic weighted multi-signal "is this the same real-world object across two sources" matching |
+| Merge decision | `src/verification/merge.py` | `MergeAction` (KEEP/REPAIR/RECOVER/REMOVE) + `decide_from_evidence()` |
+| Evidence fusion | `src/verification/evidence.py` | `EvidenceSignal`/`EvidenceBundle` — weighted-mean confidence, promoted from `src/tables/` (FEATURE_015.2) to a shared primitive; `src/tables/evidence.py` re-exports it unchanged |
+| Registered verifiers | `src/verification/figures.py`, `headings.py`, `lists.py`, `callouts.py` | Four asset types cross-checked against the PDF: figures (first, migrated from Phase M-1), headings (typography/whitespace/running-header evidence signals), lists, callouts (no PDF-side detector yet — evaluated on label-pattern + anchoring-heading-integrity evidence only) |
+| Benchmark aggregation | `src/verification/benchmark_report.py` | Per-asset-type + whole-document `mathpix_accuracy`/`recovery_rate` summary, wired into the existing JSON validation report |
+| Semantic object base | `src/models/semantic_object.py`, `src/models/callout.py` | `SemanticObject` base model (id/bbox/`verification_status`/`confidence`/`lifecycle_status`) `Heading`/`ListBlock`/`Table`/`Callout` all extend |
+| Page Label Manager | `src/structure/page_label_resolver.py` | `resolve_page_labels()` — override > reviewer-defined section > detected `printed_label` precedence for `Page.page_label` (FEATURE_018) |
+| Targeted OCR | `src/ocr/targeted.py` | Region-scoped OCR (`ocr_region()`) for a verifier with ambiguous evidence on a scanned page — infrastructure only, not yet called by any verifier's `classify()` |
+| AI subsystem redesign | `src/ai/providers/qwen.py`, `requirements-ai.txt` | AI deps split into an optional `requirements-ai.txt`; `_check_resources()` runs a synchronous RAM/VRAM preflight at backend startup, reported via `GET /api/ai/status` |
+
+Frontend: the tab-per-object-type `DocumentWorkspace` was replaced with a `WorkspaceShell` (`frontend/components/workspace/`) — persistent PDF/Markdown/DOCX center-pane switcher, `SemanticNavTree` left rail, `ContextInspectorRail`/`ObjectInspectorFrame` right rail driven by object selection, collapsible `BottomPanel`. New panels: `CalloutPanel`, `ListPanel`, `PageLabelManagerPanel`, `CorrectionHistoryList`, `EvidenceBreakdown`, `PdfViewer`, `ThemeToggle`/`ThemeProvider`. See `PHASE_STATUS.md`'s "Phase M-2" section and `DECISIONS_LOG.md` Parts 23–24 for full detail, including the theming-token migration and two dev-environment bugs (Next.js `allowedDevOrigins`, a React Rules-of-Hooks violation) found and fixed 2026-07-08.
 
 ---
 

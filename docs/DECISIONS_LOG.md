@@ -760,7 +760,37 @@ FEATURE_012's original Qwen2.5-VL interface only discovered "not enough RAM/VRAM
 
 ### Status
 
-All five pieces (FEATURE_017 engine, FEATURE_018 page labels, FEATURE_019 evidence fusion, FEATURE_020 interleaving, AI subsystem redesign) plus the accompanying frontend `WorkspaceShell` redesign are implemented and test-covered as of this entry. See `PHASE_STATUS.md`'s "Phase M-2" section for the full file inventory. **Known gap carried forward, not fixed in this pass:** the new shell's theme-token system has not been back-ported to several pre-existing frontend panels (raw Tailwind `gray-*`/`blue-*`/`red-*` still hardcoded in `ChecklistPanel`, `ResultsDashboard`, `HeadingGrid`, `ImageGrid`, `TableGrid`, `PageLabelManagerPanel`, and others) — flagged for a follow-up theming sweep, not attempted here since it is a separate, unscoped, ~20-file change.
+All five pieces (FEATURE_017 engine, FEATURE_018 page labels, FEATURE_019 evidence fusion, FEATURE_020 interleaving, AI subsystem redesign) plus the accompanying frontend `WorkspaceShell` redesign are implemented and test-covered as of this entry. See `PHASE_STATUS.md`'s "Phase M-2" section for the full file inventory. **Known gap carried forward, not fixed in this pass:** the new shell's theme-token system has not been back-ported to several pre-existing frontend panels (raw Tailwind `gray-*`/`blue-*`/`red-*` still hardcoded in `ChecklistPanel`, `ResultsDashboard`, `HeadingGrid`, `ImageGrid`, `TableGrid`, `PageLabelManagerPanel`, and others) — flagged for a follow-up theming sweep, not attempted here since it is a separate, unscoped, ~20-file change. **Superseded by Part 24 below — this gap is closed.**
+
+---
+
+## Part 24 — Theming Sweep Closure and Two Upload/Workspace Bug Fixes
+
+**Date: 2026-07-08**
+
+### Theming sweep (closes Part 23's known gap)
+
+The 19 pre-existing panels Part 23 flagged were migrated onto the theme-token system established by `WorkspaceShell`/`ThemeToggle` (`surface-canvas`/`surface-panel`/`surface-elevated`, `border`/`border-strong`, `text-primary`/`text-secondary`, `accent`/`accent-contrast`, `success`/`warning`/`danger`). A few components carried more distinct hues than the token palette supports (blue/green/indigo/purple in `TableDetailPanel.tsx` for header-toggle/column-header/selected-cell/AI-suggestion states; a violet "not yet implemented" badge in `PipelineView.tsx`/`ResultsDashboard.tsx`); these were deliberately consolidated to `accent` (keeping `success` distinct where it was load-bearing) rather than inventing new tokens for a one-off case — distinction is carried by opacity/ring intensity and labels instead of hue. `Badge.tsx` was left untouched: it already handled both themes correctly via explicit `dark:` variants, a different but equally valid pattern from the CSS-custom-property tokens, and mixing the two wasn't worth the churn.
+
+### Bug 1: Next.js dev-server origin blocking silently broke file uploads
+
+**Symptom:** uploading a `.md`/`.pdf` pair through the upload form appeared to do nothing — no error, no visual change, Run button stayed disabled.
+
+**Root cause:** Next.js 16 blocks cross-origin dev requests (including the `webpack-hmr` WebSocket) by default, keyed off the exact host string the dev server printed (`localhost`). Opening the app via `127.0.0.1:3000` or a LAN IP instead of `localhost:3000` made the browser's HMR client fail its WebSocket handshake, and Next's dev client falls back to full-page reloads on every failed reconnect attempt — several times per second in practice. Each reload remounts the whole React tree, including the `<input type="file">` a user had just populated, before they could act on it. Confirmed directly: driving the app via a real browser (not the test suite — this is a dev-server-only failure mode with no automated coverage) showed the file's native DOM `value` set correctly but the accessibility-tree snapshot uid regenerating (proof of remount) between two tool calls milliseconds apart, and the console showing repeated `WebSocket connection ... failed` + `Blocked cross-origin request to Next.js dev resource` warnings.
+
+**Fix:** `allowedDevOrigins: ["127.0.0.1", "localhost"]` added to `frontend/next.config.ts`. Chosen over silently redirecting or hardcoding a specific origin since the actual host used to reach the dev server varies by developer/machine (`127.0.0.1`, `localhost`, or a LAN IP), and the config accepts a list.
+
+### Bug 2: Rules of Hooks violation crashed every document workspace page
+
+**Symptom:** after a successful upload (once Bug 1 was fixed), navigating to the new document's workspace page crashed with a React overlay: "React has detected a change in the order of Hooks called by DocumentWorkspaceContent."
+
+**Root cause:** `DocumentWorkspaceContent` (`frontend/app/documents/[id]/DocumentWorkspace.tsx`) called `useMemo()` (building `pdfOverlays`, the PDF viewport's clickable-region list) *after* two conditional early returns — `if (notFound) return ...` and `if (!job) return ...` (still loading). While a job is loading, the component returns before ever reaching that `useMemo`; once the job resolves, the same component instance reaches it. React tracks hooks by call order per component instance, not by name, so this is a real violation, not a lint nitpick — it manifested as a hard crash, not a warning, once the hook count actually differed between two renders of the same mounted instance.
+
+**Fix:** moved the `useMemo` above both early returns. Verified safe to run unconditionally: every selector it calls (`selectHeadings`, `selectTables`, etc.) reads a dictionary field that's always present on `state` with a default-empty value, never `state.job` itself — so computing `pdfOverlays` before `job` is confirmed to exist doesn't risk a null-dereference, it just does slightly wasted work on the loading/not-found renders (a handful of empty-array iterations, not measurable).
+
+### Why these weren't caught by the test suite
+
+Both are dev-server/runtime integration failures with no unit-test-shaped equivalent: Bug 1 depends on which literal hostname string a browser uses to reach a real running dev server (not exercised by any Jest/Playwright config in this repo), and Bug 2 is a React runtime invariant that only fires when a component actually re-renders across a loading→loaded transition with live browser DOM — `next build`'s static analysis and TypeScript pass did not (and structurally cannot) catch either. Found only by manually driving the real app end-to-end in a browser per user report ("markdown images and pdfs are not being accepted and there is no change when i upload"), not by any existing automated check.
 
 ---
 

@@ -126,7 +126,9 @@ This F-011..F-020 skeleton (below) was never continued past the two files marked
 * [x] src/verification/benchmark_report.py — cross-source accuracy aggregation
 * [x] AI subsystem: requirements-ai.txt split + RAM/VRAM preflight (src/ai/providers/qwen.py)
 * [x] frontend/components/workspace/ — WorkspaceShell redesign
-* [ ] Theming sweep — several pre-existing panels still hardcode raw Tailwind colors, not yet on the new theme-token system (see PHASE_STATUS.md Phase M-2)
+* [x] Theming sweep — 19 pre-existing panels migrated onto the theme-token system 2026-07-08 (see PHASE_STATUS.md Phase M-2 / DECISIONS_LOG.md Part 24)
+* [x] Fixed: Next.js dev-server `allowedDevOrigins` blocking HMR and silently dropping upload form state (DECISIONS_LOG.md Part 24, Bug 1)
+* [x] Fixed: Rules of Hooks violation crashing every document workspace page (DECISIONS_LOG.md Part 24, Bug 2)
 
 ---
 
