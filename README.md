@@ -1,4 +1,4 @@
-# RAWRS — Remediation and Accessibility Work Reduction System
+# RAWRS — Remediation and Accessibility Work Reduction System (Still under rapid development)
 
 RAWRS is a local-first, accessibility remediation platform for academic PDFs. It accepts either a PDF alone or a PDF paired with a Mathpix MMD export, verifies and enriches the extracted content, and produces accessible Word documents (DOCX) and Markdown with a human-review platform for every accessibility-critical decision.
 
@@ -124,3 +124,4 @@ AI alt text (on-demand, optional — `requirements-ai.txt`): `torch`, `transform
 Dev: `pytest`, `pytest-cov`
 
 External runtime (for Surya on CPU): `llama-server` binary (llama.cpp) — required by `surya-ocr` on non-GPU hosts; set `LLAMA_CPP_BINARY` env var or add to PATH.
+
