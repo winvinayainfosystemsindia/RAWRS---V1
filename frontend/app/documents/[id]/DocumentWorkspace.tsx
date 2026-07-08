@@ -67,6 +67,30 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
   const [overviewOpen, setOverviewOpen] = useState(false);
   const elapsed = useElapsedSeconds(state.job);
 
+  // Every hook must run unconditionally on every render, so this stays
+  // above the notFound/loading early returns below — selectors here only
+  // read always-present dictionary fields off `state`, never `state.job`,
+  // so they're safe to compute before job is known to exist.
+  const pdfOverlays = useMemo((): PdfObjectOverlay[] => {
+    const out: PdfObjectOverlay[] = [];
+    for (const h of selectHeadings(state)) {
+      if (h.bbox) out.push({ objectType: "heading", objectId: h.document_order, pageNumber: h.page_number, bbox: h.bbox, sourceLine: h.source_line, label: h.text || `H${h.level}` });
+    }
+    for (const t of selectTables(state)) {
+      if (t.bbox) out.push({ objectType: "table", objectId: t.table_id, pageNumber: t.page_number, bbox: t.bbox, sourceLine: t.source_line ?? null, label: t.caption || "Table" });
+    }
+    for (const img of selectImages(state)) {
+      if (img.bbox) out.push({ objectType: "image", objectId: img.image_id, pageNumber: img.page_number, bbox: img.bbox, label: img.figure?.caption || img.figure?.alt_text || "Figure" });
+    }
+    for (const l of selectLists(state)) {
+      if (l.bbox) out.push({ objectType: "list", objectId: listKey(l), pageNumber: l.page_number, bbox: l.bbox, sourceLine: l.source_line ?? null, label: l.items[0]?.text || "List" });
+    }
+    for (const c of selectCallouts(state)) {
+      if (c.bbox) out.push({ objectType: "callout", objectId: calloutKey(c), pageNumber: c.page_number ?? 1, bbox: c.bbox, sourceLine: c.source_line ?? null, label: c.label });
+    }
+    return out;
+  }, [state]);
+
   const { job, notFound } = state;
 
   if (notFound) {
@@ -103,26 +127,6 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
     (p) => p.reading_order_status === "unreviewed"
   ).length;
   const labelConflicts = pageLabels.filter((p) => p.label_conflict).length;
-
-  const pdfOverlays = useMemo((): PdfObjectOverlay[] => {
-    const out: PdfObjectOverlay[] = [];
-    for (const h of selectHeadings(state)) {
-      if (h.bbox) out.push({ objectType: "heading", objectId: h.document_order, pageNumber: h.page_number, bbox: h.bbox, sourceLine: h.source_line, label: h.text || `H${h.level}` });
-    }
-    for (const t of selectTables(state)) {
-      if (t.bbox) out.push({ objectType: "table", objectId: t.table_id, pageNumber: t.page_number, bbox: t.bbox, sourceLine: t.source_line ?? null, label: t.caption || "Table" });
-    }
-    for (const img of selectImages(state)) {
-      if (img.bbox) out.push({ objectType: "image", objectId: img.image_id, pageNumber: img.page_number, bbox: img.bbox, label: img.figure?.caption || img.figure?.alt_text || "Figure" });
-    }
-    for (const l of selectLists(state)) {
-      if (l.bbox) out.push({ objectType: "list", objectId: listKey(l), pageNumber: l.page_number, bbox: l.bbox, sourceLine: l.source_line ?? null, label: l.items[0]?.text || "List" });
-    }
-    for (const c of selectCallouts(state)) {
-      if (c.bbox) out.push({ objectType: "callout", objectId: calloutKey(c), pageNumber: c.page_number ?? 1, bbox: c.bbox, sourceLine: c.source_line ?? null, label: c.label });
-    }
-    return out;
-  }, [state]);
 
   function handlePdfOverlayClick(overlay: PdfObjectOverlay) {
     select(overlay.objectType, overlay.objectId);
