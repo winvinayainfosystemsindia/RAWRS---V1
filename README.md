@@ -1,4 +1,4 @@
-# RAWRS — Remediation and Accessibility Workflow for Research Sources
+# RAWRS — Remediation and Accessibility Work Reduction System
 
 RAWRS is a local-first, accessibility remediation platform for academic PDFs. It accepts either a PDF alone or a PDF paired with a Mathpix MMD export, verifies and enriches the extracted content, and produces accessible Word documents (DOCX) and Markdown with a human-review platform for every accessibility-critical decision.
 
