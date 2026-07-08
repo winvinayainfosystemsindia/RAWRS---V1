@@ -14,7 +14,7 @@ src/verification/lists.py::ListVerifier).
 from __future__ import annotations
 
 from enum import Enum
-from typing import List
+from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -47,3 +47,5 @@ class ListBlock(SemanticObject):
     items: List[ListItem] = Field(default_factory=list)
     page_number: int = Field(..., ge=1)
     document_order: int = Field(..., ge=0)
+    # FEATURE_020 — see Heading.source_line's docstring (src/models/heading.py).
+    source_line: Optional[int] = None

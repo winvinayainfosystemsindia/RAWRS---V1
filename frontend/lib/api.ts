@@ -32,6 +32,16 @@ export interface JobSummary {
   docx_available: boolean;
   report_available: boolean;
   has_front_matter: boolean;
+  document_version: number | null;
+  markdown_generated_at_version: number | null;
+  docx_generated_at_version: number | null;
+}
+
+export interface BoundingBox {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
 }
 
 export type Severity = "error" | "warning" | "info";
@@ -91,6 +101,7 @@ export interface ImageItem {
   url: string | null;
   extraction_failed: boolean;
   figure: Figure | null;
+  bbox: BoundingBox | null;
 }
 
 export interface ImagesResponse {
@@ -110,6 +121,8 @@ export interface FootnoteItem {
   body_page_number: number;
   review_status: FootnoteReviewStatus;
   reviewer_note: string | null;
+  anchor_text: string | null;
+  body_source_text: string | null;
 }
 
 export interface FootnotesResponse {
@@ -132,6 +145,8 @@ export interface HeadingItem {
   is_page_marker: boolean;
   review_status: HeadingReviewStatus;
   reviewer_note: string | null;
+  bbox: BoundingBox | null;
+  source_line: number | null;
 }
 
 export interface HeadingsResponse {
@@ -224,6 +239,8 @@ export interface TableItem {
   header_col_count: number;
   confidence: number;
   ai_suggestions: TableAISuggestions | null;
+  bbox: BoundingBox | null;
+  source_line: number | null;
 }
 
 export interface TablesResponse {
@@ -242,6 +259,42 @@ export interface TableReviewRequest {
   header_row_indices?: number[] | null;
   header_col_count?: number | null;
   cells?: CellUpdate[] | null;
+}
+
+export type ListType = "bullet" | "numbered";
+
+export interface ListItemEntry {
+  text: string;
+  level: number;
+}
+
+export interface ListItem {
+  id: string | null;
+  list_type: ListType;
+  items: ListItemEntry[];
+  page_number: number;
+  document_order: number;
+  source_line: number | null;
+  bbox: BoundingBox | null;
+}
+
+export interface ListsResponse {
+  lists: ListItem[];
+}
+
+export interface CalloutItem {
+  id: string | null;
+  callout_type: string;
+  label: string;
+  heading_id: string | null;
+  page_number: number | null;
+  document_order: number;
+  source_line: number | null;
+  bbox: BoundingBox | null;
+}
+
+export interface CalloutsResponse {
+  callouts: CalloutItem[];
 }
 
 export interface UploadResponse {
@@ -314,6 +367,18 @@ export const api = {
 
   getFootnotes(jobId: string): Promise<FootnotesResponse> {
     return request<FootnotesResponse>(`/api/documents/${jobId}/footnotes`);
+  },
+
+  getLists(jobId: string): Promise<ListsResponse> {
+    return request<ListsResponse>(`/api/documents/${jobId}/lists`);
+  },
+
+  getCallouts(jobId: string): Promise<CalloutsResponse> {
+    return request<CalloutsResponse>(`/api/documents/${jobId}/callouts`);
+  },
+
+  sourcePdfUrl(jobId: string): string {
+    return `${API_BASE_URL}/api/documents/${jobId}/source-pdf`;
   },
 
   getPages(jobId: string): Promise<PagesResponse> {
@@ -500,6 +565,41 @@ export const api = {
   getReadiness(jobId: string): Promise<ReadinessReport> {
     return request<ReadinessReport>(`/api/documents/${jobId}/readiness`);
   },
+
+  getAiStatus(): Promise<AiStatus> {
+    return request<AiStatus>("/api/ai/status");
+  },
+
+  getPageLabels(jobId: string): Promise<PageLabelsResponse> {
+    return request<PageLabelsResponse>(`/api/documents/${jobId}/page-labels`);
+  },
+
+  overridePageLabel(jobId: string, pageNum: number, label: string): Promise<PageLabel> {
+    return request<PageLabel>(`/api/documents/${jobId}/page-labels/${pageNum}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "override", label }),
+    });
+  },
+
+  resetPageLabel(jobId: string, pageNum: number): Promise<PageLabel> {
+    return request<PageLabel>(`/api/documents/${jobId}/page-labels/${pageNum}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "reset" }),
+    });
+  },
+
+  setPageLabelSections(
+    jobId: string,
+    sections: PageLabelSectionRequest[]
+  ): Promise<PageLabelsResponse> {
+    return request<PageLabelsResponse>(`/api/documents/${jobId}/page-label-sections`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sections }),
+    });
+  },
 };
 
 // --- Generic Corrections (Document Merge Layer reviewer surface) ----------
@@ -512,9 +612,11 @@ export type CorrectionAction =
   | "needs_review"
   | "undo";
 
-export interface EvidenceItem {
-  signal: string;
-  detail: string;
+export interface EvidenceSignal {
+  name: string;
+  score: number;
+  weight: number;
+  note: string;
 }
 
 export interface CorrectionItem {
@@ -527,7 +629,7 @@ export interface CorrectionItem {
   suggested_value: string;
   reason: string;
   confidence: number | null;
-  evidence: EvidenceItem[];
+  evidence: EvidenceSignal[];
   status: string;
   created_at: string;
   reviewer_notes: string | null;
@@ -586,6 +688,45 @@ export interface ReadingOrderResponse {
 export interface ReadingOrderPatchRequest {
   action: "approve" | "reorder";
   block_sequence?: number[];
+}
+
+// --- AI status --------------------------------------------------------------
+
+export interface AiStatus {
+  provider: string;
+  available: boolean;
+  unavailable_reason: string | null;
+  capabilities: string[];
+}
+
+// --- Page Label Manager (FEATURE_018) ---------------------------------------
+
+export type PageLabelStatus = "detected" | "approved" | "overridden";
+export type PageLabelStyle = "arabic" | "roman_lower" | "roman_upper" | "none";
+
+export interface PageLabel {
+  page_number: number;
+  printed_label: string | null;
+  label_confidence: number | null;
+  label_conflict: boolean;
+  page_label: string | null;
+  page_label_status: PageLabelStatus;
+}
+
+export interface PageLabelSection {
+  start_page: number;
+  end_page: number;
+  style: PageLabelStyle;
+  start_number: number;
+  prefix: string;
+  suffix: string;
+}
+
+export type PageLabelSectionRequest = PageLabelSection;
+
+export interface PageLabelsResponse {
+  pages: PageLabel[];
+  sections: PageLabelSection[];
 }
 
 export { ApiError };

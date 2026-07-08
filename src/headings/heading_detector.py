@@ -126,6 +126,7 @@ _absorb_continuations()'s own docstring for the full gate list.
 
 import re
 from collections import Counter
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Set, Tuple
 
@@ -279,17 +280,19 @@ def detect_headings(
         # Resolve the marker text for this page according to the active
         # policy.  When no policy is supplied (legacy callers) the
         # original feature_009 behaviour is preserved: prefer the
-        # detected printed label, fall back to the physical page number,
-        # and always emit a marker.  When a policy IS supplied it acts
-        # as the sole decision point: returning None suppresses the
+        # reviewed page_label (FEATURE_018; falls back to printed_label
+        # when no reviewer action has been taken), then the physical page
+        # number, and always emit a marker.  When a policy IS supplied it
+        # acts as the sole decision point: returning None suppresses the
         # marker entirely (e.g. AUTO mode on a page with no detected
         # printed number, or DISABLED, or a page outside MANUAL_RANGE).
+        effective_label = page.page_label or page.printed_label
         if page_numbering_policy is not None:
             marker_text: Optional[str] = page_numbering_policy.resolve_marker_text(
-                page.page_number, page.printed_label
+                page.page_number, effective_label
             )
         else:
-            marker_text = page.printed_label or str(page.page_number)
+            marker_text = effective_label or str(page.page_number)
 
         if marker_text is not None:
             headings.append(
@@ -858,6 +861,31 @@ def _build_layout_index(
 
     (body_size, body_is_bold), _ = body_char_votes.most_common(1)[0]
     return index, (body_size, body_is_bold), bbox_index
+
+
+@dataclass
+class HeadingLayoutContext:
+    """Raw per-line typography/whitespace signals for one PDF, exposed for
+    verifiers that need more than a classified heading level — HeadingVerifier's
+    multi-signal EvidenceBundle (FEATURE_019, src/verification/headings.py).
+
+    layout_index[page][text]   -> (font_size, is_bold)
+    body_profile               -> the document's own (font_size, is_bold) baseline
+    bbox_index[page][text]     -> (block_index, y0, y1)
+    """
+
+    layout_index: Dict[int, Dict[str, LineLayout]]
+    body_profile: Optional[LineLayout]
+    bbox_index: Dict[int, Dict[str, Tuple[int, float, float]]]
+
+
+def build_heading_layout_context(pdf_path: Path) -> HeadingLayoutContext:
+    """Public wrapper around _build_layout_index (the exact same per-line
+    scan detect_headings_from_pdf() already runs — no second PDF read) for
+    callers that need the raw signals themselves, not just a classified
+    heading level."""
+    layout_index, body_profile, bbox_index = _build_layout_index(str(pdf_path))
+    return HeadingLayoutContext(layout_index=layout_index, body_profile=body_profile, bbox_index=bbox_index)
 
 
 class _FallbackSignal:

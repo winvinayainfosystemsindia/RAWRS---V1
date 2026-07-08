@@ -35,7 +35,7 @@ function WorkspaceTabBar({
     <div
       role="tablist"
       aria-label="Output workspace"
-      className="flex items-center gap-0.5 border-b border-gray-200 overflow-x-auto"
+      className="flex items-center gap-0.5 border-b border-border overflow-x-auto"
     >
       {/* Active tabs */}
       {ACTIVE_TABS.map((tab) => {
@@ -48,10 +48,10 @@ function WorkspaceTabBar({
             aria-selected={isActive}
             aria-controls={`ws-panel-${tab.id}`}
             onClick={() => onSelect(tab.id)}
-            className={`shrink-0 px-4 py-2.5 text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 transition-colors rounded-t-sm ${
+            className={`shrink-0 px-4 py-2.5 text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-accent transition-colors rounded-t-sm ${
               isActive
-                ? "border-b-2 border-blue-600 text-blue-700 bg-white"
-                : "border-b-2 border-transparent text-gray-500 hover:text-gray-800"
+                ? "border-b-2 border-accent text-accent bg-surface-canvas"
+                : "border-b-2 border-transparent text-text-secondary hover:text-text-primary"
             }`}
           >
             {tab.label}
@@ -60,17 +60,17 @@ function WorkspaceTabBar({
       })}
 
       {/* Separator */}
-      <div className="mx-2 h-5 w-px bg-gray-200 shrink-0" aria-hidden="true" />
+      <div className="mx-2 h-5 w-px bg-border shrink-0" aria-hidden="true" />
 
       {/* Coming-soon tabs — not interactive */}
       {SOON_TABS.map((tab) => (
         <span
           key={tab.id}
-          className="shrink-0 flex items-center gap-1.5 px-4 py-2.5 text-sm text-gray-300 cursor-default select-none"
+          className="shrink-0 flex items-center gap-1.5 px-4 py-2.5 text-sm text-text-secondary/50 cursor-default select-none"
           title="Coming soon"
         >
           {tab.label}
-          <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[9px] font-semibold text-gray-400 uppercase tracking-wider">
+          <span className="rounded-full bg-surface-elevated px-1.5 py-0.5 text-[9px] font-semibold text-text-secondary/70 uppercase tracking-wider">
             soon
           </span>
         </span>
@@ -79,87 +79,45 @@ function WorkspaceTabBar({
   );
 }
 
-// ─── Markdown editor tab ──────────────────────────────────────────────────────
+// ─── Version staleness note ───────────────────────────────────────────────────
+
+function GeneratedAtVersionNote({
+  generatedAtVersion,
+  currentVersion,
+}: {
+  generatedAtVersion: number | null;
+  currentVersion: number | null;
+}) {
+  if (generatedAtVersion === null || currentVersion === null) return null;
+
+  const isStale = generatedAtVersion !== currentVersion;
+
+  return (
+    <p className={`text-xs ${isStale ? "text-warning" : "text-text-secondary"}`}>
+      Generated from Document v{generatedAtVersion}
+      {isStale && ` — Document is now v${currentVersion}. Re-run export to include the latest reviewer changes.`}
+    </p>
+  );
+}
+
+// ─── Markdown tab — read-only projection of the generated output ─────────────
+// Editable markdown was removed: edits only lasted the browser session and
+// were never persisted server-side. Exports are read-only projections of the
+// canonical Document; authoring corrections happens through the Corrections
+// workflow, not by hand-editing a generated artifact.
 
 interface MarkdownTabProps {
   generatedMarkdown: string;
-  editedMarkdown: string;
-  editorKey: number;
-  hasUnsavedChanges: boolean;
-  onEdit: (value: string) => void;
-  onSave: () => void;
-  onReset: () => void;
+  generatedAtVersion: number | null;
+  currentVersion: number | null;
 }
 
-function MarkdownTab({
-  generatedMarkdown,
-  editedMarkdown,
-  editorKey,
-  hasUnsavedChanges,
-  onEdit,
-  onSave,
-  onReset,
-}: MarkdownTabProps) {
+function MarkdownTab({ generatedMarkdown, generatedAtVersion, currentVersion }: MarkdownTabProps) {
   return (
     <div className="flex flex-col gap-2 h-full">
-      {/* Toolbar */}
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-2">
-          {hasUnsavedChanges ? (
-            <span className="flex items-center gap-1.5 text-xs font-medium text-amber-700">
-              <span className="inline-block h-2 w-2 rounded-full bg-amber-500" aria-hidden="true" />
-              Unsaved Changes
-            </span>
-          ) : (
-            <span className="flex items-center gap-1.5 text-xs text-green-700">
-              <svg className="h-3.5 w-3.5" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M2 7l3.5 3.5 6.5-7" />
-              </svg>
-              Up to date
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={onReset}
-            disabled={!hasUnsavedChanges}
-            className="rounded px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-          >
-            Reset to Generated
-          </button>
-          <button
-            type="button"
-            onClick={onSave}
-            disabled={!hasUnsavedChanges}
-            className={`rounded px-3 py-1.5 text-xs font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 transition-colors ${
-              hasUnsavedChanges
-                ? "bg-blue-600 text-white hover:bg-blue-700"
-                : "bg-gray-100 text-gray-400 cursor-not-allowed"
-            }`}
-          >
-            Save
-          </button>
-        </div>
-      </div>
-
-      {/* Note about backend save */}
-      {hasUnsavedChanges && (
-        <p className="text-[11px] text-gray-400">
-          Save stores your edits locally in this session. Download to persist them.{" "}
-          <span className="font-mono text-gray-400">TODO: backend /api/documents/{"{id}"}/markdown PATCH endpoint</span>
-        </p>
-      )}
-
-      {/* Editor — fixed height with internal scroll, matching the
-          Accessible DOCX Preview's scroll affordance (DocxPreview.tsx)
-          instead of growing the page with the document's length. */}
+      <GeneratedAtVersionNote generatedAtVersion={generatedAtVersion} currentVersion={currentVersion} />
       <div style={{ height: "600px" }}>
-        <MarkdownEditor
-          key={editorKey}
-          initialContent={generatedMarkdown}
-          onChange={onEdit}
-        />
+        <MarkdownEditor initialContent={generatedMarkdown} readOnly />
       </div>
     </div>
   );
@@ -169,23 +127,23 @@ function MarkdownTab({
 
 function RawMathpixTab() {
   return (
-    <div className="rounded-lg border border-violet-100 bg-white">
-      <div className="border-b border-violet-100 bg-violet-50 px-4 py-3">
-        <p className="text-xs font-semibold text-violet-800">Not available in Phase 1</p>
+    <div className="rounded-lg border border-accent/20 bg-surface-panel">
+      <div className="border-b border-accent/20 bg-accent/10 px-4 py-3">
+        <p className="text-xs font-semibold text-accent">Not available in Phase 1</p>
       </div>
       <div className="p-6 space-y-4">
-        <p className="text-sm text-gray-700">
+        <p className="text-sm text-text-primary">
           The original Mathpix Markdown is not preserved by the Phase 1 pipeline. This tab will show
           the source Mathpix output for side-by-side comparison once Phase 2 input handling is implemented.
         </p>
-        <div className="rounded-md border border-gray-200 bg-gray-50 px-4 py-3 font-mono text-xs text-gray-500 space-y-1">
-          <p className="text-gray-400 font-semibold">TODO — Phase 2</p>
+        <div className="rounded-md border border-border bg-surface-canvas px-4 py-3 font-mono text-xs text-text-secondary space-y-1">
+          <p className="text-text-secondary/70 font-semibold">TODO — Phase 2</p>
           <p>Store Mathpix markdown at job creation time.</p>
-          <p>Expose via <span className="text-violet-600">GET /api/documents/{"{id}"}/source-markdown</span></p>
+          <p>Expose via <span className="text-accent">GET /api/documents/{"{id}"}/source-markdown</span></p>
           <p>Render read-only here using the same editor (readOnly=true).</p>
           <p>Add diff highlighting if the two markdown streams differ (unified diff view).</p>
         </div>
-        <p className="text-xs text-gray-400">
+        <p className="text-xs text-text-secondary/70">
           Side-by-side diff is deferred rather than implemented poorly.
           A diff library will be evaluated when Phase 2 input is available.
         </p>
@@ -198,26 +156,11 @@ function RawMathpixTab() {
 
 interface DownloadControlsProps {
   job: JobSummary;
-  editedMarkdown: string;
-  hasUnsavedChanges: boolean;
 }
 
-function DownloadControls({ job, editedMarkdown, hasUnsavedChanges }: DownloadControlsProps) {
-  function downloadEditedMarkdown() {
-    const blob = new Blob([editedMarkdown], { type: "text/markdown; charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = job.filename.replace(/\.[^.]+$/, ".md");
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }
-
+function DownloadControls({ job }: DownloadControlsProps) {
   const buttons: {
     label: string;
-    onClick?: () => void;
     href?: string;
     available: boolean;
     note?: string;
@@ -226,12 +169,17 @@ function DownloadControls({ job, editedMarkdown, hasUnsavedChanges }: DownloadCo
       label: "Accessible DOCX",
       href: job.docx_available ? api.downloadUrl(job.job_id, "docx") : undefined,
       available: job.docx_available,
+      note: job.docx_generated_at_version !== null && job.docx_generated_at_version !== job.document_version
+        ? "stale"
+        : undefined,
     },
     {
       label: "Accessible Markdown",
-      onClick: downloadEditedMarkdown,
+      href: job.markdown_available ? api.downloadUrl(job.job_id, "markdown") : undefined,
       available: job.markdown_available,
-      note: hasUnsavedChanges ? "includes your edits" : undefined,
+      note: job.markdown_generated_at_version !== null && job.markdown_generated_at_version !== job.document_version
+        ? "stale"
+        : undefined,
     },
     {
       label: "Accessibility Report",
@@ -245,61 +193,29 @@ function DownloadControls({ job, editedMarkdown, hasUnsavedChanges }: DownloadCo
   ];
 
   return (
-    <div className="border-t border-gray-100 pt-4 mt-4">
-      {/* Save status */}
-      <div className="flex items-center gap-2 mb-3">
-        {hasUnsavedChanges ? (
-          <span className="flex items-center gap-1.5 text-xs text-amber-700">
-            <span className="inline-block h-2 w-2 rounded-full bg-amber-500" aria-hidden="true" />
-            Unsaved changes — Markdown download will include your edits
-          </span>
-        ) : (
-          <span className="flex items-center gap-1.5 text-xs text-gray-500">
-            <svg className="h-3.5 w-3.5 text-green-600" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M2 7l3.5 3.5 6.5-7" />
-            </svg>
-            No unsaved changes
-          </span>
-        )}
-      </div>
-
+    <div className="border-t border-border pt-4 mt-4">
       <div className="flex flex-wrap gap-2">
         {buttons.map((btn) =>
           btn.available ? (
-            btn.href ? (
-              <a
-                key={btn.label}
-                href={btn.href}
-                download
-                className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-800 hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-              >
-                <svg className="h-3.5 w-3.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
-                </svg>
-                {btn.label}
-                {btn.note && <span className="text-amber-600 font-normal">({btn.note})</span>}
-              </a>
-            ) : (
-              <button
-                key={btn.label}
-                type="button"
-                onClick={btn.onClick}
-                className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-800 hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-              >
-                <svg className="h-3.5 w-3.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
-                </svg>
-                {btn.label}
-                {btn.note && <span className="text-amber-600 font-normal">({btn.note})</span>}
-              </button>
-            )
+            <a
+              key={btn.label}
+              href={btn.href}
+              download
+              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface-canvas px-3 py-2 text-xs font-semibold text-text-primary hover:bg-hover-row focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              <svg className="h-3.5 w-3.5 text-text-secondary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+              </svg>
+              {btn.label}
+              {btn.note && <span className="text-warning font-normal">({btn.note} — Document v{job.document_version})</span>}
+            </a>
           ) : (
             <span
               key={btn.label}
-              className="inline-flex items-center gap-1.5 rounded-md border border-gray-100 bg-gray-50 px-3 py-2 text-xs text-gray-400 cursor-default"
+              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface-panel px-3 py-2 text-xs text-text-secondary/60 cursor-default"
             >
               {btn.label}
-              <span className="text-gray-300">—</span>
+              <span className="text-text-secondary/40">—</span>
               <span className="italic">Not available</span>
             </span>
           )
@@ -318,33 +234,24 @@ interface OutputWorkspaceProps {
 
 export function OutputWorkspace({ job, generatedMarkdown }: OutputWorkspaceProps) {
   const [activeTab, setActiveTab] = useState<TabId>("markdown");
-  const [editedMarkdown, setEditedMarkdown] = useState(generatedMarkdown);
-  const [savedMarkdown, setSavedMarkdown] = useState(generatedMarkdown);
-  // editorKey change forces MarkdownEditor to remount with fresh content.
-  const [editorKey, setEditorKey] = useState(0);
-
-  const hasUnsavedChanges = editedMarkdown !== savedMarkdown;
-
-  function handleSave() {
-    setSavedMarkdown(editedMarkdown);
-  }
-
-  function handleReset() {
-    setEditedMarkdown(generatedMarkdown);
-    setSavedMarkdown(generatedMarkdown);
-    setEditorKey((k) => k + 1);
-  }
 
   return (
-    <section aria-labelledby="workspace-heading" className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+    <section aria-labelledby="workspace-heading" className="rounded-xl border border-border bg-surface-panel overflow-hidden">
       {/* Section header */}
-      <div className="flex items-center justify-between border-b border-gray-100 px-5 py-3">
-        <h2 id="workspace-heading" className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+      <div className="flex items-center justify-between border-b border-border px-5 py-3">
+        <h2 id="workspace-heading" className="text-xs font-semibold text-text-secondary uppercase tracking-wider">
           Output Workspace
         </h2>
-        {!job.markdown_available && !job.docx_available && (
-          <span className="text-xs text-gray-400">No outputs generated</span>
-        )}
+        <div className="flex items-center gap-3">
+          {job.document_version !== null && (
+            <span className="rounded border border-border px-2 py-0.5 font-mono text-xs text-text-secondary">
+              Document v{job.document_version}
+            </span>
+          )}
+          {!job.markdown_available && !job.docx_available && (
+            <span className="text-xs text-text-secondary/70">No outputs generated</span>
+          )}
+        </div>
       </div>
 
       {/* Tab bar */}
@@ -363,12 +270,8 @@ export function OutputWorkspace({ job, generatedMarkdown }: OutputWorkspaceProps
           {activeTab === "markdown" && (
             <MarkdownTab
               generatedMarkdown={generatedMarkdown}
-              editedMarkdown={editedMarkdown}
-              editorKey={editorKey}
-              hasUnsavedChanges={hasUnsavedChanges}
-              onEdit={setEditedMarkdown}
-              onSave={handleSave}
-              onReset={handleReset}
+              generatedAtVersion={job.markdown_generated_at_version}
+              currentVersion={job.document_version}
             />
           )}
         </div>
@@ -380,7 +283,13 @@ export function OutputWorkspace({ job, generatedMarkdown }: OutputWorkspaceProps
           hidden={activeTab !== "docx"}
         >
           {activeTab === "docx" && (
-            <DocxPreview jobId={job.job_id} available={job.docx_available} />
+            <div className="space-y-2">
+              <GeneratedAtVersionNote
+                generatedAtVersion={job.docx_generated_at_version}
+                currentVersion={job.document_version}
+              />
+              <DocxPreview jobId={job.job_id} available={job.docx_available} />
+            </div>
           )}
         </div>
 
@@ -394,11 +303,7 @@ export function OutputWorkspace({ job, generatedMarkdown }: OutputWorkspaceProps
         </div>
 
         {/* Downloads always visible at the bottom */}
-        <DownloadControls
-          job={job}
-          editedMarkdown={editedMarkdown}
-          hasUnsavedChanges={hasUnsavedChanges}
-        />
+        <DownloadControls job={job} />
       </div>
     </section>
   );

@@ -57,6 +57,7 @@ from loguru import logger
 
 from src.models.contracts import BoundingBox, Document, SanitizationEvent, Span, TextBlock
 from src.structure.layout_signals import line_layout
+from src.structure.page_label_resolver import resolve_page_labels
 from src.utils.text_sanitization import sanitize_xml_text
 
 # feature_009: a printed page number (or roman-numeral front-matter
@@ -126,17 +127,24 @@ def detect_structure(document: Document) -> Document:
             if page_index < 0 or page_index >= pdf_document.page_count:
                 continue  # Document.pages has no matching PDF page; nothing to extract
             pdf_page = pdf_document[page_index]
-            page_blocks, page_events, printed_label = _extract_page_blocks(
+            page_blocks, page_events, printed_label, label_confidence, label_conflict = _extract_page_blocks(
                 pdf_page, page.page_number
             )
             blocks.extend(page_blocks)
             document.sanitization_events.extend(page_events)
             page.printed_label = printed_label
+            page.label_confidence = label_confidence
+            page.label_conflict = label_conflict
             page.width_pt = pdf_page.rect.width
     finally:
         pdf_document.close()
 
     document.blocks = blocks
+    # FEATURE_018: initial auto-population of the final page_label from
+    # each page's just-detected printed_label. document.page_label_sections
+    # is empty at this point (no reviewer action yet), so every page falls
+    # back to printed_label — identical to pre-FEATURE_018 behavior.
+    resolve_page_labels(document)
 
     logger.info(
         "Structure detection complete for '{}': {} block(s) across {} page(s)",
@@ -149,7 +157,7 @@ def detect_structure(document: Document) -> Document:
 
 def _extract_page_blocks(
     page: fitz.Page, page_number: int
-) -> Tuple[List[TextBlock], List[SanitizationEvent], Optional[str]]:
+) -> Tuple[List[TextBlock], List[SanitizationEvent], Optional[str], Optional[float], bool]:
     """Extract one TextBlock per non-blank line on a single page, in
     the order PyMuPDF emitted them (block, then line, within that
     block) - page-scoped, not a document-wide or corrected order.
@@ -158,13 +166,17 @@ def _extract_page_blocks(
     from the same already-parsed page_dict - no second PDF read.
 
     Returns:
-        (text_blocks, sanitization_events, printed_label) - the second
-        element (XML Sanitization Architecture, Layer 1) records any
-        XML-illegal character removed from a line's text before it
-        became a TextBlock; see module docstring for why this is the
-        one call site that protects figure captions and
-        footnote/endnote text. ``printed_label`` is None whenever no
-        confident candidate was found - see _detect_printed_label().
+        (text_blocks, sanitization_events, printed_label, label_confidence,
+        label_conflict) - the second element (XML Sanitization
+        Architecture, Layer 1) records any XML-illegal character removed
+        from a line's text before it became a TextBlock; see module
+        docstring for why this is the one call site that protects figure
+        captions and footnote/endnote text. ``printed_label`` is None
+        whenever no confident candidate was found - see
+        _detect_printed_label(). ``label_confidence`` (FEATURE_018) is
+        1.0 when printed_label was found, else None. ``label_conflict``
+        is True when 2+ ambiguous candidates were found (distinct from
+        zero found - both otherwise collapse to printed_label=None).
     """
     page_dict = page.get_text("dict")
     text_blocks: List[TextBlock] = []
@@ -201,11 +213,13 @@ def _extract_page_blocks(
             )
             order += 1
 
-    printed_label = _detect_printed_label(page_dict, page.rect.height)
-    return text_blocks, events, printed_label
+    printed_label, label_confidence, label_conflict = _detect_printed_label(page_dict, page.rect.height)
+    return text_blocks, events, printed_label, label_confidence, label_conflict
 
 
-def _detect_printed_label(page_dict: dict, page_height: float) -> Optional[str]:
+def _detect_printed_label(
+    page_dict: dict, page_height: float
+) -> Tuple[Optional[str], Optional[float], bool]:
     """feature_009: the page number actually printed on this page, read
     independently of TextBlock/order above (this only needs each raw
     line's text and y-position, not the sanitized/layout-parsed form).
@@ -218,11 +232,15 @@ def _detect_printed_label(page_dict: dict, page_height: float) -> Optional[str]:
     is computed or assumed (a multi-chapter excerpt can splice
     non-contiguous original page ranges together, where a single global
     offset would be wrong for part of the document - confirmed against
-    FolkPedagogy_Bruner in the audit). Returns None - falling back to
-    the page's physical page_number downstream - whenever zero or more
-    than one candidate is found, rather than guessing between ambiguous
-    candidates (confirmed necessary against sockett_profession.pdf,
-    which has pages with two conflicting candidates).
+    FolkPedagogy_Bruner in the audit). Returns (None, None, False) -
+    falling back to the page's physical page_number downstream - when
+    zero candidates are found, rather than guessing between ambiguous
+    candidates. When exactly one is found, returns (candidate, 1.0,
+    False). When 2+ conflicting candidates are found (confirmed
+    necessary against sockett_profession.pdf, which has pages with two
+    conflicting candidates), returns (None, None, True) - FEATURE_018
+    distinguishes this "ambiguous" case from "nothing found" via the
+    conflict flag, for validation rule PAGE_007.
     """
     candidates: List[str] = []
     for block in page_dict.get("blocks", []):
@@ -241,8 +259,10 @@ def _detect_printed_label(page_dict: dict, page_height: float) -> Optional[str]:
                 candidates.append(text)
 
     if len(candidates) == 1:
-        return candidates[0]
-    return None
+        return candidates[0], 1.0, False
+    if len(candidates) > 1:
+        return None, None, True
+    return None, None, False
 
 
 def _extract_spans(line_dict: dict) -> List[Span]:

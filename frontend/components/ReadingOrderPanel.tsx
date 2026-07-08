@@ -10,19 +10,15 @@ interface Props {
 }
 
 function statusLabel(status: PageReadingOrder["reading_order_status"]): string {
-  switch (status) {
-    case "unreviewed": return "Needs review";
-    case "approved":   return "Approved";
-    case "corrected":  return "Corrected";
-  }
+  if (status === "unreviewed") return "Needs review";
+  if (status === "approved") return "Approved";
+  return "Corrected";
 }
 
-function statusColor(status: PageReadingOrder["reading_order_status"]): string {
-  switch (status) {
-    case "unreviewed": return "bg-yellow-100 text-yellow-800";
-    case "approved":   return "bg-green-100 text-green-800";
-    case "corrected":  return "bg-blue-100 text-blue-800";
-  }
+function statusClasses(status: PageReadingOrder["reading_order_status"]): string {
+  if (status === "unreviewed") return "bg-warning/15 text-warning";
+  if (status === "approved") return "bg-success/15 text-success";
+  return "bg-accent/15 text-accent";
 }
 
 interface PagePanelProps {
@@ -75,27 +71,26 @@ function PageOrderPanel({ page, jobId, onUpdated }: PagePanelProps) {
     }
   }
 
-  function handleReset() {
-    setBlocks([...page.blocks]);
-  }
-
   return (
     <div className="space-y-3">
-      {/* Status + controls */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <span className={`inline-flex items-center rounded px-2 py-0.5 text-xs font-medium ${statusColor(page.reading_order_status)}`}>
+          <span
+            className={`inline-flex items-center rounded px-2 py-0.5 text-xs font-medium ${statusClasses(page.reading_order_status)}`}
+          >
             {statusLabel(page.reading_order_status)}
           </span>
-          <span className="text-xs text-gray-500">{blocks.length} block{blocks.length !== 1 ? "s" : ""} on this page</span>
+          <span className="text-xs text-text-secondary">
+            {blocks.length} block{blocks.length !== 1 ? "s" : ""}
+          </span>
         </div>
         <div className="flex items-center gap-2">
           {isDirty && (
             <button
               type="button"
-              onClick={handleReset}
+              onClick={() => setBlocks([...page.blocks])}
               disabled={saving}
-              className="rounded px-2.5 py-1.5 text-xs text-gray-600 hover:bg-gray-100 disabled:opacity-40 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+              className="rounded px-2.5 py-1.5 text-xs text-text-secondary hover:bg-hover-row disabled:opacity-40"
             >
               Reset
             </button>
@@ -105,7 +100,7 @@ function PageOrderPanel({ page, jobId, onUpdated }: PagePanelProps) {
               type="button"
               onClick={handleSaveOrder}
               disabled={saving}
-              className="rounded px-3 py-1.5 text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+              className="rounded bg-accent px-3 py-1.5 text-xs font-semibold text-accent-contrast hover:opacity-90 disabled:opacity-40"
             >
               {saving ? "Saving…" : "Save order"}
             </button>
@@ -114,55 +109,62 @@ function PageOrderPanel({ page, jobId, onUpdated }: PagePanelProps) {
               type="button"
               onClick={handleApprove}
               disabled={saving || page.reading_order_status === "approved"}
-              className="rounded px-3 py-1.5 text-xs font-semibold bg-green-600 text-white hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500"
+              className="rounded bg-success px-3 py-1.5 text-xs font-semibold text-accent-contrast hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              {saving ? "Saving…" : page.reading_order_status === "approved" ? "Approved" : "Approve order"}
+              {saving
+                ? "Saving…"
+                : page.reading_order_status === "approved"
+                  ? "Approved ✓"
+                  : "Approve order"}
             </button>
           )}
         </div>
       </div>
 
       {error && (
-        <p className="text-xs text-red-600 rounded border border-red-200 bg-red-50 px-3 py-2">
+        <p className="rounded border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">
           {error}
         </p>
       )}
 
-      {/* Screen reader simulation note */}
-      <p className="text-xs text-gray-500 bg-gray-50 rounded px-3 py-2 border border-gray-100">
-        Screen readers traverse this page&rsquo;s text in the order shown below. Use the arrows to correct the sequence if two-column or multi-region layout caused PyMuPDF to interleave the blocks.
+      <p className="rounded border border-border bg-surface-panel px-3 py-2 text-xs text-text-secondary">
+        Screen readers traverse this page in the order shown. Use ↑ ↓ to correct sequences where
+        multi-column layout caused blocks to interleave.
       </p>
 
-      {/* Block list */}
       {blocks.length === 0 ? (
-        <p className="text-sm text-gray-500 py-2">No text blocks found on this page.</p>
+        <p className="py-2 text-sm text-text-secondary">No text blocks found on this page.</p>
       ) : (
         <ol className="space-y-1.5">
           {blocks.map((block, idx) => (
             <li
               key={block.block_order}
-              className="flex items-start gap-2 rounded-lg border border-gray-200 bg-white p-2.5"
+              className="flex items-start gap-2 rounded border border-border bg-surface-panel p-2.5"
             >
-              {/* Position number */}
-              <span className="shrink-0 inline-flex items-center justify-center w-6 h-6 rounded-full bg-gray-100 text-[11px] font-semibold text-gray-600 mt-0.5">
+              <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-surface-elevated font-mono text-[11px] font-semibold text-text-secondary">
                 {idx + 1}
               </span>
-
-              {/* Block text */}
-              <p className="flex-1 min-w-0 text-xs text-gray-800 break-words leading-snug">
-                {block.text.length > 120 ? block.text.slice(0, 120) + "…" : block.text}
+              <p className="min-w-0 flex-1 break-words text-xs leading-snug text-text-primary">
+                {block.text.length > 140 ? block.text.slice(0, 140) + "…" : block.text}
               </p>
-
-              {/* Move controls */}
-              <div className="shrink-0 flex flex-col gap-0.5">
+              <div className="flex shrink-0 flex-col gap-0.5">
                 <button
                   type="button"
                   aria-label={`Move block ${idx + 1} up`}
                   onClick={() => moveBlock(idx, idx - 1)}
                   disabled={idx === 0}
-                  className="rounded p-0.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-1 focus-visible:ring-blue-500"
+                  className="rounded p-0.5 text-text-secondary hover:bg-hover-row hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-30"
                 >
-                  <svg className="h-3.5 w-3.5" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <svg
+                    className="h-3.5 w-3.5"
+                    viewBox="0 0 12 12"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
                     <path d="M6 9.5V2.5M2.5 6 6 2.5 9.5 6" />
                   </svg>
                 </button>
@@ -171,9 +173,18 @@ function PageOrderPanel({ page, jobId, onUpdated }: PagePanelProps) {
                   aria-label={`Move block ${idx + 1} down`}
                   onClick={() => moveBlock(idx, idx + 1)}
                   disabled={idx === blocks.length - 1}
-                  className="rounded p-0.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-1 focus-visible:ring-blue-500"
+                  className="rounded p-0.5 text-text-secondary hover:bg-hover-row hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-30"
                 >
-                  <svg className="h-3.5 w-3.5" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <svg
+                    className="h-3.5 w-3.5"
+                    viewBox="0 0 12 12"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
                     <path d="M6 2.5v7M9.5 6 6 9.5 2.5 6" />
                   </svg>
                 </button>
@@ -188,7 +199,7 @@ function PageOrderPanel({ page, jobId, onUpdated }: PagePanelProps) {
 
 export function ReadingOrderPanel({ pages, jobId, onPagesUpdated }: Props) {
   const [selectedPageNum, setSelectedPageNum] = useState<number | null>(
-    pages.length > 0 ? pages[0].page_number : null
+    pages.length > 0 ? pages[0].page_number : null,
   );
 
   const selectedPage = pages.find((p) => p.page_number === selectedPageNum) ?? null;
@@ -199,9 +210,7 @@ export function ReadingOrderPanel({ pages, jobId, onPagesUpdated }: Props) {
 
   if (pages.length === 0) {
     return (
-      <p className="text-sm text-gray-500 py-4">
-        No reading order anomalies detected. PAGE_003 validation issues trigger this workspace.
-      </p>
+      <p className="py-4 text-sm text-text-secondary">No reading order anomalies detected.</p>
     );
   }
 
@@ -211,50 +220,47 @@ export function ReadingOrderPanel({ pages, jobId, onPagesUpdated }: Props) {
 
   return (
     <div>
-      {/* Summary bar */}
-      <div className="mb-3 flex flex-wrap gap-3 text-xs text-gray-600">
-        <span>{pages.length} page{pages.length !== 1 ? "s" : ""} flagged</span>
-        {unreviewedCount > 0 && <span className="text-yellow-700">{unreviewedCount} awaiting review</span>}
-        {approvedCount > 0 && <span className="text-green-700">{approvedCount} approved</span>}
-        {correctedCount > 0 && <span className="text-blue-700">{correctedCount} corrected</span>}
+      <div className="mb-3 flex flex-wrap gap-3 text-xs text-text-secondary">
+        <span>
+          {pages.length} page{pages.length !== 1 ? "s" : ""} flagged
+        </span>
+        {unreviewedCount > 0 && (
+          <span className="text-warning">{unreviewedCount} awaiting review</span>
+        )}
+        {approvedCount > 0 && <span className="text-success">{approvedCount} approved</span>}
+        {correctedCount > 0 && <span className="text-accent">{correctedCount} corrected</span>}
       </div>
 
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
-        {/* Page list */}
-        <div className="w-full lg:w-40 shrink-0">
-          <ul className="space-y-1.5">
-            {pages.map((page) => (
-              <li key={page.page_number}>
-                <button
-                  type="button"
-                  onClick={() => setSelectedPageNum(page.page_number)}
-                  className={`w-full text-left rounded-lg border px-3 py-2.5 text-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
-                    page.page_number === selectedPageNum
-                      ? "border-blue-500 bg-blue-50"
-                      : "border-gray-200 hover:border-gray-300 bg-white"
-                  }`}
+        <ul className="flex w-full shrink-0 flex-col gap-1 lg:w-36">
+          {pages.map((page) => (
+            <li key={page.page_number}>
+              <button
+                type="button"
+                onClick={() => setSelectedPageNum(page.page_number)}
+                className={`w-full rounded border px-3 py-2 text-left text-sm transition-colors ${
+                  page.page_number === selectedPageNum
+                    ? "border-accent bg-accent/10 text-text-primary"
+                    : "border-border bg-surface-panel text-text-secondary hover:border-border-strong hover:text-text-primary"
+                }`}
+              >
+                <span className="block font-medium">Page {page.page_number}</span>
+                <span
+                  className={`mt-0.5 inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium ${statusClasses(page.reading_order_status)}`}
                 >
-                  <span className="font-medium text-gray-900 block">Page {page.page_number}</span>
-                  <span className={`mt-1 inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-medium ${statusColor(page.reading_order_status)}`}>
-                    {statusLabel(page.reading_order_status)}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </div>
+                  {statusLabel(page.reading_order_status)}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
 
-        {/* Detail panel */}
         {selectedPage && (
-          <div className="flex-1 min-w-0 rounded-lg border border-gray-200 bg-white p-4">
-            <h3 className="text-sm font-semibold text-gray-800 mb-3">
+          <div className="min-w-0 flex-1 rounded border border-border bg-surface-canvas p-4">
+            <h3 className="mb-3 text-sm font-semibold text-text-primary">
               Page {selectedPage.page_number} — Reading Order
             </h3>
-            <PageOrderPanel
-              page={selectedPage}
-              jobId={jobId}
-              onUpdated={handleUpdated}
-            />
+            <PageOrderPanel page={selectedPage} jobId={jobId} onUpdated={handleUpdated} />
           </div>
         )}
       </div>

@@ -1,17 +1,24 @@
 "use client";
 
 import { useState } from "react";
-import { api, type ImageItem, type ReviewAction } from "@/lib/api";
-import { AltTextStatusBadge } from "./Badge";
+import { api, type AiStatus, type ImageItem, type ReviewAction } from "@/lib/api";
+import { AiUnavailableBadge, AltTextStatusBadge } from "./Badge";
+import { ObjectInspectorFrame } from "./workspace/ObjectInspectorFrame";
+import { CorrectionHistoryList } from "./CorrectionHistoryList";
+import { useObjectInspectorContext } from "@/lib/store/useObjectInspectorContext";
+import { useDocumentDispatch } from "@/lib/store/DocumentDataContext";
 
 interface Props {
   image: ImageItem;
   jobId: string;
+  aiStatus: AiStatus | null;
   onClose: () => void;
   onActionComplete: (updated: ImageItem) => void;
 }
 
-export function ImageDetailPanel({ image, jobId, onClose, onActionComplete }: Props) {
+export function ImageDetailPanel({ image, jobId, aiStatus, onClose, onActionComplete }: Props) {
+  const { corrections, documentVersion } = useObjectInspectorContext("figure", image.image_id, image.page_number);
+  const dispatch = useDocumentDispatch();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editText, setEditText] = useState(image.figure?.alt_text ?? "");
@@ -55,26 +62,30 @@ export function ImageDetailPanel({ image, jobId, onClose, onActionComplete }: Pr
     status === "decorative" ||
     status === "complex";
 
-  return (
-    <div className="rounded-lg border border-gray-200 bg-white p-4 space-y-4">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-2">
-        <div>
-          <p className="text-sm font-semibold text-gray-900">
-            {figure?.label ? `${figure.label}` : `Image — Page ${image.page_number}`}
-          </p>
-          <p className="text-xs text-gray-500">Page {image.page_number}</p>
-        </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="text-gray-400 hover:text-gray-600 text-sm font-medium"
-          aria-label="Close detail panel"
-        >
-          ✕
-        </button>
+  const header = (
+    <div className="flex items-start justify-between gap-2">
+      <div>
+        <p className="text-sm font-semibold text-text-primary">
+          {figure?.label ? `${figure.label}` : `Image — Page ${image.page_number}`}
+        </p>
+        <p className="text-xs text-text-secondary">Page {image.page_number}</p>
       </div>
+      <button
+        type="button"
+        onClick={onClose}
+        className="text-text-secondary hover:text-text-primary text-sm font-medium"
+        aria-label="Close detail panel"
+      >
+        ✕
+      </button>
+    </div>
+  );
 
+  return (
+    <ObjectInspectorFrame
+      header={header}
+      metadata={
+        <div className="space-y-4">
       {/* Preview */}
       {image.url && (
         <div className="flex items-center justify-center rounded-md bg-gray-50 overflow-hidden max-h-64">
@@ -167,56 +178,74 @@ export function ImageDetailPanel({ image, jobId, onClose, onActionComplete }: Pr
       )}
 
       {/* Error */}
-      {error && <p className="text-xs text-red-600">{error}</p>}
-
-      {/* Action row */}
-      <div className="flex flex-wrap gap-2 border-t pt-3">
-        {canGenerate && (
+      {error && <p className="text-xs text-danger">{error}</p>}
+        </div>
+      }
+      correctionHistory={
+        <CorrectionHistoryList
+          corrections={corrections}
+          jobId={jobId}
+          onUpdated={(updated) => dispatch({ type: "UPDATE_CORRECTION", correction: updated })}
+          emptyMessage="No cross-source corrections proposed for this figure."
+        />
+      }
+      version={
+        documentVersion !== null ? (
+          <p className="text-sm text-text-secondary">As of Document v{documentVersion}</p>
+        ) : undefined
+      }
+      actions={
+        <>
+          {canGenerate && aiStatus && !aiStatus.available && (
+            <AiUnavailableBadge reason={aiStatus.unavailable_reason} />
+          )}
+          {canGenerate && (!aiStatus || aiStatus.available) && (
+            <button
+              type="button"
+              className="rounded bg-accent px-3 py-1.5 text-xs font-medium text-accent-contrast hover:opacity-90 disabled:opacity-50"
+              onClick={handleGenerate}
+              disabled={loading}
+            >
+              {loading ? "Generating…" : figure?.ai_description ? "Re-generate AI Alt Text" : "Generate AI Alt Text"}
+            </button>
+          )}
+          {status === "ai_generated" && (
+            <button
+              type="button"
+              className="rounded border border-danger/40 px-3 py-1.5 text-xs font-medium text-danger hover:bg-danger/10 disabled:opacity-50"
+              onClick={() => handleAction("reject")}
+              disabled={loading}
+            >
+              Reject
+            </button>
+          )}
           <button
             type="button"
-            className="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-            onClick={handleGenerate}
+            className="rounded border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-hover-row disabled:opacity-50"
+            onClick={() => handleAction("mark_decorative")}
             disabled={loading}
           >
-            {loading ? "Generating…" : figure?.ai_description ? "Re-generate AI Alt Text" : "Generate AI Alt Text"}
+            Mark Decorative
           </button>
-        )}
-        {status === "ai_generated" && (
           <button
             type="button"
-            className="rounded bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50"
-            onClick={() => handleAction("reject")}
+            className="rounded border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-hover-row disabled:opacity-50"
+            onClick={() => handleAction("mark_complex")}
             disabled={loading}
           >
-            Reject
+            Mark Complex
           </button>
-        )}
-        <button
-          type="button"
-          className="rounded bg-gray-100 px-3 py-1.5 text-xs font-medium text-gray-700 ring-1 ring-gray-300 hover:bg-gray-200 disabled:opacity-50"
-          onClick={() => handleAction("mark_decorative")}
-          disabled={loading}
-        >
-          Mark Decorative
-        </button>
-        <button
-          type="button"
-          className="rounded bg-gray-100 px-3 py-1.5 text-xs font-medium text-gray-700 ring-1 ring-gray-300 hover:bg-gray-200 disabled:opacity-50"
-          onClick={() => handleAction("mark_complex")}
-          disabled={loading}
-        >
-          Mark Complex
-        </button>
-        <button
-          type="button"
-          className="rounded bg-gray-100 px-3 py-1.5 text-xs font-medium text-gray-700 ring-1 ring-gray-300 hover:bg-gray-200 disabled:opacity-50"
-          onClick={() => handleAction("skip")}
-          disabled={loading}
-        >
-          Skip
-        </button>
-      </div>
-    </div>
+          <button
+            type="button"
+            className="rounded border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-hover-row disabled:opacity-50"
+            onClick={() => handleAction("skip")}
+            disabled={loading}
+          >
+            Skip
+          </button>
+        </>
+      }
+    />
   );
 }
 

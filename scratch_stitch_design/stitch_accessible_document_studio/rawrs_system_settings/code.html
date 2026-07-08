@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Settings Workspace - RAWRS</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-tint": "#a2c9ff",
+                        "inverse-on-surface": "#2d3137",
+                        "on-secondary-fixed-variant": "#41474f",
+                        "secondary": "#c1c7d0",
+                        "tertiary": "#ffba42",
+                        "on-primary": "#00315c",
+                        "on-primary-container": "#003a6b",
+                        "primary-container": "#58a6ff",
+                        "surface-container": "#1c2026",
+                        "primary": "#a2c9ff",
+                        "on-error-container": "#ffdad6",
+                        "primary-fixed-dim": "#a2c9ff",
+                        "on-tertiary-container": "#4f3400",
+                        "on-background": "#dfe2eb",
+                        "on-tertiary": "#432c00",
+                        "outline-variant": "#414752",
+                        "inverse-surface": "#dfe2eb",
+                        "surface-variant": "#31353c",
+                        "on-tertiary-fixed-variant": "#614000",
+                        "error-container": "#93000a",
+                        "on-surface": "#dfe2eb",
+                        "error": "#ffb4ab",
+                        "on-primary-fixed": "#001c38",
+                        "on-secondary": "#2b3138",
+                        "secondary-container": "#41474f",
+                        "surface-container-low": "#181c22",
+                        "on-error": "#690005",
+                        "surface-container-lowest": "#0a0e14",
+                        "surface-dim": "#10141a",
+                        "surface-container-high": "#262a31",
+                        "surface-bright": "#353940",
+                        "secondary-fixed-dim": "#c1c7d0",
+                        "tertiary-container": "#da9600",
+                        "on-secondary-container": "#b0b5be",
+                        "primary-fixed": "#d3e4ff",
+                        "tertiary-fixed": "#ffddaf",
+                        "on-tertiary-fixed": "#281800",
+                        "surface-container-highest": "#31353c",
+                        "inverse-primary": "#0060aa",
+                        "on-secondary-fixed": "#161c23",
+                        "outline": "#8b919d",
+                        "on-primary-fixed-variant": "#004882",
+                        "background": "#10141a",
+                        "tertiary-fixed-dim": "#ffba42",
+                        "on-surface-variant": "#c0c7d4",
+                        "secondary-fixed": "#dde3ec",
+                        "surface": "#10141a"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "spacing": {
+                        "sidebar-width": "240px",
+                        "space-sm": "8px",
+                        "space-xs": "4px",
+                        "panel-gutter": "1px",
+                        "space-md": "12px",
+                        "space-lg": "16px"
+                    },
+                    "fontFamily": {
+                        "headline-sm": ["Inter"],
+                        "code-md": ["JetBrains Mono"],
+                        "label-md": ["JetBrains Mono"],
+                        "body-md": ["Inter"],
+                        "body-sm": ["Inter"]
+                    },
+                    "fontSize": {
+                        "headline-sm": ["16px", { "lineHeight": "24px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+                        "code-md": ["13px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "label-md": ["12px", { "lineHeight": "16px", "fontWeight": "500" }],
+                        "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "body-sm": ["12px", { "lineHeight": "18px", "fontWeight": "400" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body { background-color: #0d1117; color: #dfe2eb; }
+        .panel { background-color: #161b22; }
+        .panel-border { border-color: #30363d; }
+        .focus-ring:focus-within { outline: 2px solid #58a6ff; outline-offset: -2px; }
+        .active-tab { border-left: 2px solid #58a6ff; background-color: #21262d; }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            background: #58a6ff;
+            cursor: pointer;
+            border-radius: 50%;
+        }
+        input[type="range"]::-moz-range-thumb {
+            width: 16px;
+            height: 16px;
+            background: #58a6ff;
+            cursor: pointer;
+            border-radius: 50%;
+            border: none;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col font-body-md text-body-md antialiased overflow-hidden">
+<!-- TopAppBar -->
+<header class="flex justify-between items-center h-12 px-space-md w-full bg-surface-container dark:bg-surface-container border-b border-outline-variant fixed top-0 left-0 z-50">
+<div class="flex items-center gap-space-md">
+<span class="font-headline-sm text-headline-sm font-bold text-primary dark:text-primary tracking-tighter">RAWRS</span>
+</div>
+<div class="flex items-center gap-space-md">
+<!-- Navigation Links Suppressed for Settings Intent -->
+<button class="text-on-surface-variant hover:bg-surface-variant transition-colors p-space-xs rounded cursor-pointer active:opacity-80">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">settings_suggest</span>
+</button>
+<button class="text-on-surface-variant hover:bg-surface-variant transition-colors p-space-xs rounded cursor-pointer active:opacity-80">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">dns</span>
+</button>
+</div>
+</header>
+<div class="flex flex-1 pt-12 overflow-hidden h-screen">
+<!-- SideNavBar -->
+<nav class="fixed left-0 top-12 h-[calc(100vh-48px)] flex flex-col w-sidebar-width bg-surface-container-low dark:bg-surface-container-low border-r border-outline-variant z-40">
+<div class="p-space-md border-b border-outline-variant mb-space-sm">
+<div class="flex items-center gap-space-sm mb-space-xs">
+<img class="w-6 h-6 rounded object-cover" data-alt="A small, abstract geometric logo resembling a glowing blue cube or circuit node, set against a dark grey background. The style is technical and minimalist, suitable for a developer tool icon." src="https://lh3.googleusercontent.com/aida-public/AB6AXuC7M9pp-5loG50oOVtAJHqybPPu5EP80RNFx-1a0tcKjhFk3svVgjdD46cP44SvAhreX7sK5IiCrSUKGLgGNE5XuCAKllcD7V6DoNBm5F5b_mHvBUN62OqhQ6ebf_7IEYdm14J0A_FEHqwJ8iugKQZKejL_bigCQ11vjkOq3M55tJgUHTrBaHjW2dQzhIWw1JIYabikkuuod-AW243D3Nb2AuP-iTvuoxJ4E7DhPIwV8cDxdzkxn6hcMypWK1-s_bNWCCFrafieng"/>
+<span class="font-headline-sm text-headline-sm text-primary">RAWRS</span>
+</div>
+<span class="font-label-md text-label-md text-on-surface-variant">Remediation Workstation</span>
+</div>
+<div class="flex flex-col gap-[1px]">
+<a class="flex items-center gap-space-sm text-on-surface-variant px-space-md py-space-sm hover:bg-surface-container-high transition-all duration-150 font-label-md text-label-md" href="#">
+<span class="material-symbols-outlined text-[18px]">grid_view</span>
+                    Workspace
+                </a>
+<a class="flex items-center gap-space-sm text-on-surface-variant px-space-md py-space-sm hover:bg-surface-container-high transition-all duration-150 font-label-md text-label-md" href="#">
+<span class="material-symbols-outlined text-[18px]">inventory_2</span>
+                    Assets
+                </a>
+<a class="flex items-center gap-space-sm text-on-surface-variant px-space-md py-space-sm hover:bg-surface-container-high transition-all duration-150 font-label-md text-label-md" href="#">
+<span class="material-symbols-outlined text-[18px]">fact_check</span>
+                    Validation
+                </a>
+<a class="flex items-center gap-space-sm text-on-surface-variant px-space-md py-space-sm hover:bg-surface-container-high transition-all duration-150 font-label-md text-label-md" href="#">
+<span class="material-symbols-outlined text-[18px]">history</span>
+                    History
+                </a>
+<a class="flex items-center gap-space-sm bg-secondary-container text-on-secondary-container border-l-2 border-primary px-space-md py-space-sm transition-all duration-150 font-label-md text-label-md" href="#">
+<span class="material-symbols-outlined text-[18px]">settings</span>
+                    Settings
+                </a>
+</div>
+</nav>
+<!-- Main Content -->
+<main class="flex-1 ml-[240px] flex flex-col bg-[#0d1117] overflow-hidden">
+<!-- Settings Header -->
+<div class="px-space-lg py-space-md border-b panel-border flex items-center justify-between panel">
+<div>
+<h1 class="font-headline-sm text-headline-sm text-on-surface">Settings Workspace</h1>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-1">Configure global parameters and execution options.</p>
+</div>
+<div class="flex gap-space-sm">
+<button class="px-space-md py-space-sm font-label-md text-label-md border panel-border text-[#f0f6fc] rounded hover:bg-surface-variant transition-colors">Discard</button>
+<button class="px-space-md py-space-sm font-label-md text-label-md bg-[#58a6ff] text-black rounded font-medium hover:opacity-90 transition-opacity">Apply Changes</button>
+</div>
+</div>
+<!-- Settings Layout -->
+<div class="flex flex-1 overflow-hidden">
+<!-- Settings Navigation (Left Pane) -->
+<div class="w-64 border-r panel-border panel overflow-y-auto">
+<ul class="py-space-sm">
+<li class="px-space-lg py-2 active-tab font-label-md text-label-md text-[#dfe2eb] cursor-pointer">Processing Engine</li>
+<li class="px-space-lg py-2 hover:bg-[#21262d] font-label-md text-label-md text-[#8b919d] cursor-pointer">Export Options</li>
+<li class="px-space-lg py-2 hover:bg-[#21262d] font-label-md text-label-md text-[#8b919d] cursor-pointer">Interface</li>
+<li class="px-space-lg py-2 hover:bg-[#21262d] font-label-md text-label-md text-[#8b919d] cursor-pointer">Debug &amp; Logging</li>
+</ul>
+</div>
+<!-- Settings Forms (Right Pane) -->
+<div class="flex-1 overflow-y-auto p-space-lg bg-[#0d1117]">
+<div class="max-w-3xl flex flex-col gap-space-lg pb-32">
+<!-- Section: Processing Engine -->
+<section class="border panel-border rounded panel overflow-hidden">
+<div class="px-space-md py-space-sm border-b panel-border bg-[#1c2128]">
+<h2 class="font-label-md text-label-md text-on-surface uppercase tracking-wider text-[#8b949e]">Processing Engine</h2>
+</div>
+<div class="p-space-md flex flex-col gap-space-md">
+<div class="flex flex-col gap-space-xs">
+<label class="font-label-md text-label-md text-on-surface">OCR Provider</label>
+<div class="relative focus-ring rounded">
+<select class="w-full bg-[#0d1117] border panel-border rounded px-space-md py-2 text-on-surface font-code-md text-code-md appearance-none outline-none">
+<option>Tesseract.js v4.0 (Local)</option>
+<option>Google Cloud Vision API</option>
+<option>AWS Textract</option>
+</select>
+<span class="material-symbols-outlined absolute right-space-md top-1/2 -translate-y-1/2 text-outline pointer-events-none">expand_more</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Select the primary engine for document analysis.</p>
+</div>
+<div class="w-full h-px panel-border border-t"></div>
+<div class="flex flex-col gap-space-xs">
+<div class="flex justify-between items-center">
+<label class="font-label-md text-label-md text-on-surface">Confidence Threshold</label>
+<span class="font-code-md text-code-md text-[#58a6ff]">0.85</span>
+</div>
+<input class="w-full h-1 bg-[#30363d] rounded appearance-none focus:outline-none mt-2" max="1" min="0" step="0.05" type="range" value="0.85"/>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-1">Minimum confidence score required to auto-accept extracted text.</p>
+</div>
+<div class="w-full h-px panel-border border-t"></div>
+<div class="flex items-start gap-space-sm mt-2">
+<label class="relative flex items-center justify-center cursor-pointer mt-1">
+<input checked="" class="peer sr-only" type="checkbox"/>
+<div class="w-4 h-4 border border-[#30363d] bg-[#0d1117] rounded peer-checked:bg-[#58a6ff] peer-checked:border-[#58a6ff] transition-colors focus-ring"></div>
+<span class="material-symbols-outlined absolute text-[#0d1117] text-[14px] opacity-0 peer-checked:opacity-100 pointer-events-none transition-opacity" style="font-variation-settings: 'FILL' 1;">check</span>
+</label>
+<div>
+<span class="font-label-md text-label-md text-on-surface block">Enable Hardware Acceleration</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant block mt-0.5">Use GPU for tensor operations if available.</span>
+</div>
+</div>
+</div>
+</section>
+<!-- Section: Export Options -->
+<section class="border panel-border rounded panel overflow-hidden opacity-75 grayscale-[50%] pointer-events-none">
+<div class="px-space-md py-space-sm border-b panel-border bg-[#1c2128]">
+<h2 class="font-label-md text-label-md text-on-surface uppercase tracking-wider text-[#8b949e]">Export Options (Inactive)</h2>
+</div>
+<div class="p-space-md flex flex-col gap-space-md">
+<div class="flex flex-col gap-space-xs">
+<label class="font-label-md text-label-md text-on-surface">Markdown Flavor</label>
+<input class="w-full bg-[#0d1117] border panel-border rounded px-space-md py-2 text-on-surface font-code-md text-code-md opacity-50 cursor-not-allowed" disabled="" type="text" value="GitHub Flavored Markdown (GFM)"/>
+</div>
+</div>
+</section>
+</div>
+</div>
+</div>
+</main>
+</div>
+<!-- Footer -->
+<footer class="fixed bottom-0 right-0 w-[calc(100%-240px)] p-space-sm flex flex-col overflow-hidden bg-[#051d3b] border-t border-[#30363d] h-8 z-50 justify-center">
+<div class="flex justify-between items-center w-full px-space-sm">
+<span class="font-code-md text-code-md text-[#a2c9ff]">Processing Console [v1.0.4]</span>
+<div class="flex items-center gap-space-md">
+<a class="font-code-md text-code-md text-[#a2c9ff] underline hover:text-white transition-colors" href="#">Terminal</a>
+<a class="font-code-md text-code-md text-[#8b949e] hover:text-[#dfe2eb] transition-colors" href="#">Logs</a>
+<a class="font-code-md text-code-md text-[#8b949e] hover:text-[#dfe2eb] transition-colors" href="#">Monitor</a>
+</div>
+</div>
+</footer>
+<script>
+        // Simple interactivity for demonstration
+        document.querySelectorAll('input[type="range"]').forEach(slider => {
+            slider.addEventListener('input', (e) => {
+                const display = e.target.previousElementSibling.querySelector('span');
+                if(display) display.textContent = parseFloat(e.target.value).toFixed(2);
+            });
+        });
+
+        // Tab switching logic (visual only)
+        const tabs = document.querySelectorAll('.active-tab, .hover\\:bg-\\[\\#21262d\\]');
+        tabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                tabs.forEach(t => {
+                    t.classList.remove('active-tab', 'text-[#dfe2eb]');
+                    t.classList.add('hover:bg-[#21262d]', 'text-[#8b919d]');
+                });
+                tab.classList.add('active-tab', 'text-[#dfe2eb]');
+                tab.classList.remove('hover:bg-[#21262d]', 'text-[#8b919d]');
+            });
+        });
+    </script>
+</body></html>

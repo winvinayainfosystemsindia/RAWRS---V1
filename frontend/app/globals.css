@@ -1,30 +1,104 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* Keys Tailwind's `dark:` variant off our data-theme attribute (explicit
+   toggle + localStorage) instead of only prefers-color-scheme, so `dark:`
+   utility classes respond to the ThemeToggle button. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/*
+ * RAWRS Pro theme tokens — dark palette from
+ * `front end design from stitch.zip/stitch_accessible_document_studio/rawrs_pro_dark/DESIGN.md`
+ * ("Technical Minimalist": flat surfaces, 1px borders, no shadows, 4px radius,
+ * Inter + JetBrains Mono). Light is the same structure with an equivalent,
+ * WCAG-AA-checked inverted palette (GitHub's light/dark pairing — a proven,
+ * accessible hue match for the same #58a6ff-family accent).
+ *
+ * Components should prefer the semantic --color-* utilities below
+ * (bg-surface-panel, text-text-secondary, border-border, etc.) over raw
+ * Tailwind grays/slates going forward. Existing panels still using
+ * hardcoded slate/gray utilities are migrated incrementally as each is
+ * touched, not in one mechanical pass.
+ */
+
+:root,
+:root[data-theme="dark"] {
+  --surface-canvas: #0d1117;
+  --surface-panel: #161b22;
+  --surface-elevated: #1c2128;
+  --border-default: #30363d;
+  --border-strong: #444c56;
+  --text-primary: #f0f6fc;
+  --text-secondary: #8b949e;
+  --accent: #58a6ff;
+  --accent-contrast: #00131f;
+  --hover-row: #21262d;
+  --success: #3fb950;
+  --warning: #d29922;
+  --danger: #f85149;
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  --surface-canvas: #ffffff;
+  --surface-panel: #f6f8fa;
+  --surface-elevated: #ffffff;
+  --border-default: #d0d7de;
+  --border-strong: #afb8c1;
+  --text-primary: #1f2328;
+  --text-secondary: #656d76;
+  --accent: #0969da;
+  --accent-contrast: #ffffff;
+  --hover-row: #eaeef2;
+  --success: #1a7f37;
+  --warning: #9a6700;
+  --danger: #cf222e;
   color-scheme: light;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --surface-canvas: #ffffff;
+    --surface-panel: #f6f8fa;
+    --surface-elevated: #ffffff;
+    --border-default: #d0d7de;
+    --border-strong: #afb8c1;
+    --text-primary: #1f2328;
+    --text-secondary: #656d76;
+    --accent: #0969da;
+    --accent-contrast: #ffffff;
+    --hover-row: #eaeef2;
+    --success: #1a7f37;
+    --warning: #9a6700;
+    --danger: #cf222e;
+    color-scheme: light;
+  }
 }
 
-/* No dark theme exists for this app - every component (Badge, Tabs,
-   tables, headings) hardcodes light-mode Tailwind colors with no
-   `dark:` variants. Letting --background/--foreground flip on
-   prefers-color-scheme: dark (the create-next-app default) made the
-   page shell go black while all content text stayed dark-on-dark,
-   i.e. unreadable. Pin to light unconditionally until a real dark
-   theme is built across all components, not just the page shell. */
+@theme inline {
+  --color-background: var(--surface-canvas);
+  --color-foreground: var(--text-primary);
+  --color-surface-canvas: var(--surface-canvas);
+  --color-surface-panel: var(--surface-panel);
+  --color-surface-elevated: var(--surface-elevated);
+  --color-border: var(--border-default);
+  --color-border-strong: var(--border-strong);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-accent: var(--accent);
+  --color-accent-contrast: var(--accent-contrast);
+  --color-hover-row: var(--hover-row);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --font-sans: var(--font-inter);
+  --font-mono: var(--font-jetbrains-mono);
+  --radius-DEFAULT: 0.25rem;
+}
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--surface-canvas);
+  color: var(--text-primary);
+  font-family: var(--font-inter), Arial, Helvetica, sans-serif;
 }
 
 .markdown-body h1 {
@@ -59,10 +133,12 @@ body {
 }
 .markdown-body em {
   font-style: italic;
-  color: #4b5563;
+  color: var(--text-secondary);
 }
 
-/* DOCX preview — rendered by mammoth.js */
+/* DOCX preview — rendered by mammoth.js. Kept as a literal print-like
+   surface (Times New Roman, white paper) regardless of app theme, since
+   it's a preview of the generated Word document, not app chrome. */
 .docx-preview {
   font-family: "Times New Roman", Times, serif;
   font-size: 14px;

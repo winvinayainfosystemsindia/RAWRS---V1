@@ -73,6 +73,52 @@ class ReadingOrderStatus(str, Enum):
     CORRECTED = "corrected"
 
 
+class PageLabelStatus(str, Enum):
+    """Review status of a page's final label (FEATURE_018).
+
+    Mirrors ReadingOrderStatus's shape: DETECTED until either a bulk
+    PageLabelSection resolves it (APPROVED) or a reviewer manually
+    overrides it (OVERRIDDEN, which always wins over any section).
+    """
+
+    DETECTED = "detected"
+    APPROVED = "approved"
+    OVERRIDDEN = "overridden"
+
+
+class PageLabelStyle(str, Enum):
+    """Numbering style for a PageLabelSection (FEATURE_018)."""
+
+    ARABIC = "arabic"
+    ROMAN_LOWER = "roman_lower"
+    ROMAN_UPPER = "roman_upper"
+    NONE = "none"
+
+
+class PageLabelSection(BaseModel):
+    """One reviewer-defined bulk numbering scheme applied to a page range
+    (FEATURE_018). Offset, restart, roman numerals, prefixes, and
+    suffixes are all just parameter values on this one shape rather than
+    separate bulk-operation endpoints:
+
+    - "offset" = a whole-document section with a shifted start_number.
+    - "restart numbering" = a new section beginning mid-document with
+      start_number reset to 1 (or any chosen value).
+    - "roman numerals" = style=ROMAN_LOWER/ROMAN_UPPER.
+    - "prefix"/"suffix" = the two string fields.
+
+    src/structure/page_label_resolver.py turns a list of these plus each
+    page's detected printed_label into the final Page.page_label.
+    """
+
+    start_page: int = Field(..., ge=1)
+    end_page: int = Field(..., ge=1)
+    style: PageLabelStyle = PageLabelStyle.ARABIC
+    start_number: int = 1
+    prefix: str = ""
+    suffix: str = ""
+
+
 class RoutingDecision(str, Enum):
     """The route src/ocr/router.py / src/ocr/docling_engine.py /
     src/ocr/surya_engine.py actually sent a page down.
@@ -133,6 +179,22 @@ class Page(BaseModel):
     extraction_method: Optional[ExtractionMethod] = None
     routing_decision: Optional[RoutingDecision] = None
     printed_label: Optional[str] = None
+    # FEATURE_018 — detection confidence for printed_label: 1.0 when exactly
+    # one isolated margin candidate was found, None when zero were found.
+    # Kept as a real signal (not a fabricated decimal gradient) since that's
+    # all the detector in structure_detector.py can honestly report.
+    label_confidence: Optional[float] = None
+    # True when structure_detector.py found 2+ conflicting margin candidates
+    # on this page (distinct from "none found" — see _detect_printed_label).
+    label_conflict: bool = False
+    # The final, reviewer-facing page label (FEATURE_018) — what Markdown/
+    # DOCX actually render. Defaults to printed_label via
+    # src/structure/page_label_resolver.py whenever no PageLabelSection
+    # covers this page and no manual override has been set; this field's
+    # absence must always be read as "resolver has not run yet," never as
+    # "this page has no label at all."
+    page_label: Optional[str] = None
+    page_label_status: PageLabelStatus = PageLabelStatus.DETECTED
     # Physical page width in PDF points (populated by structure_detector.py
     # from pdf_page.rect.width). Used by docx_generator.py to detect whether
     # an image is centered, left-, or right-aligned relative to the page.

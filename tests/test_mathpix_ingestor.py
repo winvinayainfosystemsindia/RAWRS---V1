@@ -295,6 +295,59 @@ class TestMathpixImportProvider:
         doc = _run_import(mmd, page_count=1, tmp_path=tmp_path)
         assert doc.pages[0].ocr_confidence == OCRConfidence.HIGH
 
+
+class TestFeature020ParagraphPromotionAndSourceLine:
+    """document.paragraphs (promoted from transient/RAWRS-native-only)
+    and source_line (the shared cross-type ordering key) — both feed
+    markdown_builder.py's _render_page_semantic()."""
+
+    def test_paragraphs_populated_alongside_cleaned_text(self, tmp_path):
+        mmd = "First paragraph.\n\nSecond paragraph."
+        doc = _run_import(mmd, page_count=1, tmp_path=tmp_path)
+        assert len(doc.paragraphs) == 2
+        assert doc.paragraphs[0].text == "First paragraph."
+        assert doc.paragraphs[1].text == "Second paragraph."
+        # page.cleaned_text still populated in parallel, not replaced.
+        assert "First paragraph." in doc.pages[0].cleaned_text
+
+    def test_paragraph_source_line_increases_in_order(self, tmp_path):
+        mmd = "First paragraph.\n\nSecond paragraph.\n\nThird paragraph."
+        doc = _run_import(mmd, page_count=1, tmp_path=tmp_path)
+        lines = [p.source_line for p in doc.paragraphs]
+        assert lines == sorted(lines)
+        assert len(set(lines)) == 3
+
+    def test_heading_list_callout_table_carry_source_line(self, tmp_path):
+        mmd = (
+            "\\section*{Summary}\n\n"
+            "- item one\n- item two\n\n"
+            "Body paragraph.\n\n"
+            "| A | B |\n|---|---|\n| 1 | 2 |"
+        )
+        doc = _run_import(mmd, page_count=1, tmp_path=tmp_path)
+        assert doc.headings[0].source_line is not None
+        assert doc.lists[0].source_line is not None
+        assert doc.callouts[0].source_line is not None
+        assert doc.tables[0].source_line is not None
+        # A true document-order sequence: heading first, then everything else.
+        assert doc.headings[0].source_line < doc.lists[0].source_line
+
+    def test_rawrs_native_paragraph_construction_unaffected(self):
+        """paragraph_grouper.py's construction (no document_order/
+        source_line, no provenance kwarg) must keep working unchanged —
+        the promotion to SemanticObject is additive."""
+        from src.models.bounding_box import BoundingBox
+        from src.models.paragraph import Paragraph
+
+        p = Paragraph(
+            page_number=1,
+            text="Some text.",
+            bbox=BoundingBox(x0=0, y0=0, x1=10, y1=10),
+            source_orders=[0, 1],
+        )
+        assert p.document_order is None
+        assert p.source_line is None
+
     def test_footnotes_populated(self, tmp_path):
         mmd = (
             "Text with footnote. ${ }^{1}$\n\n"

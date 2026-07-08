@@ -30,7 +30,10 @@ from src.api.routes import router
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     from src.api.jobs import load_persisted_jobs
+    from src.ai.registry import init_ai
+
     load_persisted_jobs()
+    init_ai()  # resolves AI provider; never raises, never blocks on model load
     yield
 
 
@@ -43,7 +46,12 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3001",
+    ],
     allow_methods=["*"],
     allow_headers=["*"],
 )

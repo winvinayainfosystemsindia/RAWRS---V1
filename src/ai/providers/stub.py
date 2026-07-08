@@ -7,11 +7,13 @@ is available and the caller needs a graceful non-error response.
 The stub is NOT the same as an error path. When available=True and
 RAWRS_AI_STUB is set, the stub acts as a fully functional provider that
 happens to return predictable fake data. This lets tests exercise the
-entire generate_alt_text() code path including quality evaluation and
-retry logic without a real model.
+entire generate_alt_text()/analyze_table() code paths including quality
+evaluation and retry logic without a real model.
 """
 
+import re
 from pathlib import Path
+from typing import List
 
 from src.ai.provider import AICapability, AIProvider
 
@@ -46,3 +48,93 @@ class StubProvider(AIProvider):
             confidence=0.5,
             warnings=["RAWRS_AI_STUB mode — not a real model response"],
         )
+
+    def analyze_table(self, request: "TableAnalysisRequest") -> "TableAnalysisResult":
+        return _stub_table_result(request)
+
+
+# ---------------------------------------------------------------------------
+# Table analysis stub — deterministic heuristics, no model
+# ---------------------------------------------------------------------------
+
+def _stub_table_result(request: "TableAnalysisRequest") -> "TableAnalysisResult":
+    """Deterministic stub that inspects cell patterns to make sensible guesses.
+
+    This runs without any AI model and is used in all tests. It applies
+    simple rules (first row non-numeric → likely header, first col
+    non-numeric → likely row headers, all-numeric body → data table)
+    so stub output is useful for acceptance testing even without a model.
+    """
+    from src.ai.table_analyzer import TableAnalysisResult
+
+    warnings: List[str] = []
+    rows = request.cells
+    if not rows:
+        return TableAnalysisResult(
+            table_type="unknown",
+            suggested_caption=None,
+            suggested_summary=None,
+            header_rows_detected=0,
+            header_cols_detected=0,
+            warnings=["Table has no cells"],
+            confidence=0.1,
+        )
+
+    first_row = rows[0] if rows else []
+    first_col = [row[0] for row in rows if row] if rows else []
+    body_rows = rows[request.header_row_count:]
+
+    header_rows_detected = request.header_row_count or (
+        1 if first_row and not all(_looks_numeric(c) for c in first_row) else 0
+    )
+
+    header_cols_detected = request.header_col_count or (
+        1 if (
+            len(first_col) >= 2
+            and not _looks_numeric(first_col[0])
+            and all(not _looks_numeric(c) for c in first_col[1:])
+        ) else 0
+    )
+
+    all_numeric_body = body_rows and all(
+        _looks_numeric(c) for row in body_rows for c in row if c
+    )
+    has_many_rows = request.row_count > 5
+    table_type = "data" if all_numeric_body else ("complex" if has_many_rows else "simple")
+
+    suggested_caption = request.existing_caption
+    if not suggested_caption and first_row:
+        header_text = " / ".join(c for c in first_row[:3] if c)
+        if header_text:
+            suggested_caption = f"Table: {header_text}…"
+
+    suggested_summary = (
+        f"A {request.row_count}-row by {request.col_count}-column {table_type} table. "
+        f"Row headers: {'yes' if header_cols_detected else 'no'}. "
+        "Review and edit this summary for screen reader users."
+    )
+
+    if request.row_count > 10:
+        warnings.append("Large table — consider splitting or summarizing for screen readers.")
+    if not request.existing_caption:
+        warnings.append("No caption provided — add a descriptive caption for accessibility.")
+    if header_rows_detected == 0:
+        warnings.append("No clear column headers detected — verify header row assignment.")
+
+    return TableAnalysisResult(
+        table_type=table_type,
+        suggested_caption=suggested_caption,
+        suggested_summary=suggested_summary,
+        header_rows_detected=header_rows_detected,
+        header_cols_detected=header_cols_detected,
+        warnings=warnings,
+        confidence=0.5,
+    )
+
+
+def _looks_numeric(text: str) -> bool:
+    """Return True when text looks like a number, percentage, or similar data value."""
+    text = text.strip()
+    if not text:
+        return False
+    return bool(re.match(r"^[-+]?\d[\d,.%\s]*$", text))

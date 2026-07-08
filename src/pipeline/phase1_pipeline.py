@@ -1,3 +1,4 @@
+
 """Phase 1 pipeline orchestration for RAWRS.
 
 Wires together the individually-implemented stages into the end-to-end
@@ -98,6 +99,12 @@ class PipelineResult:
     error_message: Optional[str] = None
     ocr_metrics: Optional[OCRTimingMetrics] = None
     surya_metrics: Optional[OCRTimingMetrics] = None
+    # FEATURE_020 — document.version at the moment this file was written,
+    # so a download endpoint can tell "has the Document changed since"
+    # with one integer comparison instead of routes.py enumerating every
+    # correction type that should invalidate a cached export.
+    markdown_generated_at_version: Optional[int] = None
+    docx_generated_at_version: Optional[int] = None
 
 
 def run_pipeline(
@@ -348,7 +355,9 @@ def run_pipeline(
             from src.verification.engine import engine
             import src.verification.headings  # noqa: F401 - registers HeadingVerifier
 
-            findings = engine.run_pdf_verification("heading", content_headings, pdf_headings)
+            findings = engine.run_pdf_verification(
+                "heading", content_headings, pdf_headings, pdf_path=document.source_pdf_path
+            )
             document.verification_findings.extend(findings)
             engine.findings_to_corrections(document, findings)
 
@@ -366,6 +375,25 @@ def run_pipeline(
             list_findings = engine.run_pdf_verification("list", document.lists, pdf_lists)
             document.verification_findings.extend(list_findings)
             engine.findings_to_corrections(document, list_findings)
+
+            # Callouts: document.callouts was already populated in Stage 2
+            # from the imported package's own label-pattern classification
+            # (src/mathpix/mmd_parser.py::classify_callout_type()). No
+            # independent PDF-side box detector exists yet (see
+            # src/verification/callouts.py's module docstring) — this
+            # verifier's job is evaluating the classification's own
+            # confidence (label specificity, anchoring-heading integrity),
+            # not cross-source matching. FEATURE_019 — the fourth
+            # registered asset type, and the first proving the framework
+            # generalizes beyond Heading/List/Table.
+            if document.callouts:
+                import src.verification.callouts  # noqa: F401 - registers CalloutVerifier
+
+                callout_findings = engine.run_pdf_verification(
+                    "callout", document.callouts, [], document=document
+                )
+                document.verification_findings.extend(callout_findings)
+                engine.findings_to_corrections(document, callout_findings)
         else:
             document = detect_headings(document, page_numbering_policy=page_numbering_policy)
             # Detect Headings re-sets OCR_COMPLETE; harmless no-op now that
@@ -391,11 +419,13 @@ def run_pipeline(
 
     # Stage 6: Generate Markdown
     markdown_path: Optional[Path] = None
+    markdown_generated_at_version: Optional[int] = None
     try:
         markdown_content = build_markdown(document, page_numbering_policy=page_numbering_policy)
         markdown_path = output_root / "markdown" / f"{stem}.md"
         markdown_path.parent.mkdir(parents=True, exist_ok=True)
         markdown_path.write_text(markdown_content, encoding="utf-8")
+        markdown_generated_at_version = document.version
         document.processing_status = ProcessingStatus.MARKDOWN_COMPLETE
         logger.info("Stage 6/8 (Generate Markdown) complete: {}", markdown_path)
         if on_stage_complete: on_stage_complete("generate_markdown")
@@ -417,10 +447,12 @@ def run_pipeline(
 
     # Stage 7: Generate DOCX
     docx_path: Optional[Path] = None
+    docx_generated_at_version: Optional[int] = None
     try:
         docx_path = generate_docx(
             document, markdown_content, output_path=output_root / "docx" / f"{stem}.docx"
         )
+        docx_generated_at_version = document.version
         document.processing_status = ProcessingStatus.DOCX_COMPLETE
         logger.info("Stage 7/8 (Generate DOCX) complete: {}", docx_path)
         if on_stage_complete: on_stage_complete("generate_docx")
@@ -436,6 +468,7 @@ def run_pipeline(
             failed_stage="generate_docx",
             error_message=str(exc),
             markdown_path=markdown_path,
+            markdown_generated_at_version=markdown_generated_at_version,
             ocr_metrics=ocr_metrics,
             surya_metrics=surya_metrics,
             alt_text_dataset_path=alt_text_dataset_path,
@@ -464,6 +497,8 @@ def run_pipeline(
             error_message=str(exc),
             markdown_path=markdown_path,
             docx_path=docx_path,
+            markdown_generated_at_version=markdown_generated_at_version,
+            docx_generated_at_version=docx_generated_at_version,
             ocr_metrics=ocr_metrics,
             surya_metrics=surya_metrics,
             alt_text_dataset_path=alt_text_dataset_path,
@@ -482,6 +517,8 @@ def run_pipeline(
         start_time=start_time,
         markdown_path=markdown_path,
         docx_path=docx_path,
+        markdown_generated_at_version=markdown_generated_at_version,
+        docx_generated_at_version=docx_generated_at_version,
         report_path=report_path,
         alt_text_dataset_path=alt_text_dataset_path,
         validation_issues=issues,
@@ -501,6 +538,8 @@ def _build_result(
     error_message: Optional[str] = None,
     markdown_path: Optional[Path] = None,
     docx_path: Optional[Path] = None,
+    markdown_generated_at_version: Optional[int] = None,
+    docx_generated_at_version: Optional[int] = None,
     report_path: Optional[Path] = None,
     alt_text_dataset_path: Optional[Path] = None,
     validation_issues: Optional[List[ValidationIssue]] = None,
@@ -515,6 +554,8 @@ def _build_result(
         document=document,
         markdown_path=markdown_path,
         docx_path=docx_path,
+        markdown_generated_at_version=markdown_generated_at_version,
+        docx_generated_at_version=docx_generated_at_version,
         report_path=report_path,
         alt_text_dataset_path=alt_text_dataset_path,
         validation_issues=validation_issues or [],
@@ -534,11 +575,18 @@ def _write_validation_report(
     for issue in issues:
         severity_counts[issue.severity.value] += 1
 
+    from src.verification.benchmark_report import aggregate as aggregate_benchmark
+
     report = {
         "source_pdf_path": document.source_pdf_path,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "summary": {**severity_counts, "total": len(issues)},
         "issues": [issue.model_dump(mode="json") for issue in issues],
+        # FEATURE_019 — objects preserved/repaired/recovered per asset
+        # type, Mathpix accuracy, recovery rate. Empty per_asset_type on
+        # the RAWRS-native path (no cross-source verification runs there
+        # at all) — not an error, an accurate "nothing to report".
+        "benchmark": aggregate_benchmark(document),
     }
 
     report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")

@@ -30,6 +30,7 @@ from loguru import logger
 from src.mathpix.mmd_parser import parse_mmd
 from src.mathpix.page_estimation import estimate_page
 from src.models.contracts import (
+    Callout,
     Document,
     ExtractionMethod,
     Footnote,
@@ -38,6 +39,7 @@ from src.models.contracts import (
     HeadingLevel,
     NoteType,
     OCRConfidence,
+    Paragraph,
     Table,
     TableCell,
     TableRow,
@@ -121,17 +123,31 @@ class MathpixImportProvider:
                     affiliations=getattr(fm, "affiliation_list", []),
                 )
 
-        # ── 2. Headings ────────────────────────────────────────────────
+        # ── 2. Headings (+ Callouts, FEATURE_019) ───────────────────────
         heading_order = 0
+        callout_order = 0
         for block in p2doc.blocks:
             if block.block_type == P2BlockType.HEADING and block.heading:
                 page_num = estimate_page(
                     block.source_line, total_blocks, page_count
                 )
-                h = _p2heading_to_heading(block.heading, page_num, heading_order)
+                h = _p2heading_to_heading(block.heading, page_num, heading_order, source_line=block.source_line)
                 if h is not None:
                     document.headings.append(h)
                     heading_order += 1
+                    if block.heading.callout_type:
+                        document.callouts.append(
+                            Callout(
+                                callout_type=block.heading.callout_type,
+                                label=h.text,
+                                heading_id=h.id,
+                                page_number=page_num,
+                                document_order=callout_order,
+                                provenance=ProvenanceSource.MATHPIX,
+                                source_line=block.source_line,
+                            )
+                        )
+                        callout_order += 1
 
         # ── 3. Page text (proportional distribution) ───────────────────
         _assign_page_text(document, p2doc, page_count, total_blocks)
@@ -161,7 +177,7 @@ class MathpixImportProvider:
                     block.source_line, total_blocks, page_count
                 )
                 document.tables.append(
-                    _p2table_to_table(block.table, page_num)
+                    _p2table_to_table(block.table, page_num, source_line=block.source_line)
                 )
                 table_count += 1
 
@@ -219,7 +235,7 @@ class MathpixImportProvider:
 # ── Conversion helpers ─────────────────────────────────────────────────
 
 def _p2heading_to_heading(
-    p2h: P2Heading, page_num: int, order: int
+    p2h: P2Heading, page_num: int, order: int, source_line: Optional[int] = None
 ) -> Optional[Heading]:
     """Map a P2Heading to a RAWRS Heading.
 
@@ -243,6 +259,7 @@ def _p2heading_to_heading(
         document_order=order,
         is_page_marker=False,
         source="mathpix",
+        source_line=source_line,
     )
 
 
@@ -266,6 +283,7 @@ def _assign_page_text(
     # twice, once as flattened paragraph text and once as a real list.
     _PARA_TYPES = {P2BlockType.PARAGRAPH, P2BlockType.ABSTRACT}
     page_lines: dict[int, list[str]] = {p: [] for p in range(1, page_count + 1)}
+    paragraph_order = 0
 
     for block in p2doc.blocks:
         if block.block_type in _PARA_TYPES:
@@ -274,6 +292,21 @@ def _assign_page_text(
                 continue
             page_num = estimate_page(block.source_line, total_blocks, page_count)
             page_lines[page_num].append(text)
+            # FEATURE_020 — a real object alongside the flattened
+            # page.cleaned_text string below (kept, not replaced: other
+            # readers still use it), so markdown_builder.py can sort
+            # this against headings/lists/tables/images/callouts by
+            # source_line instead of scanning page.cleaned_text.
+            document.paragraphs.append(
+                Paragraph(
+                    page_number=page_num,
+                    text=text,
+                    document_order=paragraph_order,
+                    source_line=block.source_line,
+                    provenance=ProvenanceSource.MATHPIX,
+                )
+            )
+            paragraph_order += 1
 
     for page in document.pages:
         lines = page_lines.get(page.page_number, [])
@@ -293,9 +326,10 @@ def _group_list_items_to_lists(p2doc: Any, page_count: int, total_blocks: int) -
     current_style: Optional[P2ListStyle] = None
     current_items: List[ListItem] = []
     current_page: Optional[int] = None
+    current_source_line: Optional[int] = None
 
     def flush() -> None:
-        nonlocal current_style, current_items, current_page, order
+        nonlocal current_style, current_items, current_page, current_source_line, order
         if current_style is not None and current_items:
             lists.append(
                 ListBlock(
@@ -304,12 +338,14 @@ def _group_list_items_to_lists(p2doc: Any, page_count: int, total_blocks: int) -
                     page_number=current_page,
                     document_order=order,
                     provenance=ProvenanceSource.MATHPIX,
+                    source_line=current_source_line,
                 )
             )
             order += 1
         current_style = None
         current_items = []
         current_page = None
+        current_source_line = None
 
     for block in p2doc.blocks:
         if block.block_type != P2BlockType.LIST_ITEM:
@@ -320,6 +356,7 @@ def _group_list_items_to_lists(p2doc: Any, page_count: int, total_blocks: int) -
         if current_style is None:
             current_style = block.list_style
             current_page = estimate_page(block.source_line, total_blocks, page_count)
+            current_source_line = block.source_line
         text = block.text or ""
         if text:
             current_items.append(ListItem(text=text, level=0))
@@ -357,7 +394,7 @@ def _p2footnote_to_footnote(p2fn: P2Footnote, page_count: int) -> Optional[Footn
     )
 
 
-def _p2table_to_table(p2t: P2Table, page_num: int) -> Table:
+def _p2table_to_table(p2t: P2Table, page_num: int, source_line: Optional[int] = None) -> Table:
     """Map a P2Table to a RAWRS Table."""
     rawrs_rows: List[TableRow] = []
     col_count = 0
@@ -387,5 +424,6 @@ def _p2table_to_table(p2t: P2Table, page_num: int) -> Table:
         caption=p2t.caption,
         status=TableStatus.AUTO_DETECTED,
         extraction_source="mathpix",
+        source_line=source_line,
         confidence=0.9,
     )

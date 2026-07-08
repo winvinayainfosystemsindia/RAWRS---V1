@@ -43,6 +43,20 @@ class JobSummary(BaseModel):
     report_available: bool = False
     has_front_matter: bool = False
 
+    # FEATURE_020 versioning — lets the frontend show "Document vN" and
+    # flag a generated export as stale without re-deriving anything: a
+    # download is stale iff its *_generated_at_version != document_version.
+    document_version: Optional[int] = None
+    markdown_generated_at_version: Optional[int] = None
+    docx_generated_at_version: Optional[int] = None
+
+
+class BoundingBoxOut(BaseModel):
+    x0: float
+    y0: float
+    x1: float
+    y1: float
+
 
 class ValidationIssueOut(BaseModel):
     severity: str
@@ -81,10 +95,45 @@ class ImageOut(BaseModel):
     url: Optional[str] = None
     extraction_failed: bool
     figure: Optional[FigureOut] = None
+    bbox: Optional["BoundingBoxOut"] = None
 
 
 class ImagesResponse(BaseModel):
     images: List[ImageOut]
+
+
+class ListItemOut(BaseModel):
+    text: str
+    level: int = 0
+
+
+class ListOut(BaseModel):
+    id: Optional[str] = None
+    list_type: str
+    items: List[ListItemOut]
+    page_number: int
+    document_order: int
+    source_line: Optional[int] = None
+    bbox: Optional["BoundingBoxOut"] = None
+
+
+class ListsResponse(BaseModel):
+    lists: List[ListOut]
+
+
+class CalloutOut(BaseModel):
+    id: Optional[str] = None
+    callout_type: str
+    label: str
+    heading_id: Optional[str] = None
+    page_number: Optional[int] = None
+    document_order: int
+    source_line: Optional[int] = None
+    bbox: Optional["BoundingBoxOut"] = None
+
+
+class CalloutsResponse(BaseModel):
+    callouts: List[CalloutOut]
 
 
 class ReviewAction(str, Enum):
@@ -116,6 +165,13 @@ class FootnoteOut(BaseModel):
     body_page_number: int
     review_status: str = "detected"
     reviewer_note: Optional[str] = None
+    # No bbox — Footnote has no bounding box today (see Footnote model).
+    # anchor_text/body_source_text are the exact source lines this note's
+    # marker/body were found on; used client-side to jump-to-Markdown by
+    # text match (the same exact-line technique markdown_builder.py uses),
+    # since Footnote has no numeric source_line either.
+    anchor_text: Optional[str] = None
+    body_source_text: Optional[str] = None
 
 
 class FootnotesResponse(BaseModel):
@@ -194,6 +250,8 @@ class TableOut(BaseModel):
     evidence_signals: List[EvidenceSignalOut] = []
     lifecycle_status: str = "DETECTED"
     confidence_explanation: Optional[str] = None
+    bbox: Optional[BoundingBoxOut] = None
+    source_line: Optional[int] = None
 
 
 class TablesResponse(BaseModel):
@@ -225,6 +283,8 @@ class HeadingOut(BaseModel):
     is_page_marker: bool
     review_status: str
     reviewer_note: Optional[str] = None
+    bbox: Optional[BoundingBoxOut] = None
+    source_line: Optional[int] = None
 
 
 class HeadingsResponse(BaseModel):
@@ -348,6 +408,17 @@ class ReadinessReportOut(BaseModel):
     categories: List[ReadinessCategoryDetailOut]
 
 
+class AIStatusResponse(BaseModel):
+    """Current AI provider status — polled by the frontend to decide whether
+    to enable AI-triggering buttons (Generate AI Alt Text, Analyze with AI)
+    or show an "unavailable" reason instead."""
+
+    provider: str
+    available: bool
+    unavailable_reason: Optional[str] = None
+    capabilities: List[str] = []
+
+
 # --- Generic Corrections API (Document Merge Layer reviewer surface) --------
 
 
@@ -358,11 +429,6 @@ class CorrectionAction(str, Enum):
     IGNORE = "ignore"
     NEEDS_REVIEW = "needs_review"
     UNDO = "undo"
-
-
-class EvidenceItemOut(BaseModel):
-    signal: str
-    detail: str
 
 
 class CorrectionOut(BaseModel):
@@ -377,7 +443,7 @@ class CorrectionOut(BaseModel):
     suggested_value: str
     reason: str
     confidence: Optional[float] = None
-    evidence: List[EvidenceItemOut] = []
+    evidence: List[EvidenceSignalOut] = []
     status: str
     created_at: datetime
     reviewer_notes: Optional[str] = None
@@ -391,3 +457,47 @@ class CorrectionActionRequest(BaseModel):
     action: CorrectionAction
     proposed_value: Optional[str] = None  # required when action == "edit"
     reviewer_notes: Optional[str] = None
+
+
+# --- Page Label Manager (FEATURE_018) ---------------------------------------
+
+
+class PageLabelOut(BaseModel):
+    page_number: int
+    printed_label: Optional[str] = None    # detected (Page.printed_label)
+    label_confidence: Optional[float] = None
+    label_conflict: bool = False
+    page_label: Optional[str] = None       # final, reviewer-facing (Page.page_label)
+    page_label_status: str                 # "detected" | "approved" | "overridden"
+
+
+class PageLabelSectionOut(BaseModel):
+    start_page: int
+    end_page: int
+    style: str          # "arabic" | "roman_lower" | "roman_upper" | "none"
+    start_number: int
+    prefix: str
+    suffix: str
+
+
+class PageLabelSectionRequest(BaseModel):
+    start_page: int
+    end_page: int
+    style: str = "arabic"
+    start_number: int = 1
+    prefix: str = ""
+    suffix: str = ""
+
+
+class PageLabelsResponse(BaseModel):
+    pages: List[PageLabelOut]
+    sections: List[PageLabelSectionOut]
+
+
+class PageLabelSectionsRequest(BaseModel):
+    sections: List[PageLabelSectionRequest]
+
+
+class PageLabelOverrideRequest(BaseModel):
+    action: str                    # "override" | "reset"
+    label: Optional[str] = None    # required when action == "override"

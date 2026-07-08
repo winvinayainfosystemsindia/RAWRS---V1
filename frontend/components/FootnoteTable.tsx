@@ -3,6 +3,10 @@
 import { useState } from "react";
 import { api, type FootnoteItem } from "@/lib/api";
 import { Badge } from "./Badge";
+import { ObjectInspectorFrame } from "./workspace/ObjectInspectorFrame";
+import { CorrectionHistoryList } from "./CorrectionHistoryList";
+import { useObjectInspectorContext } from "@/lib/store/useObjectInspectorContext";
+import { useDocumentDispatch } from "@/lib/store/DocumentDataContext";
 
 interface Props {
   footnotes: FootnoteItem[];
@@ -38,7 +42,13 @@ interface DetailProps {
   onUpdated: (updated: FootnoteItem) => void;
 }
 
-function FootnoteDetailPanel({ note, jobId, onUpdated }: DetailProps) {
+export function FootnoteDetailPanel({ note, jobId, onUpdated }: DetailProps) {
+  const { corrections, documentVersion } = useObjectInspectorContext(
+    "footnote",
+    note.footnote_id,
+    note.anchor_page_number
+  );
+  const dispatch = useDocumentDispatch();
   const [body, setBody] = useState(note.body);
   const [reviewerNote, setReviewerNote] = useState(note.reviewer_note ?? "");
   const [saving, setSaving] = useState(false);
@@ -68,15 +78,29 @@ function FootnoteDetailPanel({ note, jobId, onUpdated }: DetailProps) {
     }
   }
 
-  return (
-    <div className="space-y-4 p-1">
-      {/* Location */}
-      <div className="flex flex-wrap gap-4 text-sm text-gray-600">
-        <span>Marker: <span className="font-mono font-medium">{note.marker}</span></span>
-        <span>Anchor page: <span className="font-medium">{note.anchor_page_number}</span></span>
-        <span>Body page: <span className="font-medium">{note.body_page_number}</span></span>
+  const header = (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-2">
+        <Badge tone={note.note_type === "endnote" ? "info" : "neutral"}>
+          {note.note_type === "endnote" ? "Endnote" : "Footnote"} {note.number}
+        </Badge>
+        <span className={`inline-flex items-center rounded px-2 py-0.5 text-xs font-medium ${statusColor(note.review_status)}`}>
+          {statusLabel(note.review_status)}
+        </span>
       </div>
+      <div className="flex flex-wrap gap-4 text-sm text-text-secondary">
+        <span>Marker: <span className="font-mono font-medium text-text-primary">{note.marker}</span></span>
+        <span>Anchor page: <span className="font-medium text-text-primary">{note.anchor_page_number}</span></span>
+        <span>Body page: <span className="font-medium text-text-primary">{note.body_page_number}</span></span>
+      </div>
+    </div>
+  );
 
+  return (
+    <ObjectInspectorFrame
+      header={header}
+      metadata={
+        <div className="space-y-4">
       {/* Body text */}
       <div>
         <label htmlFor="fn-body" className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
@@ -123,63 +147,79 @@ function FootnoteDetailPanel({ note, jobId, onUpdated }: DetailProps) {
       </div>
 
       {!canReview && (
-        <p className="text-xs text-amber-600">
+        <p className="text-xs text-warning">
           This note has no stable ID (detected in a document processed before FEATURE_016D). Re-process the document to enable review.
         </p>
       )}
 
-      {error && <p className="text-sm text-red-600" role="alert">{error}</p>}
-
-      {canReview && (
-        <div className="flex flex-wrap gap-2">
-          {isDirty && (
-            <button
-              onClick={() => call({ body: body !== note.body ? body : undefined, reviewer_note: reviewerNote || undefined })}
-              disabled={saving || !body.trim()}
-              className="rounded bg-gray-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
-            >
-              {saving ? "Saving…" : "Save edits"}
-            </button>
-          )}
-          {note.review_status !== "approved" && note.review_status !== "rejected" && (
-            <button
-              onClick={() => call({ action: "approve", reviewer_note: reviewerNote || undefined })}
-              disabled={saving}
-              className="rounded bg-green-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-800 disabled:opacity-50"
-            >
-              {saving ? "Saving…" : "Approve"}
-            </button>
-          )}
-          {note.review_status === "approved" && (
-            <button
-              onClick={() => call({ action: "approve" })}
-              disabled={saving}
-              className="rounded bg-green-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-800 disabled:opacity-50"
-            >
-              Re-approve
-            </button>
-          )}
-          {note.review_status !== "rejected" && (
-            <button
-              onClick={() => call({ action: "reject", reviewer_note: reviewerNote || undefined })}
-              disabled={saving}
-              className="rounded border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
-            >
-              {saving ? "Saving…" : "Mark as false positive"}
-            </button>
-          )}
-          {note.review_status === "rejected" && (
-            <button
-              onClick={() => call({ action: "approve" })}
-              disabled={saving}
-              className="rounded border border-green-300 px-3 py-1.5 text-sm font-medium text-green-700 hover:bg-green-50 disabled:opacity-50"
-            >
-              Restore
-            </button>
-          )}
+      {error && <p className="text-sm text-danger" role="alert">{error}</p>}
         </div>
-      )}
-    </div>
+      }
+      correctionHistory={
+        <CorrectionHistoryList
+          corrections={corrections}
+          jobId={jobId}
+          onUpdated={(updated) => dispatch({ type: "UPDATE_CORRECTION", correction: updated })}
+          emptyMessage="No cross-source corrections proposed for this note."
+        />
+      }
+      version={
+        documentVersion !== null ? (
+          <p className="text-sm text-text-secondary">As of Document v{documentVersion}</p>
+        ) : undefined
+      }
+      actions={
+        canReview ? (
+          <>
+            {isDirty && (
+              <button
+                onClick={() => call({ body: body !== note.body ? body : undefined, reviewer_note: reviewerNote || undefined })}
+                disabled={saving || !body.trim()}
+                className="rounded bg-text-secondary px-3 py-1.5 text-sm font-medium text-surface-canvas hover:opacity-90 disabled:opacity-50"
+              >
+                {saving ? "Saving…" : "Save edits"}
+              </button>
+            )}
+            {note.review_status !== "approved" && note.review_status !== "rejected" && (
+              <button
+                onClick={() => call({ action: "approve", reviewer_note: reviewerNote || undefined })}
+                disabled={saving}
+                className="rounded bg-success px-3 py-1.5 text-sm font-medium text-accent-contrast hover:opacity-90 disabled:opacity-50"
+              >
+                {saving ? "Saving…" : "Approve"}
+              </button>
+            )}
+            {note.review_status === "approved" && (
+              <button
+                onClick={() => call({ action: "approve" })}
+                disabled={saving}
+                className="rounded bg-success px-3 py-1.5 text-sm font-medium text-accent-contrast hover:opacity-90 disabled:opacity-50"
+              >
+                Re-approve
+              </button>
+            )}
+            {note.review_status !== "rejected" && (
+              <button
+                onClick={() => call({ action: "reject", reviewer_note: reviewerNote || undefined })}
+                disabled={saving}
+                className="rounded border border-danger/40 px-3 py-1.5 text-sm font-medium text-danger hover:bg-danger/10 disabled:opacity-50"
+              >
+                {saving ? "Saving…" : "Mark as false positive"}
+              </button>
+            )}
+            {note.review_status === "rejected" && (
+              <button
+                onClick={() => call({ action: "approve" })}
+                disabled={saving}
+                className="rounded border border-success/40 px-3 py-1.5 text-sm font-medium text-success hover:bg-success/10 disabled:opacity-50"
+              >
+                Restore
+              </button>
+            )}
+          </>
+        ) : undefined
+      }
+    />
   );
 }
 
@@ -216,9 +256,9 @@ export function FootnoteTable({ footnotes, jobId, onFootnotesUpdated }: Props) {
         {approvedCount > 0 && <span className="text-green-700">{approvedCount} approved</span>}
       </div>
 
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
+      <div className="flex flex-col gap-4">
         {/* Note list */}
-        <div className="w-full lg:w-64 shrink-0">
+        <div className="w-full max-h-64 overflow-y-auto">
           <ul className="space-y-2">
             {footnotes.map((note) => {
               const key = noteKey(note);
@@ -251,15 +291,7 @@ export function FootnoteTable({ footnotes, jobId, onFootnotesUpdated }: Props) {
 
         {/* Detail panel */}
         {selectedNote && (
-          <div className="flex-1 min-w-0 rounded-lg border border-gray-200 bg-white p-4">
-            <div className="mb-3 flex items-center gap-2">
-              <Badge tone={selectedNote.note_type === "endnote" ? "info" : "neutral"}>
-                {selectedNote.note_type === "endnote" ? "Endnote" : "Footnote"} {selectedNote.number}
-              </Badge>
-              <span className={`inline-flex items-center rounded px-2 py-0.5 text-xs font-medium ${statusColor(selectedNote.review_status)}`}>
-                {statusLabel(selectedNote.review_status)}
-              </span>
-            </div>
+          <div className="flex-1 min-w-0">
             <FootnoteDetailPanel
               note={selectedNote}
               jobId={jobId}

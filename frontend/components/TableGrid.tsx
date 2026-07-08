@@ -1,17 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import { api, type TableItem } from "@/lib/api";
+import { api, type AiStatus, type TableItem } from "@/lib/api";
 import { TableCard } from "./TableCard";
 import { TableDetailPanel } from "./TableDetailPanel";
 
 interface Props {
   tables: TableItem[];
   jobId: string;
+  aiStatus: AiStatus | null;
   onTablesUpdated: (updated: TableItem[]) => void;
 }
 
-export function TableGrid({ tables, jobId, onTablesUpdated }: Props) {
+export function TableGrid({ tables, jobId, aiStatus, onTablesUpdated }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -77,9 +78,9 @@ export function TableGrid({ tables, jobId, onTablesUpdated }: Props) {
       )}
 
       {tables.length > 0 && (
-        <div className="flex gap-4 items-start">
+        <div className="flex flex-col gap-4">
           {/* Table list */}
-          <div className={selectedTable ? "flex-1 min-w-0" : "w-full"}>
+          <div className={selectedTable ? "w-full max-h-64 overflow-y-auto" : "w-full"}>
             <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {tables.map((table) => (
                 <TableCard
@@ -98,11 +99,12 @@ export function TableGrid({ tables, jobId, onTablesUpdated }: Props) {
 
           {/* Detail panel */}
           {selectedTable && (
-            <div className="w-96 shrink-0">
+            <div className="w-full">
               <TableDetailPanel
                 key={selectedTable.table_id}
                 table={selectedTable}
                 jobId={jobId}
+                aiStatus={aiStatus}
                 onClose={() => setSelectedId(null)}
                 onActionComplete={handleActionComplete}
                 onDelete={handleDelete}

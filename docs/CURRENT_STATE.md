@@ -38,7 +38,7 @@ In both paths, the RAWRS Document Model is the single canonical representation. 
 
 ## Test suite
 
-**Current authoritative figure (2026-06-30): 1296 passed, 0 failed, 7 skipped** (full suite, all markers). Phase M-1 added 44 tests (`tests/test_mathpix_ingestor.py`); FEATURE_015.3 production sign-off confirmed 1239 passed, 0 failed before Phase M-1. See `PHASE_STATUS.md` for the per-feature test history.
+**Current authoritative figure (2026-07-08): 1487 passed, 7 skipped, 5 deselected, 0 failed** (fast subset, `pytest -m "not real_docling and not real_surya"`). Phase M-2 (cross-source verification engine, evidence fusion, page label manager) added ~121 tests on top of the 1296 recorded at Phase M-1. See `PHASE_STATUS.md` for the per-feature test history.
 
 ## What it can do, end to end (additions since last update)
 
@@ -53,7 +53,7 @@ In both paths, the RAWRS Document Model is the single canonical representation. 
 * **No dataset directories beyond `alt_text_dataset/`** — `ocr_dataset/`, `heading_dataset/`, `footnote_dataset/`, `validation_dataset/` are named as future work in the project handover but have zero corresponding code today.
 * **Native Word footnotes/endnotes not implemented.** RAWRS encodes footnotes as a superscript run inside a `w:hyperlink`/`w:bookmark` pair — a real, clickable, traversable internal reference, but the note body renders as ordinary body text, not inside Word's auto-numbered footnote pane. Also: footnote/endnote detection (PDF-native path) only recognizes a marker encoded as a literal Unicode superscript glyph; the more common real-world encoding (plain digit, smaller font, PyMuPDF superscript flag) is not detected. Root-caused as span-level information loss in `TextBlock` — see `KNOWN_LIMITATIONS.md` and the `feature_005` design review.
 * **Mathpix footnote anchor positions are placeholders (Phase M-1 gap).** In the Mathpix import path, inline footnote references (e.g. `[1]`) are imported with `anchor_page_number=1` and `anchor_text=marker`. Phase M-2 will resolve the actual page using the DOCX's H6 page markers. See `KNOWN_LIMITATIONS.md`.
-* **Phase M-2 through M-5 not yet implemented.** Cross-source verification (heading level cross-check, footnote recovery, table recovery), API endpoint for Mathpix MMD upload, and the FEATURE_014 cross-source comparison panel are all pending.
+* **Phase M-2 (headings) and figures/lists cross-source verification are implemented; footnote/table recovery and M-4/M-5 are not.** A generic `src/verification/` engine (`SemanticObject`/`SemanticVerifier`/`MultiSignalMatcher`/evidence fusion — see `PHASE_STATUS.md` "Phase M-2") now cross-verifies figures, headings, lists, and callouts against the PDF, with a Corrections review API and frontend. Footnote and table recovery verifiers are not yet built (the engine supports adding them the same way headings/lists/callouts were added). The API endpoint for Mathpix MMD upload and a dedicated FEATURE_014-style comparison panel (beyond the generic Corrections/EvidenceBreakdown panels already shipped) remain pending.
 
 ## Platform layer (corrects this file's own prior claim)
 

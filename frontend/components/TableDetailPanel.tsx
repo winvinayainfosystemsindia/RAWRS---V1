@@ -1,11 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import { api, type CellUpdate, type TableItem, type TableReviewRequest } from "@/lib/api";
+import { api, type AiStatus, type CellUpdate, type TableItem, type TableReviewRequest } from "@/lib/api";
+import { AiUnavailableBadge } from "./Badge";
+import { ObjectInspectorFrame } from "./workspace/ObjectInspectorFrame";
+import { CorrectionHistoryList } from "./CorrectionHistoryList";
+import { useObjectInspectorContext } from "@/lib/store/useObjectInspectorContext";
+import { useDocumentDispatch } from "@/lib/store/DocumentDataContext";
 
 interface Props {
   table: TableItem;
   jobId: string;
+  aiStatus: AiStatus | null;
   onClose: () => void;
   onActionComplete: (updated: TableItem) => void;
   onDelete: (tableId: string) => void;
@@ -46,7 +52,9 @@ function buildAnnouncement(table: TableItem, rowIdx: number, colIdx: number): st
   return parts.join(" → ");
 }
 
-export function TableDetailPanel({ table, jobId, onClose, onActionComplete, onDelete }: Props) {
+export function TableDetailPanel({ table, jobId, aiStatus, onClose, onActionComplete, onDelete }: Props) {
+  const { corrections, documentVersion } = useObjectInspectorContext("table", table.table_id, table.page_number);
+  const dispatch = useDocumentDispatch();
   const [caption, setCaption] = useState(table.caption ?? "");
   const [summary, setSummary] = useState(table.summary ?? "");
   const [headerIndices, setHeaderIndices] = useState<Set<number>>(
@@ -162,30 +170,34 @@ export function TableDetailPanel({ table, jobId, onClose, onActionComplete, onDe
 
   const ai = currentTable.ai_suggestions;
 
-  return (
-    <div className="rounded-lg border border-gray-200 bg-white p-4 space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-sm font-semibold text-gray-900">
-            Table — Page {currentTable.page_number} ({currentTable.row_count}×{currentTable.col_count})
-          </h3>
-          {currentTable.status === "auto_detected" && currentTable.confidence < 0.7 && (
-            <p className="text-xs text-orange-600 mt-0.5">
-              Low confidence ({Math.round(currentTable.confidence * 100)}%) — verify structure carefully
-            </p>
-          )}
-        </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="text-gray-400 hover:text-gray-600 text-lg leading-none"
-          aria-label="Close"
-        >
-          ×
-        </button>
+  const header = (
+    <div className="flex items-center justify-between">
+      <div>
+        <h3 className="text-sm font-semibold text-text-primary">
+          Table — Page {currentTable.page_number} ({currentTable.row_count}×{currentTable.col_count})
+        </h3>
+        {currentTable.status === "auto_detected" && currentTable.confidence < 0.7 && (
+          <p className="text-xs text-warning mt-0.5">
+            Low confidence ({Math.round(currentTable.confidence * 100)}%) — verify structure carefully
+          </p>
+        )}
       </div>
+      <button
+        type="button"
+        onClick={onClose}
+        className="text-text-secondary hover:text-text-primary text-lg leading-none"
+        aria-label="Close"
+      >
+        ×
+      </button>
+    </div>
+  );
 
+  return (
+    <ObjectInspectorFrame
+      header={header}
+      metadata={
+        <div className="space-y-4">
       {/* Table preview */}
       <div className="overflow-x-auto rounded border border-gray-100 bg-gray-50 max-h-64">
         <table className="text-xs border-collapse w-full">
@@ -199,7 +211,7 @@ export function TableDetailPanel({ table, jobId, onClose, onActionComplete, onDe
               >
                 {/* Row toggle: click to mark/unmark as header row */}
                 <td
-                  className="px-1 py-0.5 border border-gray-200 text-gray-400 text-center select-none w-6 cursor-pointer hover:bg-blue-100"
+                  className="px-1 py-0.5 border border-gray-200 text-gray-600 text-center select-none w-6 cursor-pointer hover:bg-blue-100"
                   title={`Click to toggle row ${rowIdx + 1} as header`}
                   onClick={() => toggleHeaderRow(rowIdx)}
                 >
@@ -387,35 +399,54 @@ export function TableDetailPanel({ table, jobId, onClose, onActionComplete, onDe
         </div>
       )}
 
-      {error && <p className="text-xs text-red-600">{error}</p>}
-
-      {/* Actions */}
-      <div className="flex gap-2 flex-wrap">
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={saving || deleting || analyzing}
-          className="flex-1 rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-        >
-          {saving ? "Saving…" : "Save"}
-        </button>
-        <button
-          type="button"
-          onClick={handleAnalyze}
-          disabled={saving || deleting || analyzing}
-          className="rounded bg-purple-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-purple-700 disabled:opacity-50"
-        >
-          {analyzing ? "Analyzing…" : "Analyze with AI"}
-        </button>
-        <button
-          type="button"
-          onClick={handleDelete}
-          disabled={saving || deleting || analyzing}
-          className="rounded bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 ring-1 ring-red-300 hover:bg-red-100 disabled:opacity-50"
-        >
-          {deleting ? "Removing…" : "Remove"}
-        </button>
-      </div>
-    </div>
+      {error && <p className="text-xs text-danger">{error}</p>}
+        </div>
+      }
+      correctionHistory={
+        <CorrectionHistoryList
+          corrections={corrections}
+          jobId={jobId}
+          onUpdated={(updated) => dispatch({ type: "UPDATE_CORRECTION", correction: updated })}
+          emptyMessage="No cross-source corrections proposed for this table."
+        />
+      }
+      version={
+        documentVersion !== null ? (
+          <p className="text-sm text-text-secondary">As of Document v{documentVersion}</p>
+        ) : undefined
+      }
+      actions={
+        <>
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={saving || deleting || analyzing}
+            className="flex-1 rounded bg-accent px-3 py-1.5 text-xs font-medium text-accent-contrast hover:opacity-90 disabled:opacity-50"
+          >
+            {saving ? "Saving…" : "Save"}
+          </button>
+          {aiStatus && !aiStatus.available ? (
+            <AiUnavailableBadge reason={aiStatus.unavailable_reason} />
+          ) : (
+            <button
+              type="button"
+              onClick={handleAnalyze}
+              disabled={saving || deleting || analyzing}
+              className="rounded bg-accent px-3 py-1.5 text-xs font-medium text-accent-contrast hover:opacity-90 disabled:opacity-50"
+            >
+              {analyzing ? "Analyzing…" : "Analyze with AI"}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={handleDelete}
+            disabled={saving || deleting || analyzing}
+            className="rounded border border-danger/40 px-3 py-1.5 text-xs font-medium text-danger hover:bg-danger/10 disabled:opacity-50"
+          >
+            {deleting ? "Removing…" : "Remove"}
+          </button>
+        </>
+      }
+    />
   );
 }

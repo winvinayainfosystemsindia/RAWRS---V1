@@ -108,6 +108,7 @@ from src.models.contracts import (
     ListType,
     NoteType,
     Page,
+    Paragraph,
     Table,
     TextBlock,
 )
@@ -129,6 +130,15 @@ def _group_tables_by_page(tables: List[Table]) -> Dict[int, List[Table]]:
     grouped: Dict[int, List[Table]] = {}
     for table in tables:
         grouped.setdefault(table.page_number, []).append(table)
+    return grouped
+
+
+def _group_paragraphs_by_page(paragraphs: List[Paragraph]) -> Dict[int, List[Paragraph]]:
+    """FEATURE_020 — Mathpix-path only (see Paragraph's docstring);
+    empty dict for RAWRS-native documents."""
+    grouped: Dict[int, List[Paragraph]] = {}
+    for para in paragraphs:
+        grouped.setdefault(para.page_number, []).append(para)
     return grouped
 
 
@@ -229,8 +239,24 @@ def build_markdown(
     blocks_by_page = _group_blocks_by_page(document.blocks)
     tables_by_page = _group_tables_by_page(document.tables)
     lists_by_page = _group_lists_by_page(document.lists)
+    paragraphs_by_page = _group_paragraphs_by_page(document.paragraphs)
     has_endnotes = any(note.note_type == NoteType.ENDNOTE for note in document.footnotes)
     sorted_pages = sorted(document.pages, key=lambda page: page.page_number)
+
+    # FEATURE_020 — a document that came through the Mathpix import path
+    # (src/mathpix/ingestor.py) gets its body rendered as a projection of
+    # Document's own semantic objects (_render_page_semantic()), sorted
+    # by source_line, instead of _render_page_body_line_by_line()'s
+    # exact-text-match reinsertion — which can never match, since
+    # heading/list/table text is deliberately excluded from
+    # page.cleaned_text (see _assign_page_text()) to avoid double-
+    # rendering. document.paragraphs is only ever populated on that
+    # path (empty for RAWRS-native — see Paragraph's docstring), so its
+    # presence is the signal; a document with real Mathpix headings but
+    # zero paragraph blocks still counts via the second check.
+    is_mathpix_import = bool(document.paragraphs) or any(
+        h.source == "mathpix" for h in document.headings
+    )
 
     sections = [
         _render_page(
@@ -245,6 +271,8 @@ def build_markdown(
             page_numbering_policy,
             tables_by_page.get(page.page_number, []),
             lists_by_page.get(page.page_number, []),
+            paragraphs_by_page.get(page.page_number, []),
+            is_mathpix_import,
         )
         for page in sorted_pages
     ]
@@ -507,6 +535,8 @@ def _render_page(
     page_numbering_policy: Optional[PageNumberingPolicy] = None,
     page_tables: Optional[List[Table]] = None,
     page_lists: Optional[List[ListBlock]] = None,
+    page_paragraphs: Optional[List[Paragraph]] = None,
+    is_mathpix_import: bool = False,
 ) -> str:
     """Render one page's marker (when policy permits), front matter
     (page 1 only), headings, body text, footnotes, tables, lists, and
@@ -515,6 +545,8 @@ def _render_page(
         page_tables = []
     if page_lists is None:
         page_lists = []
+    if page_paragraphs is None:
+        page_paragraphs = []
     marker = _find_page_marker(headings, page, page_numbering_policy)
     content_headings = sorted(
         (h for h in headings if h.page_number == page.page_number and not h.is_page_marker),
@@ -537,11 +569,20 @@ def _render_page(
             page_images,
             page_front_matter,
             page_tables,
+            page_lists,
+            page_paragraphs,
+            is_mathpix_import,
         )
     )
-    blocks.extend(_render_tables(page_tables))
-    blocks.extend(_render_lists(page_lists))
-    blocks.extend(_render_images(page_images))
+    # _render_page_semantic() (the Mathpix-import path) already
+    # interleaves tables/lists/images into the body at their true
+    # source_line position — appending them again here would double-
+    # render. The other two body paths never touch them, so they still
+    # need this fixed after-body append.
+    if not is_mathpix_import:
+        blocks.extend(_render_tables(page_tables))
+        blocks.extend(_render_lists(page_lists))
+        blocks.extend(_render_images(page_images))
     blocks.append(PAGE_BREAK_MARKER)
 
     return "\n\n".join(blocks)
@@ -572,7 +613,7 @@ def _find_page_marker(
     if page_numbering_policy is not None:
         # Ask the policy whether a marker should exist here at all.
         marker_text = page_numbering_policy.resolve_marker_text(
-            page.page_number, page.printed_label
+            page.page_number, page.page_label or page.printed_label
         )
         if marker_text is None:
             return None  # policy suppresses this page — no fallback
@@ -591,12 +632,13 @@ def _find_page_marker(
         )
 
     # Legacy path (no policy): always synthesize so output remains valid.
-    # feature_009: same printed-label preference as heading_detector.py.
+    # feature_009/FEATURE_018: prefer the reviewed page_label, falling back
+    # to the detected printed_label, then the physical page number.
     logger.warning(
         "No page marker found for page {} in document.headings; synthesizing one",
         page.page_number,
     )
-    page_label = page.printed_label or str(page.page_number)
+    page_label = page.page_label or page.printed_label or str(page.page_number)
     return Heading(
         level=HeadingLevel.H6,
         text=page_label,
@@ -616,17 +658,37 @@ def _render_page_body(
     page_images: List[Image],
     front_matter: Optional[FrontMatter],
     page_tables: Optional[List[Table]] = None,
+    page_lists: Optional[List[ListBlock]] = None,
+    page_paragraphs: Optional[List[Paragraph]] = None,
+    is_mathpix_import: bool = False,
 ) -> List[str]:
-    """Dispatch to the geometry-grounded paragraph-reconstruction path
-    when this page has TextBlock data (Phase H - born-digital pages),
-    falling back to the original one-line-per-block rendering when it
-    doesn't (e.g. OCR-recovered pages - Structure Detection never reads
+    """Dispatch to one of three body-rendering strategies.
+
+    FEATURE_020: Mathpix-imported documents get _render_page_semantic(),
+    a projection of Document's own semantic objects sorted by
+    source_line — the exact-text-match reinsertion the other two paths
+    rely on can never succeed for Mathpix content (heading/list/table
+    text is deliberately excluded from page.cleaned_text — see
+    _assign_page_text() — to avoid double-rendering it).
+
+    Otherwise: the geometry-grounded paragraph-reconstruction path when
+    this page has TextBlock data (Phase H - born-digital pages), falling
+    back to the original one-line-per-block rendering when it doesn't
+    (e.g. OCR-recovered pages - Structure Detection never reads
     Docling/Surya output, only a PDF's native text layer, so those
     pages have no bbox signal to ground paragraph reconstruction in).
     See module docstring's "Design note on paragraph reconstruction".
     """
     if page_tables is None:
         page_tables = []
+    if page_lists is None:
+        page_lists = []
+    if page_paragraphs is None:
+        page_paragraphs = []
+    if is_mathpix_import:
+        return _render_page_semantic(
+            content_headings, page_paragraphs, page_lists, page_tables, page_images, anchor_notes,
+        )
     if page_blocks:
         return _render_page_body_with_paragraphs(
             page,
@@ -718,6 +780,83 @@ def _render_page_body_line_by_line(
 
         line = _substitute_markers(line, notes_by_anchor_text.get(line, []))
         blocks.append(line)
+
+    for note in sorted(anchor_notes, key=lambda n: n.number):
+        if note.note_type == NoteType.FOOTNOTE:
+            blocks.append(f"[^{_footnote_label(note)}]: {note.body}")
+
+    return blocks
+
+
+# A missing source_line sorts last, not first — an object RAWRS couldn't
+# place precisely (e.g. a table whose mmd block had no line info) should
+# fall to the end of the page rather than jump to the front and disturb
+# everything that *does* have a real position.
+_UNPOSITIONED = float("inf")
+
+
+def _render_page_semantic(
+    content_headings: List[Heading],
+    page_paragraphs: List[Paragraph],
+    page_lists: List[ListBlock],
+    page_tables: List[Table],
+    page_images: List[Image],
+    anchor_notes: List[Footnote],
+) -> List[str]:
+    """FEATURE_020 — render a Mathpix-imported page as a projection of
+    Document's own semantic objects, not a reconstruction from scanned
+    text. Replaces _render_page_body_line_by_line()'s exact-text-match
+    reinsertion, which structurally cannot work for this path: heading/
+    list/table text is deliberately excluded from page.cleaned_text (see
+    _assign_page_text()) to avoid double-rendering, so there is never a
+    line left in the text stream for a heading to match against.
+
+    Every object type carrying its own source_line (see Heading/
+    ListBlock/Table's docstrings) is merged into one true document-order
+    sequence and rendered by its own type — the single mechanism that
+    fixes both headings vanishing (no exact-text match ever succeeds)
+    and lists/tables clustering after all body text instead of at their
+    real position (the forensic audit's DEF-02 and DEF-05: always the
+    same missing mechanism, not two separate bugs). Images have no
+    source_line yet (Image was not in this feature's scope) and sort
+    last, matching their existing page-end placement — not a regression,
+    just not yet improved.
+
+    Callouts are deliberately not rendered as a distinct block here —
+    see Callout's own docstring ("rendering is a deliberately separate,
+    later piece of work"): their anchoring Heading already renders
+    correctly via the heading branch below.
+    """
+    items: List[Tuple[float, int, object]] = []
+    for order, h in enumerate(content_headings):
+        items.append((h.source_line if h.source_line is not None else _UNPOSITIONED, order, h))
+    offset = len(items)
+    for order, p in enumerate(page_paragraphs):
+        items.append((p.source_line if p.source_line is not None else _UNPOSITIONED, offset + order, p))
+    offset += len(page_paragraphs)
+    for order, lst in enumerate(page_lists):
+        items.append((lst.source_line if lst.source_line is not None else _UNPOSITIONED, offset + order, lst))
+    offset += len(page_lists)
+    for order, table in enumerate(page_tables):
+        items.append((table.source_line if table.source_line is not None else _UNPOSITIONED, offset + order, table))
+    offset += len(page_tables)
+    for order, image in enumerate(page_images):
+        items.append((_UNPOSITIONED, offset + order, image))
+
+    items.sort(key=lambda item: (item[0], item[1]))
+
+    blocks: List[str] = []
+    for _, _, obj in items:
+        if isinstance(obj, Heading):
+            blocks.append(_render_heading(obj))
+        elif isinstance(obj, Paragraph):
+            blocks.append(obj.text)
+        elif isinstance(obj, ListBlock):
+            blocks.extend(_render_lists([obj]))
+        elif isinstance(obj, Table):
+            blocks.extend(_render_tables([obj]))
+        elif isinstance(obj, Image):
+            blocks.extend(_render_images([obj]))
 
     for note in sorted(anchor_notes, key=lambda n: n.number):
         if note.note_type == NoteType.FOOTNOTE:

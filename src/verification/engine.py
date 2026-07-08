@@ -90,9 +90,19 @@ class CrossSourceVerificationEngine:
         others. Callers are responsible for updating ``correction.status``
         themselves after this returns (this method only mutates the
         Document side of the correction).
+
+        FEATURE_020: bumps document.version by one — the single choke
+        point every correction-driven mutation passes through, so every
+        registered asset type's exports become invalidatable for free
+        (see src/api/routes.py's export-download handlers). Guarded by
+        hasattr() so lightweight test doubles without a version field
+        (common across this codebase's verifier tests) keep working
+        unchanged.
         """
         verifier = self._require(correction.object_type)
         verifier.apply(document, correction)
+        if hasattr(document, "version"):
+            document.version += 1
 
     def revert_correction(self, document: Any, correction: CorrectionRecord) -> None:
         """Generic dispatch for "a reviewer undid this correction."
@@ -101,9 +111,14 @@ class CrossSourceVerificationEngine:
         calls its ``revert()`` (concrete-by-default on SemanticVerifier —
         see src/verification/base.py). Callers are responsible for setting
         ``correction.status = CorrectionStatus.REVERTED`` themselves.
+
+        FEATURE_020: bumps document.version — see apply_correction()
+        above; a revert is just as much a content change as an apply.
         """
         verifier = self._require(correction.object_type)
         verifier.revert(document, correction)
+        if hasattr(document, "version"):
+            document.version += 1
 
     def findings_to_corrections(self, document: Any, findings: List[Finding]) -> None:
         """Append one CorrectionRecord per finding to document.corrections.

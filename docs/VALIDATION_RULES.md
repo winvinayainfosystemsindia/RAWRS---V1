@@ -182,9 +182,20 @@ Examples:
 | HEADING_002 | WARNING | No H1 detected |
 | HEADING_003 | WARNING | Empty/blank heading |
 | HEADING_004 | WARNING | Duplicate (level, text) heading pair |
+| HEADING_VERIFY_001 | INFO | Mathpix heading could not be confirmed against the PDF (Phase M-2, cross-source) |
+| HEADING_VERIFY_002 | WARNING | PDF has a heading not present in the Mathpix package (Phase M-2, cross-source) |
+| HEADING_VERIFY_003 | WARNING | Heading level disagrees between Mathpix and PDF typography (Phase M-2, cross-source) |
+| HEADING_VERIFY_004 | WARNING | Heading text differs from the PDF — possible OCR/recognition error (Phase M-2, cross-source) |
+| HEADING_VERIFY_005 | WARNING | Heading looks like a running header/footer, not real content (FEATURE_019, multi-signal evidence fusion) |
 | PAGE_001 | ERROR | Page missing its H6 page marker |
 | PAGE_002 | ERROR/WARNING | Duplicate page number, sequence gap, or out-of-order pages |
 | PAGE_003 | WARNING | Reading-order anomaly (backward jump or block overlap) |
+| PAGE_004 | ERROR | Duplicate final page label (FEATURE_018) |
+| PAGE_005 | ERROR | Page covered by a page label section resolved to no label (FEATURE_018) |
+| PAGE_006 | ERROR | Overlapping page label sections produce an invalid numbering sequence (FEATURE_018) |
+| PAGE_007 | WARNING | Conflicting detected page-number candidates on a page (FEATURE_018) |
+| PAGE_008 | WARNING | Conflicting page label not yet reviewed (FEATURE_018) |
+| CALLOUT_VERIFY_001 | INFO | Boxed aside (Case Study/Thinking Point/Key Ideas/Summary/Activity) classified on weak evidence — likely an ordinary heading (FEATURE_019) |
 | IMAGE_001 | ERROR | Image reports success but file is missing |
 | IMAGE_002 | ERROR | Image extraction failed |
 | IMAGE_003 | ERROR | Duplicate image_id |

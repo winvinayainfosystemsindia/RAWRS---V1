@@ -22,8 +22,9 @@ from typing import Any, Dict, List, Optional, Set
 from src.models.correction import CorrectionRecord
 from src.models.list_block import ListBlock, ListItem, ListType
 from src.models.semantic_object import ProvenanceSource
-from src.models.verification import EvidenceItem, Finding, RuleSpec, VerificationStatus
+from src.models.verification import Finding, RuleSpec, VerificationStatus
 from src.verification.base import SemanticVerifier
+from src.verification.evidence import EvidenceSignal
 from src.verification.matching import MatchResult, MultiSignalMatcher, WeightedSignal
 from src.verification.merge import MergeAction
 
@@ -141,8 +142,8 @@ class ListVerifier(SemanticVerifier):
                         ),
                         proposed_value=_encode_recovery(pdf_list),
                         evidence_items=[
-                            EvidenceItem(signal="pdf_item_count", detail=str(len(pdf_list.items))),
-                            EvidenceItem(signal="pdf_list_type", detail=pdf_list.list_type.value),
+                            EvidenceSignal(name="pdf_item_count", score=1.0, weight=1.0, note=str(len(pdf_list.items))),
+                            EvidenceSignal(name="pdf_list_type", score=1.0, weight=1.0, note=pdf_list.list_type.value),
                         ],
                     )
                 )
@@ -170,7 +171,7 @@ class ListVerifier(SemanticVerifier):
                     ),
                     original_value=str(len(canonical.items)),
                     proposed_value=str(len(pdf_list.items)),
-                    evidence_items=[EvidenceItem(signal="pdf_item_count", detail=str(len(pdf_list.items)))],
+                    evidence_items=[EvidenceSignal(name="pdf_item_count", score=1.0, weight=1.0, note=str(len(pdf_list.items)))],
                 )
             )
 

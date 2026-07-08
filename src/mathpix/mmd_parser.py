@@ -85,6 +85,35 @@ _PUBLISHER_LABEL_RE = re.compile(
     r"^(FIGURE|TABLE|CHART|BOX|APPENDIX|FIG\.?)\s+[\d.]", re.IGNORECASE
 )
 
+# Boxed-aside label patterns (FEATURE_019, forensic-audit DEF-04): a
+# heading whose text matches one of these is a Callout label, not an
+# ordinary content heading — see src/models/callout.py. Deliberately a
+# short, explicit list rather than a single greedy pattern: each entry
+# names the exact vocabulary confirmed against a real textbook (Patrick &
+# McPhee, "Contemporary Issues in Learning and Teaching"); a publisher
+# using different box names extends this dict, not the classifier logic.
+# Numbering ("11.2") and a following name ("Kate") are both optional.
+_CALLOUT_LABEL_PATTERNS: List[Tuple[re.Pattern, str]] = [
+    (re.compile(r"^Case\s+stud(?:y|ies)\b", re.IGNORECASE), "case_study"),
+    (re.compile(r"^Thinking\s+points?\b", re.IGNORECASE), "thinking_point"),
+    (re.compile(r"^Key\s+ideas?\b", re.IGNORECASE), "key_ideas"),
+    (re.compile(r"^Activit(?:y|ies)\b", re.IGNORECASE), "activity"),
+    (re.compile(r"^Summary\b", re.IGNORECASE), "summary"),
+]
+
+
+def classify_callout_type(heading_text: str) -> Optional[str]:
+    """Return the callout_type for a heading whose text matches a known
+    boxed-aside label pattern, else None (an ordinary content heading).
+    "Summary" is intentionally last and exact — it's common enough as a
+    plain section title that it should only match once the more specific,
+    numbered patterns above have already declined."""
+    stripped = heading_text.strip()
+    for pattern, callout_type in _CALLOUT_LABEL_PATTERNS:
+        if pattern.match(stripped):
+            return callout_type
+    return None
+
 
 def parse_mmd(content: str) -> P2Document:
     """Parse Mathpix MMD content into a P2Document.
@@ -229,6 +258,7 @@ def _apply_heading(doc: P2Document, cmd: str, text: str, next_i: int) -> int:
                     level=level,
                     text=text,
                     mmd_command=cmd + "*",
+                    callout_type=classify_callout_type(text),
                 ),
                 source_line=next_i,
             )

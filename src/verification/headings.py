@@ -4,14 +4,29 @@ Layer + SemanticVerifier base class from day one (see
 src/verification/figures.py for the first, migrated-after-the-fact,
 asset type).
 
-Only PDF-verification matters here — Mathpix already builds canonical
-``Heading`` objects directly (src/mathpix/ingestor.py), so there is no
-separate "uploaded asset" to match at import time the way Figure has.
-The PDF-side candidates come from
-``src/headings/heading_detector.py::detect_headings_from_pdf()``, a pure
-function that reuses that module's existing classification helpers —
-zero duplicated detection logic, and ``detect_headings()`` (the
+Mathpix already builds canonical ``Heading`` objects directly
+(src/mathpix/ingestor.py), so there is no separate "uploaded asset" to
+match at import time the way Figure has. The PDF-side candidates come
+from ``src/headings/heading_detector.py::detect_headings_from_pdf()``, a
+pure function that reuses that module's existing classification helpers
+— zero duplicated detection logic, and ``detect_headings()`` (the
 Mathpix-independent native path) is untouched.
+
+FEATURE_019 (Evidence Fusion Engine): classify() no longer decides
+KEEP/REPAIR/RECOVER from the binary PDF-match alone. It builds an
+EvidenceBundle (src/verification/evidence.py) per candidate from every
+independent signal available — the PDF match itself, PDF typography
+(font size vs. the document's own body-text baseline,
+src/headings/heading_detector.py::build_heading_layout_context()),
+whitespace isolation (gap above/below vs. the page's own median line
+gap), and running-header recurrence (the same exact-text-repeats-across-
+pages signature heading_detector.py's own Tier-4 guard already uses for
+the RAWRS-native path, ported here since that guard never runs at all
+for Mathpix-sourced headings otherwise) — then hands the fused
+confidence to src/verification/merge.py::decide_from_evidence(). The
+running-header signal is the one that works even with zero PDF text
+layer (a pure scanned-image document): it only needs Mathpix's own
+heading list, not PDF geometry.
 
 Content headings only (H1-H5); page markers (H6) are out of scope for
 this verifier (a future PageLabelVerifier's job — see the roadmap in
@@ -22,14 +37,37 @@ from __future__ import annotations
 
 import difflib
 import json
-from typing import Any, Dict, List, Optional
+from collections import Counter
+from typing import Any, Dict, List, Optional, Tuple
 
+from src.headings.heading_detector import HeadingLayoutContext, build_heading_layout_context
 from src.models.correction import CorrectionRecord
 from src.models.heading import Heading, HeadingLevel
-from src.models.verification import EvidenceItem, Finding, RuleSpec, VerificationStatus
+from src.models.verification import Finding, RuleSpec, VerificationStatus
 from src.verification.base import SemanticVerifier
+from src.verification.evidence import EvidenceBundle, EvidenceSignal
 from src.verification.matching import MatchResult, MultiSignalMatcher, WeightedSignal
-from src.verification.merge import MergeAction
+from src.verification.merge import MergeAction, decide_from_evidence
+
+# A heading whose exact normalized text recurs on this many or more
+# distinct pages is treated as a likely running header/footer, not a
+# real content heading — mirrors heading_detector.py's own Tier 4
+# Recurrence Guard, which only ever declines a *second* occurrence, so 2
+# distinct pages is already "recurs" in that same spirit.
+_RUNNING_HEADER_RECURRENCE_MIN_PAGES = 2
+
+# A candidate's font size must exceed the document's body size by at
+# least this ratio to count as strong typography evidence for a heading
+# (mirrors heading_detector.py's own bold-and-larger-than-body signal,
+# expressed as a continuous score instead of a hard gate).
+_TYPOGRAPHY_STRONG_SIZE_RATIO = 1.15
+
+# Same boundary decide_from_evidence()'s default ConfidenceThresholds
+# uses — the running-header recurrence signal is checked directly
+# (rather than through decide_from_evidence()) since it answers "does
+# this belong as a heading at all", not "is the level/text correct", and
+# has no PDF-proposed replacement value to REPAIR toward.
+_RUNNING_HEADER_REPAIR_THRESHOLD = 0.5
 
 # Two headings whose normalized text similarity is at least this high are
 # considered "the same heading" for matching purposes even when the exact
@@ -106,6 +144,127 @@ def _insert_recovered_heading(document: Any, recovered: Heading) -> None:
     document.headings.sort(key=lambda h: h.document_order)
 
 
+# ── Evidence signal builders (FEATURE_019) ──────────────────────────────
+#
+# Each function below inspects one independent source and returns an
+# EvidenceSignal (or None when that source has nothing to say about this
+# candidate — e.g. typography/whitespace need a PDF text layer that a
+# pure scanned-image document simply doesn't have). classify() combines
+# whichever signals are actually available into one EvidenceBundle; a
+# candidate with only one or two available signals is still evaluated,
+# just with less to go on — never an error.
+
+
+def _pdf_match_signal(decision_confidence: Optional[float], is_mismatch: bool) -> Optional[EvidenceSignal]:
+    """The existing binary PDF-vs-Mathpix match, folded in as one signal
+    among several rather than the sole source of truth. None when the PDF
+    pass found no candidate to compare against at all (unconfirmed).
+
+    ``decision_confidence`` is identity-match confidence (are the
+    canonical and PDF-derived headings the same real-world heading —
+    from src/verification/matching.py's exact_text/text_similarity/
+    page_proximity signals), not "is Mathpix's classification correct."
+    A high-confidence match that happens to disagree on level/text is
+    still strong evidence — it means we can trust the PDF's proposed
+    correction, not that the comparison itself is worthless — so the
+    score reports match confidence either way; only a genuinely weak
+    match (e.g. matching.py's positional last-resort fallback) pulls
+    the fused bundle toward REMOVE via decide_from_evidence() rather
+    than a confident REPAIR.
+    """
+    if decision_confidence is None:
+        return None
+    return EvidenceSignal(
+        name="pdf_match",
+        score=decision_confidence,
+        weight=1.5,
+        note=f"PDF-derived candidate {'disagrees' if is_mismatch else 'confirms'} (match confidence {decision_confidence:.2f})",
+    )
+
+
+def _typography_signal(heading: Heading, context: HeadingLayoutContext) -> Optional[EvidenceSignal]:
+    """Font size vs. the document's own body-text baseline. None when the
+    PDF has no native text layer for this line (context.body_profile is
+    None) or this exact line wasn't found (e.g. Mathpix's OCR text
+    differs slightly from the PDF's own extraction)."""
+    if context.body_profile is None:
+        return None
+    layout = context.layout_index.get(heading.page_number, {}).get(heading.text)
+    if layout is None:
+        return None
+    size, is_bold = layout
+    body_size, body_is_bold = context.body_profile
+    if body_size <= 0:
+        return None
+    size_ratio = size / body_size
+    score = min(1.0, max(0.0, (size_ratio - 1.0) / (_TYPOGRAPHY_STRONG_SIZE_RATIO - 1.0)))
+    if is_bold and not body_is_bold:
+        score = min(1.0, score + 0.3)
+    return EvidenceSignal(
+        name="typography",
+        score=score,
+        weight=1.0,
+        note=f"{size:.0f}pt vs {body_size:.0f}pt body ({'bold' if is_bold else 'not bold'})",
+    )
+
+
+def _whitespace_signal(heading: Heading, context: HeadingLayoutContext) -> Optional[EvidenceSignal]:
+    """Vertical isolation: gap above/below this line vs. the page's own
+    median line-to-line gap — self-calibrating per page, same pattern
+    src/validation/validator.py's reading-order-anomaly check already
+    uses, rather than a fixed point value. None when this page has fewer
+    than 3 lines of bbox data (nothing to calibrate against) or this
+    exact line wasn't found."""
+    page_bboxes = context.bbox_index.get(heading.page_number, {})
+    target = page_bboxes.get(heading.text)
+    if target is None or len(page_bboxes) < 3:
+        return None
+
+    ordered = sorted(page_bboxes.values(), key=lambda b: b[1])  # sort by y0
+    gaps = [max(0.0, b[1] - a[2]) for a, b in zip(ordered, ordered[1:])]  # y0(next) - y1(prev)
+    if not gaps:
+        return None
+    median_gap = sorted(gaps)[len(gaps) // 2]
+    if median_gap <= 0:
+        return None
+
+    _, target_y0, target_y1 = target
+    gap_above = next((target_y0 - b[2] for b in ordered if b[2] <= target_y0), 0.0)
+    gap_below = next((b[1] - target_y1 for b in ordered if b[1] >= target_y1), 0.0)
+    isolation = max(0.0, gap_above) + max(0.0, gap_below)
+    score = min(1.0, isolation / (2.5 * median_gap))
+    return EvidenceSignal(
+        name="whitespace",
+        score=score,
+        weight=0.75,
+        note=f"{isolation:.0f}pt surrounding gap vs {median_gap:.0f}pt page median",
+    )
+
+
+def _running_header_signal(heading: Heading, all_canonical: List[Heading]) -> EvidenceSignal:
+    """Exact-text recurrence across distinct pages — the running-header/
+    footer signature heading_detector.py's own Tier 4 Recurrence Guard
+    already relies on for the RAWRS-native path, ported here since that
+    guard never runs at all for Mathpix-sourced headings otherwise (it
+    lives inside detect_headings()'s classification loop, which the
+    Mathpix import path skips entirely). Unlike typography/whitespace,
+    this signal needs no PDF text layer — it only reads Mathpix's own
+    heading list, so it is the one signal still available for a pure
+    scanned-image document."""
+    normalized = _normalize(heading.text)
+    pages = {h.page_number for h in all_canonical if _normalize(h.text) == normalized}
+    if len(pages) < _RUNNING_HEADER_RECURRENCE_MIN_PAGES:
+        return EvidenceSignal(name="running_header_recurrence", score=1.0, weight=1.0, note="text is unique in this document")
+    # More recurring pages -> lower score (stronger running-header signal).
+    score = max(0.0, 1.0 - (len(pages) - 1) / 4.0)
+    return EvidenceSignal(
+        name="running_header_recurrence",
+        score=score,
+        weight=1.25,
+        note=f"identical text repeats on {len(pages)} pages — likely a running header/footer",
+    )
+
+
 class HeadingVerifier(SemanticVerifier):
     asset_type = "heading"
 
@@ -132,25 +291,22 @@ class HeadingVerifier(SemanticVerifier):
         return canonical.level != pdf_heading.level or _normalize(canonical.text) != _normalize(pdf_heading.text)
 
     def classify(self, match_result: MatchResult, **context: Any) -> List[Finding]:
+        """FEATURE_019: every candidate with a canonical (Mathpix) heading
+        gets a fused, multi-signal EvidenceBundle — the PDF match, PDF
+        typography, whitespace isolation, and running-header recurrence —
+        rather than a decision from the binary PDF match alone. See the
+        module docstring and the _*_signal() builders above.
+        """
         findings: List[Finding] = []
 
-        for decision in self.merge_decisions(match_result, self._is_mismatch):
-            if decision.pdf_evidence is None:
-                # KEEP, unconfirmed: a canonical heading the PDF pass didn't match.
-                canonical: Heading = decision.canonical
-                canonical.verification_status = VerificationStatus.MISSING_FROM_PDF
-                findings.append(
-                    Finding(
-                        asset_type=self.asset_type,
-                        kind="unconfirmed",
-                        object_id=canonical.id,
-                        confidence=None,
-                        evidence=f"page={canonical.page_number}",
-                        message=f"Heading '{canonical.text}' could not be confirmed against the PDF.",
-                    )
-                )
-                continue
+        all_canonical: List[Heading] = [pair.a for pair in match_result.pairs] + list(match_result.unmatched_a)
 
+        layout_context: Optional[HeadingLayoutContext] = None
+        pdf_path = context.get("pdf_path")
+        if pdf_path:
+            layout_context = build_heading_layout_context(pdf_path)
+
+        for decision in self.merge_decisions(match_result, self._is_mismatch):
             if decision.canonical is None:
                 # RECOVER: a real PDF heading Mathpix flattened to body text.
                 pdf_heading: Heading = decision.pdf_evidence
@@ -167,19 +323,78 @@ class HeadingVerifier(SemanticVerifier):
                         ),
                         proposed_value=_encode_recovery(pdf_heading),
                         evidence_items=[
-                            EvidenceItem(signal="pdf_typography", detail=f"H{int(pdf_heading.level)} by font-size rank"),
-                            EvidenceItem(signal="pdf_page", detail=str(pdf_heading.page_number)),
+                            EvidenceSignal(name="pdf_typography", score=1.0, weight=1.0, note=f"H{int(pdf_heading.level)} by font-size rank"),
+                            EvidenceSignal(name="pdf_page", score=1.0, weight=1.0, note=str(pdf_heading.page_number)),
                         ],
                     )
                 )
                 continue
 
-            # Matched pair: KEEP (agree) or REPAIR (level and/or text disagree).
-            canonical = decision.canonical
+            canonical: Heading = decision.canonical
             pdf_heading = decision.pdf_evidence
-            canonical.confidence = decision.confidence
+            pdf_mismatch = pdf_heading is not None and self._is_mismatch(canonical, pdf_heading)
 
-            if decision.action != MergeAction.REPAIR:
+            bundle = EvidenceBundle()
+            pdf_signal = _pdf_match_signal(decision.confidence, pdf_mismatch)
+            if pdf_signal is not None:
+                bundle.add(pdf_signal)
+            if layout_context is not None:
+                typography = _typography_signal(canonical, layout_context)
+                if typography is not None:
+                    bundle.add(typography)
+                whitespace = _whitespace_signal(canonical, layout_context)
+                if whitespace is not None:
+                    bundle.add(whitespace)
+            running_header = _running_header_signal(canonical, all_canonical)
+            bundle.add(running_header)
+            canonical.confidence = bundle.confidence
+
+            # Running-header recurrence answers a different question ("does
+            # this belong as a heading at all") than the level/text repair
+            # check below ("if it belongs, is the level/text right") — a
+            # weak running-header score proposes REMOVE regardless of
+            # whether the PDF pass separately confirmed level/text, since
+            # there is no PDF-proposed replacement value to repair toward.
+            if running_header.score < _RUNNING_HEADER_REPAIR_THRESHOLD:
+                canonical.verification_status = VerificationStatus.MISMATCH
+                findings.append(
+                    Finding(
+                        asset_type=self.asset_type,
+                        kind="likely_running_header",
+                        object_id=canonical.id,
+                        confidence=bundle.confidence,
+                        evidence=bundle.explanation,
+                        message=(
+                            f"'{canonical.text}' on page {canonical.page_number} looks like a "
+                            "running header/footer, not a real heading."
+                        ),
+                        original_value=canonical.text,
+                        # Not "nothing" — the restore payload revert() needs
+                        # once apply() has deleted the live object (see
+                        # revert() below). Same encoding _encode_recovery()
+                        # already uses for the RECOVER case.
+                        proposed_value=_encode_recovery(canonical),
+                        evidence_items=list(bundle.signals),
+                    )
+                )
+                continue
+
+            if pdf_heading is None:
+                canonical.verification_status = VerificationStatus.MISSING_FROM_PDF
+                findings.append(
+                    Finding(
+                        asset_type=self.asset_type,
+                        kind="unconfirmed",
+                        object_id=canonical.id,
+                        confidence=bundle.confidence,
+                        evidence=bundle.explanation,
+                        message=f"Heading '{canonical.text}' could not be confirmed against the PDF.",
+                    )
+                )
+                continue
+
+            action = decide_from_evidence(bundle, has_canonical=True, is_mismatch=pdf_mismatch)
+            if action != MergeAction.REPAIR:
                 canonical.verification_status = VerificationStatus.VERIFIED
                 continue
 
@@ -190,17 +405,15 @@ class HeadingVerifier(SemanticVerifier):
                         asset_type=self.asset_type,
                         kind="level_mismatch",
                         object_id=canonical.id,
-                        confidence=decision.confidence,
-                        evidence=f"mathpix_level=H{int(canonical.level)}; pdf_level=H{int(pdf_heading.level)}",
+                        confidence=bundle.confidence,
+                        evidence=bundle.explanation,
                         message=(
                             f"Heading level disagrees: Mathpix says H{int(canonical.level)}, "
                             f"PDF typography suggests H{int(pdf_heading.level)}."
                         ),
                         original_value=str(int(canonical.level)),
                         proposed_value=str(int(pdf_heading.level)),
-                        evidence_items=[
-                            EvidenceItem(signal="pdf_typography", detail=f"H{int(pdf_heading.level)} by font-size rank"),
-                        ],
+                        evidence_items=list(bundle.signals),
                     )
                 )
             if _normalize(canonical.text) != _normalize(pdf_heading.text):
@@ -209,12 +422,12 @@ class HeadingVerifier(SemanticVerifier):
                         asset_type=self.asset_type,
                         kind="text_correction",
                         object_id=canonical.id,
-                        confidence=decision.confidence,
-                        evidence=f"mathpix_text={canonical.text!r}; pdf_text={pdf_heading.text!r}",
+                        confidence=bundle.confidence,
+                        evidence=bundle.explanation,
                         message="Heading text differs from the PDF — possible OCR/recognition error.",
                         original_value=canonical.text,
                         proposed_value=pdf_heading.text,
-                        evidence_items=[EvidenceItem(signal="pdf_text", detail=pdf_heading.text)],
+                        evidence_items=list(bundle.signals),
                     )
                 )
 
@@ -233,6 +446,9 @@ class HeadingVerifier(SemanticVerifier):
             ),
             "text_correction": RuleSpec(
                 rule_id="HEADING_VERIFY_004", reason_code="HEADING_TEXT_OCR_ERROR", severity="warning"
+            ),
+            "likely_running_header": RuleSpec(
+                rule_id="HEADING_VERIFY_005", reason_code="HEADING_LIKELY_RUNNING_HEADER", severity="warning"
             ),
         }
 
@@ -253,7 +469,28 @@ class HeadingVerifier(SemanticVerifier):
             heading.level = HeadingLevel(int(correction.proposed_value))
         elif correction.field == "text_correction" and correction.proposed_value:
             heading.text = correction.proposed_value
+        elif correction.field == "likely_running_header":
+            # REMOVE, reviewer-accepted (FEATURE_019 — every REMOVE lands
+            # PROPOSED and only reaches apply() once a human has Accepted
+            # it via the Corrections API; see src/verification/merge.py).
+            document.headings = [h for h in document.headings if h.id != heading.id]
         # "unconfirmed" is informational only — no proposed_value, no-op.
+
+    def revert(self, document: Any, correction: CorrectionRecord) -> None:
+        """likely_running_header's REMOVE needs a real restore, not the
+        base class's default "replay apply() with values swapped" — by
+        the time revert() runs, apply() has already deleted the Heading
+        object entirely, so there is nothing left to swap values on.
+        proposed_value carries the full reconstruction payload (level/
+        text/page_number) set at classify() time, in the same encoding
+        _encode_recovery()/_decode_recovery() already use for RECOVER —
+        reused here rather than inventing a second format.
+        """
+        if correction.field == "likely_running_header":
+            if correction.proposed_value:
+                _insert_recovered_heading(document, _decode_recovery(correction.proposed_value))
+            return
+        super().revert(document, correction)
 
 
 def _register() -> None:

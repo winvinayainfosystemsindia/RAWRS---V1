@@ -1,144 +1,81 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
+import { DocumentProvider } from "@/lib/store/DocumentProvider";
 import {
-  api,
-  ApiError,
-  type CorrectionItem,
-  type FootnoteItem,
-  type HeadingItem,
-  type ImageItem,
-  type JobSummary,
-  type MetadataItem,
-  type PageOcrInfo,
-  type PageReadingOrder,
-  type ReadinessReport,
-  type TableItem,
-  type ValidationIssue,
-} from "@/lib/api";
-import { JobStatusBadge } from "@/components/Badge";
+  useDocumentData,
+  useDocumentDispatch,
+  selectHeadings,
+  selectTables,
+  selectImages,
+  selectFootnotes,
+  selectLists,
+  selectCallouts,
+  selectCorrections,
+  selectPageLabels,
+  selectReadingOrder,
+  listKey,
+  calloutKey,
+} from "@/lib/store/DocumentDataContext";
+import { useMarkdownViewport } from "@/lib/store/MarkdownViewportContext";
+import { useSelection } from "@/lib/store/SelectionContext";
+import type { PdfObjectOverlay } from "@/components/PdfViewer";
+import { usePdfViewport } from "@/lib/store/PdfViewportContext";
+import { useElapsedSeconds } from "@/lib/store/useElapsedSeconds";
 import { PipelineView } from "@/components/PipelineView";
 import { ResultsDashboard } from "@/components/ResultsDashboard";
 import { OutputWorkspace } from "@/components/OutputWorkspace";
-import { Tabs } from "@/components/Tabs";
+import { MarkdownEditor } from "@/components/MarkdownEditor";
+import { DocxPreview } from "@/components/DocxPreview";
+import { WorkspaceShell } from "@/components/workspace/WorkspaceShell";
+import { SemanticNavTree, type NavSection } from "@/components/workspace/SemanticNavTree";
+import { ContextInspectorRail } from "@/components/workspace/ContextInspectorRail";
+import { BottomPanel } from "@/components/workspace/BottomPanel";
 import { ValidationIssueTable } from "@/components/ValidationIssueTable";
 import { ImageGrid } from "@/components/ImageGrid";
-import { TableGrid } from "@/components/TableGrid";
-import { FootnoteTable } from "@/components/FootnoteTable";
-import { HeadingGrid } from "@/components/HeadingGrid";
 import { MetadataPanel } from "@/components/MetadataPanel";
 import { OcrPageTable } from "@/components/OcrPageTable";
 import { ReadingOrderPanel } from "@/components/ReadingOrderPanel";
+import { PageLabelManagerPanel } from "@/components/PageLabelManagerPanel";
 import { CorrectionsPanel } from "@/components/CorrectionsPanel";
 import { ReadinessPanel } from "@/components/ReadinessPanel";
 
-const POLL_INTERVAL_MS = 3000;
-
-interface ResultData {
-  issues: ValidationIssue[];
-  images: ImageItem[];
-  tables: TableItem[];
-  footnotes: FootnoteItem[];
-  headings: HeadingItem[];
-  metadata: MetadataItem | null;
-  pages: PageOcrInfo[];
-  readingOrder: PageReadingOrder[];
-  markdown: string;
-  corrections: CorrectionItem[];
-  readiness: ReadinessReport | null;
-}
+// pdfjs-dist touches browser-only globals (DOMMatrix, etc.) that don't
+// exist during Next.js's SSR pass of client components — load it
+// client-only.
+const PdfViewer = dynamic(() => import("@/components/PdfViewer").then((m) => m.PdfViewer), {
+  ssr: false,
+  loading: () => <p className="p-4 text-sm text-text-secondary">Loading PDF Inspector…</p>,
+});
 
 export function DocumentWorkspace({ jobId }: { jobId: string }) {
-  const [job, setJob] = useState<JobSummary | null>(null);
-  const [notFound, setNotFound] = useState(false);
-  const [results, setResults] = useState<ResultData | null>(null);
-  const elapsedStart = useRef<number>(0);
-  const [elapsed, setElapsed] = useState(0);
+  return (
+    <DocumentProvider jobId={jobId}>
+      <DocumentWorkspaceContent jobId={jobId} />
+    </DocumentProvider>
+  );
+}
 
-  useEffect(() => { elapsedStart.current = Date.now(); }, []);
+function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
+  const state = useDocumentData();
+  const dispatch = useDocumentDispatch();
+  const { jumpTarget: mdJumpTarget, jumpToLine } = useMarkdownViewport();
+  const { selection, select } = useSelection();
+  const [activeSpecialView, setActiveSpecialView] = useState("");
+  const [overviewOpen, setOverviewOpen] = useState(false);
+  const elapsed = useElapsedSeconds(state.job);
 
-  // Elapsed timer — ticks only while queued or processing.
-  useEffect(() => {
-    if (!job || (job.status !== "queued" && job.status !== "processing")) return;
-    const tick = setInterval(() => {
-      setElapsed(Math.round((Date.now() - elapsedStart.current) / 1000));
-    }, 1000);
-    return () => clearInterval(tick);
-  }, [job?.status]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Polling loop.
-  useEffect(() => {
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout>;
-
-    async function poll() {
-      try {
-        const summary = await api.getDocument(jobId);
-        if (cancelled) return;
-        setJob(summary);
-
-        if (summary.status === "complete" || summary.status === "failed") {
-          await loadResults(summary);
-          return;
-        }
-        timer = setTimeout(poll, POLL_INTERVAL_MS);
-      } catch (err) {
-        if (cancelled) return;
-        if (err instanceof ApiError && err.status === 404) {
-          setNotFound(true);
-        } else {
-          timer = setTimeout(poll, POLL_INTERVAL_MS);
-        }
-      }
-    }
-
-    async function loadResults(summary: JobSummary) {
-      const [validation, images, tables, footnotes, headings, metadata, pages, readingOrder, corrections, readiness] = await Promise.all([
-        api.getValidation(jobId).catch(() => ({ issues: [], error_count: 0, warning_count: 0, info_count: 0 })),
-        api.getImages(jobId).catch(() => ({ images: [] })),
-        api.getTables(jobId).catch(() => ({ tables: [] })),
-        api.getFootnotes(jobId).catch(() => ({ footnotes: [] })),
-        api.getHeadings(jobId).catch(() => ({ headings: [] })),
-        api.getMetadata(jobId).catch(() => null),
-        api.getPages(jobId).catch(() => ({ pages: [] })),
-        api.getReadingOrder(jobId).catch(() => ({ pages: [] })),
-        api.getCorrections(jobId).catch(() => ({ corrections: [] })),
-        api.getReadiness(jobId).catch(() => null),
-      ]);
-      const markdown = summary.markdown_available
-        ? await api.getMarkdown(jobId).then((r) => r.content).catch(() => "")
-        : "";
-      if (cancelled) return;
-      setResults({
-        issues: validation.issues,
-        images: images.images,
-        tables: tables.tables,
-        footnotes: footnotes.footnotes,
-        headings: headings.headings,
-        metadata,
-        pages: pages.pages,
-        readingOrder: readingOrder.pages,
-        markdown,
-        corrections: corrections.corrections,
-        readiness,
-      });
-    }
-
-    poll();
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [jobId]);
+  const { job, notFound } = state;
 
   if (notFound) {
     return (
       <div className="space-y-4">
-        <p className="text-sm text-red-700" role="alert">
+        <p className="text-sm text-danger" role="alert">
           No document found for this ID. It may have been processed before the API was last restarted.
         </p>
-        <Link href="/" className="text-sm font-medium text-blue-700 hover:underline">
+        <Link href="/" className="text-sm font-medium text-accent hover:underline">
           &larr; Upload a document
         </Link>
       </div>
@@ -146,226 +83,247 @@ export function DocumentWorkspace({ jobId }: { jobId: string }) {
   }
 
   if (!job) {
-    return <p role="status" className="text-sm text-gray-600">Loading document…</p>;
+    return <p role="status" className="text-sm text-text-secondary">Loading document…</p>;
   }
 
   const isActive = job.status === "queued" || job.status === "processing";
   const isDone = job.status === "complete" || job.status === "failed";
 
+  const tables = selectTables(state);
+  const images = selectImages(state);
+  const footnotes = selectFootnotes(state);
+  const corrections = selectCorrections(state);
+  const pageLabels = selectPageLabels(state);
+  const readingOrder = selectReadingOrder(state);
+
+  const pendingCorrections = corrections.filter((c) =>
+    ["proposed", "pending_review"].includes(c.status)
+  ).length;
+  const unreviewedReadingOrder = readingOrder.filter(
+    (p) => p.reading_order_status === "unreviewed"
+  ).length;
+  const labelConflicts = pageLabels.filter((p) => p.label_conflict).length;
+
+  const pdfOverlays = useMemo((): PdfObjectOverlay[] => {
+    const out: PdfObjectOverlay[] = [];
+    for (const h of selectHeadings(state)) {
+      if (h.bbox) out.push({ objectType: "heading", objectId: h.document_order, pageNumber: h.page_number, bbox: h.bbox, sourceLine: h.source_line, label: h.text || `H${h.level}` });
+    }
+    for (const t of selectTables(state)) {
+      if (t.bbox) out.push({ objectType: "table", objectId: t.table_id, pageNumber: t.page_number, bbox: t.bbox, sourceLine: t.source_line ?? null, label: t.caption || "Table" });
+    }
+    for (const img of selectImages(state)) {
+      if (img.bbox) out.push({ objectType: "image", objectId: img.image_id, pageNumber: img.page_number, bbox: img.bbox, label: img.figure?.caption || img.figure?.alt_text || "Figure" });
+    }
+    for (const l of selectLists(state)) {
+      if (l.bbox) out.push({ objectType: "list", objectId: listKey(l), pageNumber: l.page_number, bbox: l.bbox, sourceLine: l.source_line ?? null, label: l.items[0]?.text || "List" });
+    }
+    for (const c of selectCallouts(state)) {
+      if (c.bbox) out.push({ objectType: "callout", objectId: calloutKey(c), pageNumber: c.page_number ?? 1, bbox: c.bbox, sourceLine: c.source_line ?? null, label: c.label });
+    }
+    return out;
+  }, [state]);
+
+  function handlePdfOverlayClick(overlay: PdfObjectOverlay) {
+    select(overlay.objectType, overlay.objectId);
+    setActiveSpecialView("");
+    if (overlay.sourceLine != null) jumpToLine(overlay.sourceLine);
+  }
+
+  function handleCorrectionJump(correction: { correction_id: string }) {
+    select("correction", correction.correction_id);
+    setActiveSpecialView("");
+  }
+
+  const specialViews: NavSection[] = [
+    { id: "validation", label: "Validation", count: state.validationIssues.length },
+    { id: "images", label: "Images", count: images.length },
+    { id: "metadata", label: "Metadata" },
+    { id: "ocr", label: "OCR Pages" },
+    {
+      id: "reading-order",
+      label: "Reading Order",
+      count: readingOrder.length,
+      urgentCount: unreviewedReadingOrder,
+    },
+    { id: "page-labels", label: "Page Labels", count: pageLabels.length, urgentCount: labelConflicts },
+    { id: "corrections", label: "Corrections", count: corrections.length, urgentCount: pendingCorrections },
+    { id: "readiness", label: "Accessibility Readiness" },
+  ];
+
+  function renderSpecialView() {
+    switch (activeSpecialView) {
+      case "validation":
+        return <ValidationIssueTable issues={state.validationIssues} />;
+      case "images":
+        return (
+          <ImageGrid
+            images={images}
+            jobId={jobId}
+            aiStatus={state.aiStatus}
+            onImagesUpdated={(updated) => dispatch({ type: "REPLACE_IMAGES", images: updated })}
+          />
+        );
+      case "metadata":
+        return state.metadata ? (
+          <MetadataPanel
+            metadata={state.metadata}
+            jobId={jobId}
+            onUpdated={(updated) => dispatch({ type: "UPDATE_METADATA", metadata: updated })}
+          />
+        ) : (
+          <p className="text-sm text-text-secondary">Metadata not available.</p>
+        );
+      case "ocr":
+        return <OcrPageTable pages={state.pages} />;
+      case "reading-order":
+        return (
+          <ReadingOrderPanel
+            pages={readingOrder}
+            jobId={jobId}
+            onPagesUpdated={(updated) => dispatch({ type: "REPLACE_READING_ORDER", pages: updated })}
+          />
+        );
+      case "page-labels":
+        return (
+          <PageLabelManagerPanel
+            jobId={jobId}
+            pages={pageLabels}
+            sections={state.pageLabelSections}
+            onUpdated={(updated) =>
+              dispatch({ type: "UPDATE_PAGE_LABELS", pages: updated.pages, sections: updated.sections })
+            }
+          />
+        );
+      case "corrections":
+        return (
+          <CorrectionsPanel
+            corrections={corrections}
+            jobId={jobId}
+            onCorrectionsUpdated={(updated) => dispatch({ type: "REPLACE_CORRECTIONS", corrections: updated })}
+            onCorrectionClick={handleCorrectionJump}
+          />
+        );
+      case "readiness":
+        return <ReadinessPanel readiness={state.readiness} />;
+      default:
+        return null;
+    }
+  }
+
   return (
-    <div className="space-y-8">
-      {/* Header row */}
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="break-all text-lg font-bold text-gray-900">{job.filename}</h1>
-          <p className="mt-1.5 flex flex-wrap items-center gap-3 text-sm text-gray-500">
-            <JobStatusBadge status={job.status} />
-            {job.duration_seconds !== null && (
-              <span>Completed in {job.duration_seconds.toFixed(1)}s</span>
-            )}
-            {isActive && (
-              <span aria-live="polite">Elapsed: {elapsed}s</span>
-            )}
+    <div className="space-y-4">
+      {/* Error banner */}
+      {job.status === "failed" && (
+        <div role="alert" className="rounded-lg border border-danger/30 bg-danger/10 p-4">
+          <p className="text-sm font-semibold text-danger">
+            Processing failed{job.failed_stage ? ` at stage "${job.failed_stage}"` : ""}.
+          </p>
+          {job.error_message && <p className="mt-1 text-sm text-danger/90">{job.error_message}</p>}
+        </div>
+      )}
+
+      {/* Processing status */}
+      {isActive && (
+        <div role="status" className="rounded-lg border border-accent/30 bg-accent/10 p-4">
+          <p className="text-sm font-medium text-text-primary">
+            {job.status === "queued"
+              ? "Queued — waiting to start…"
+              : "Verification pipeline is running. This page updates automatically."}
+          </p>
+          <p className="mt-1 text-xs text-text-secondary">
+            Scanned PDFs that require OCR may take several minutes per page.
           </p>
         </div>
-        <Link href="/" className="shrink-0 text-sm font-medium text-blue-700 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded">
-          &larr; New document
-        </Link>
-      </div>
+      )}
 
-      {/* Layout: pipeline left, content right — stack on mobile */}
-      <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
-        {/* Pipeline column — always visible */}
-        <div className="w-full lg:w-64 shrink-0">
+      {/* Overview — collapsed by default once processing completes. The
+          document is the product; pipeline/stat cards are a glance, not
+          the default view. */}
+      {isDone && (
+        <div className="rounded-lg border border-border bg-surface-panel">
+          <button
+            type="button"
+            onClick={() => setOverviewOpen((v) => !v)}
+            className="flex w-full items-center justify-between px-4 py-2 text-xs font-semibold uppercase tracking-wider text-text-secondary hover:text-text-primary"
+          >
+            <span>Overview</span>
+            <svg
+              className={`h-3 w-3 transition-transform ${overviewOpen ? "rotate-180" : ""}`}
+              viewBox="0 0 12 12"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M2.5 4.5 6 8l3.5-3.5" />
+            </svg>
+          </button>
+          {overviewOpen && (
+            <div className="space-y-6 border-t border-border p-4">
+              <PipelineView status={job.status} elapsed={elapsed} />
+              <ResultsDashboard
+                job={job}
+                issues={state.validationIssues}
+                images={images}
+                footnotes={footnotes}
+                pages={state.pages}
+                tables={tables}
+              />
+              <OutputWorkspace job={job} generatedMarkdown={state.markdown} />
+            </div>
+          )}
+        </div>
+      )}
+      {isActive && (
+        <div className="w-full lg:w-64">
           <PipelineView status={job.status} elapsed={elapsed} />
         </div>
+      )}
 
-        {/* Main content column */}
-        <div className="flex-1 min-w-0 space-y-8">
-          {/* Error banner */}
-          {job.status === "failed" && (
-            <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4">
-              <p className="text-sm font-semibold text-red-900">
-                Processing failed{job.failed_stage ? ` at stage "${job.failed_stage}"` : ""}.
-              </p>
-              {job.error_message && (
-                <p className="mt-1 text-sm text-red-700">{job.error_message}</p>
-              )}
-            </div>
-          )}
-
-          {/* Processing status */}
-          {isActive && (
-            <div role="status" className="rounded-lg border border-blue-200 bg-blue-50 p-4">
-              <p className="text-sm font-medium text-blue-900">
-                {job.status === "queued"
-                  ? "Queued — waiting to start…"
-                  : "Verification pipeline is running. This page updates automatically."}
-              </p>
-              <p className="mt-1 text-xs text-blue-700">
-                Scanned PDFs that require OCR may take several minutes per page.
-              </p>
-            </div>
-          )}
-
-          {/* Results Dashboard */}
-          {results && isDone && (
-            <ResultsDashboard
-              job={job}
-              issues={results.issues}
-              images={results.images}
-              footnotes={results.footnotes}
-              pages={results.pages}
-              tables={results.tables}
+      {isDone && (
+        <WorkspaceShell
+          filename={job.filename}
+          status={job.status}
+          documentVersion={job.document_version}
+          elapsedSeconds={elapsed}
+          durationSeconds={job.duration_seconds}
+          mode={activeSpecialView ? "special" : "document"}
+          nav={
+            <SemanticNavTree
+              specialViews={specialViews}
+              activeSpecialView={activeSpecialView || null}
+              onSelectSpecialView={setActiveSpecialView}
             />
-          )}
-
-          {/* Output Workspace — editor, DOCX preview, downloads */}
-          {results && isDone && (
-            <OutputWorkspace job={job} generatedMarkdown={results.markdown} />
-          )}
-
-          {/* Detail Tabs */}
-          {results && (
-            <section aria-labelledby="detail-tabs-heading">
-              <h2 id="detail-tabs-heading" className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
-                Detail View
-              </h2>
-              <Tabs
-                tabs={[
-                  {
-                    id: "validation",
-                    label: "Validation",
-                    badge: results.issues.length > 0 ? <CountBadge n={results.issues.length} /> : undefined,
-                    content: <ValidationIssueTable issues={results.issues} />,
-                  },
-                  {
-                    id: "headings",
-                    label: "Headings",
-                    badge: results.headings.length > 0 ? <CountBadge n={results.headings.length} /> : undefined,
-                    content: (
-                      <HeadingGrid
-                        headings={results.headings}
-                        jobId={jobId}
-                        onHeadingsUpdated={(updated) =>
-                          setResults((prev) => prev ? { ...prev, headings: updated } : prev)
-                        }
-                      />
-                    ),
-                  },
-                  {
-                    id: "images",
-                    label: "Figures",
-                    badge: results.images.length > 0 ? <CountBadge n={results.images.length} /> : undefined,
-                    content: (
-                      <ImageGrid
-                        images={results.images}
-                        jobId={jobId}
-                        onImagesUpdated={(updated) =>
-                          setResults((prev) => prev ? { ...prev, images: updated } : prev)
-                        }
-                      />
-                    ),
-                  },
-                  {
-                    id: "tables",
-                    label: "Tables",
-                    badge: results.tables.length > 0 ? <CountBadge n={results.tables.length} /> : undefined,
-                    content: (
-                      <TableGrid
-                        tables={results.tables}
-                        jobId={jobId}
-                        onTablesUpdated={(updated) =>
-                          setResults((prev) => prev ? { ...prev, tables: updated } : prev)
-                        }
-                      />
-                    ),
-                  },
-                  {
-                    id: "footnotes",
-                    label: "Footnotes",
-                    badge: results.footnotes.length > 0 ? <CountBadge n={results.footnotes.length} /> : undefined,
-                    content: (
-                      <FootnoteTable
-                        footnotes={results.footnotes}
-                        jobId={jobId}
-                        onFootnotesUpdated={(updated) =>
-                          setResults((prev) => prev ? { ...prev, footnotes: updated } : prev)
-                        }
-                      />
-                    ),
-                  },
-                  {
-                    id: "metadata",
-                    label: "Metadata",
-                    content: results.metadata ? (
-                      <MetadataPanel
-                        metadata={results.metadata}
-                        jobId={jobId}
-                        onUpdated={(updated) =>
-                          setResults((prev) => prev ? { ...prev, metadata: updated } : prev)
-                        }
-                      />
-                    ) : (
-                      <p className="text-sm text-gray-500">Metadata not available.</p>
-                    ),
-                  },
-                  {
-                    id: "ocr",
-                    label: "OCR Pages",
-                    content: <OcrPageTable pages={results.pages} />,
-                  },
-                  {
-                    id: "reading-order",
-                    label: "Reading Order",
-                    badge: results.readingOrder.filter((p) => p.reading_order_status === "unreviewed").length > 0
-                      ? <CountBadge n={results.readingOrder.filter((p) => p.reading_order_status === "unreviewed").length} />
-                      : undefined,
-                    content: (
-                      <ReadingOrderPanel
-                        pages={results.readingOrder}
-                        jobId={jobId}
-                        onPagesUpdated={(updated) =>
-                          setResults((prev) => prev ? { ...prev, readingOrder: updated } : prev)
-                        }
-                      />
-                    ),
-                  },
-                  {
-                    id: "corrections",
-                    label: "Corrections",
-                    badge: results.corrections.filter((c) => ["proposed", "pending_review"].includes(c.status)).length > 0
-                      ? <CountBadge n={results.corrections.filter((c) => ["proposed", "pending_review"].includes(c.status)).length} />
-                      : undefined,
-                    content: (
-                      <CorrectionsPanel
-                        corrections={results.corrections}
-                        jobId={jobId}
-                        onCorrectionsUpdated={(updated) =>
-                          setResults((prev) => prev ? { ...prev, corrections: updated } : prev)
-                        }
-                      />
-                    ),
-                  },
-                  {
-                    id: "readiness",
-                    label: "Accessibility Readiness",
-                    content: <ReadinessPanel readiness={results.readiness} />,
-                  },
-                ]}
+          }
+          centerViews={{
+            pdf: (
+              <PdfViewer
+                jobId={jobId}
+                overlays={pdfOverlays}
+                selectedOverlayId={selection?.objectId ?? null}
+                onOverlayClick={handlePdfOverlayClick}
               />
-            </section>
-          )}
-        </div>
-      </div>
+            ),
+            markdown: (
+              <div className="h-full p-4">
+                <MarkdownEditor
+                  initialContent={state.markdown}
+                  readOnly
+                  scrollToLine={mdJumpTarget?.line ?? null}
+                  scrollNonce={mdJumpTarget?.nonce}
+                />
+              </div>
+            ),
+            docx: <DocxPreview jobId={jobId} available={job.docx_available} />,
+          }}
+          rightRail={<ContextInspectorRail jobId={jobId} aiStatus={state.aiStatus} />}
+          specialView={renderSpecialView()}
+          bottomPanel={<BottomPanel job={job} issues={state.validationIssues} />}
+        />
+      )}
     </div>
-  );
-}
-
-function CountBadge({ n }: { n: number }) {
-  return (
-    <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-gray-200 px-1 text-[11px] font-semibold text-gray-700">
-      {n}
-    </span>
   );
 }

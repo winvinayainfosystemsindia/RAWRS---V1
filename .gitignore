@@ -87,3 +87,8 @@ frontend/tsconfig.tsbuildinfo
 # Windows
 ehthumbs.db
 $RECYCLE.BIN/
+
+# Design assets and git backups (local reference only)
+*.zip
+*.git.bak
+frontend.git.bak/

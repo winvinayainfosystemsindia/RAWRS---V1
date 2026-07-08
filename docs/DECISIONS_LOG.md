@@ -730,6 +730,40 @@ See `PHASE_STATUS.md` Phase M-1 section for the full module inventory, model add
 
 ---
 
+## Part 23 — Cross-Source Verification Engine, Evidence Fusion, and the FEATURE_017–020 Documentation Gap
+
+**Date: 2026-07-08 (recording work actually done 2026-07-01 through 2026-07-07)**
+
+### Background
+
+Commit `f6c8f73` ("Add full Next.js frontend, Mathpix cross-source verification engine, and generalized SemanticObject/SemanticVerifier foundation") landed without any `PHASE_STATUS.md`/`DECISIONS_LOG.md` update. A follow-on session then built four more features (`FEATURE_018` Page Label Manager, `FEATURE_019` Evidence Fusion Engine, `FEATURE_020` source-order interleaving, an AI subsystem dependency-split redesign) on top of it and left them uncommitted, with the same gap. This is the same "implemented but unrecorded" failure mode already logged once in Part 9 (bug_006/feature_006). `docs/VALIDATION_RULES.md`, `docs/PAGE_RULES.md`, and `docs/KNOWN_LIMITATIONS.md` were kept current by whoever did the implementation work; this file and `PHASE_STATUS.md` were not. Resolved by a reconciliation pass: full fast-subset suite re-run (**1487 passed, 7 skipped, 5 deselected, 0 failed**), `next build` re-verified clean, then this entry plus the new `PHASE_STATUS.md` "Phase M-2" section written directly from the code and from the docs that were already accurate.
+
+### Decision: generalize the verification engine instead of hand-writing a fourth PDF-comparison module
+
+Phase M-1 (Part 22) described "Verification Engine" as a conceptual layer living inside existing detector modules, not a new one. That held for one asset type (figures). Once headings needed the same PDF-vs-Mathpix comparison, the alternative to a shared `src/verification/` package was three more copies of match/classify/apply logic, each with its own drift risk. `SemanticObject` (base model), `SemanticVerifier` (base class), `MultiSignalMatcher` (identity matching), and `decide_from_evidence()` (the KEEP/REPAIR/RECOVER/REMOVE decision) are the shared pieces every asset type's verifier now built on.
+
+### Decision: promote table detection's evidence-fusion primitive to a shared engine layer
+
+`EvidenceSignal`/`EvidenceBundle` (weighted-mean confidence, explainable per-signal breakdown) was built and proven inside `src/tables/` across four independent table detectors (FEATURE_015.2, Part 20 of this log). Rather than reinventing a similar structure for headings' multi-signal typography/whitespace/running-header evidence, the primitive was moved to `src/verification/evidence.py` and `src/tables/evidence.py` became a thin re-export — no behavior change for existing table-detector callers, and every verifier (`HeadingVerifier`, `ListVerifier`, `CalloutVerifier`) now fuses confidence the same way.
+
+### Decision: `CalloutVerifier` gets an empty PDF matcher, not a skipped verifier
+
+`Callout` (a boxed textbook aside — Case Study, Thinking Point, Key Ideas, Summary, Activity) has no independent PDF-side geometric detector yet (recognizing a bordered/shaded region from PDF drawing commands is a separate, larger future detector). Rather than special-casing "asset types with no second source" outside the framework, `CalloutVerifier.build_pdf_matcher()` returns an empty `MultiSignalMatcher([])` — the same documented default `SemanticVerifier` already uses for that case — so every `Callout` flows through `classify()` as `unmatched_a` and gets evaluated on label-pattern specificity and anchoring-heading integrity alone. This was treated as the proof case that the framework generalizes beyond "always have two sources to compare."
+
+### Decision: page label precedence is override > sections > detection, not a single mutable field
+
+`FEATURE_018`'s `Page.page_label` needed to support three real reviewer workflows at once — a one-off override, a bulk numbering scheme applied to a page range (front matter in roman numerals, body in arabic, restarting after an insert), and the original per-page detection — without any of them silently clobbering the others. `src/structure/page_label_resolver.py::resolve_page_labels()` encodes a strict precedence order (override always wins; else the first matching `PageLabelSection`; else the detected `printed_label`) computed fresh from `Document.page_label_sections` every time, rather than three separate mutable label fields that could drift out of sync with each other.
+
+### Decision: split AI dependencies into `requirements-ai.txt`, add a startup resource preflight
+
+FEATURE_012's original Qwen2.5-VL interface only discovered "not enough RAM/VRAM to load the model" on the first real inference request. Two problems: `torch`/`transformers` are large, GPU-toolchain-adjacent dependencies that shouldn't be mandatory for a platform whose core pipeline is deterministic and AI-optional, and hardware unsuitability should be knowable at backend startup, not mid-request. `requirements-ai.txt` makes the AI dependencies opt-in; `src/ai/providers/qwen.py::_check_resources()` runs synchronously at startup (fast — no model load) and `GET /api/ai/status` reports unavailability with a specific reason before any reviewer ever clicks "Generate AI Alt Text."
+
+### Status
+
+All five pieces (FEATURE_017 engine, FEATURE_018 page labels, FEATURE_019 evidence fusion, FEATURE_020 interleaving, AI subsystem redesign) plus the accompanying frontend `WorkspaceShell` redesign are implemented and test-covered as of this entry. See `PHASE_STATUS.md`'s "Phase M-2" section for the full file inventory. **Known gap carried forward, not fixed in this pass:** the new shell's theme-token system has not been back-ported to several pre-existing frontend panels (raw Tailwind `gray-*`/`blue-*`/`red-*` still hardcoded in `ChecklistPanel`, `ResultsDashboard`, `HeadingGrid`, `ImageGrid`, `TableGrid`, `PageLabelManagerPanel`, and others) — flagged for a follow-up theming sweep, not attempted here since it is a separate, unscoped, ~20-file change.
+
+---
+
 ## How to add a new entry
 
 Append a new `###` section under the relevant Part, dated, with: the decision, the reasoning ("why"), where it's implemented (file/module), and its current status. Do not delete or rewrite existing entries even if later superseded — add a new entry that references and supersedes the old one.

@@ -12,6 +12,8 @@ from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
+from src.verification.evidence import EvidenceSignal
+
 
 class VerificationStatus(str, Enum):
     """Per-object verification state, set by a PDF-verification pass.
@@ -36,14 +38,6 @@ class ImportSource(str, Enum):
     MATHPIX = "mathpix"
     PDF = "pdf"
     MANUAL = "manual"
-
-
-class EvidenceItem(BaseModel):
-    """One discrete signal contributing to a Finding, e.g.
-    ``EvidenceItem(signal="font_size", detail="18pt vs 11pt body")``."""
-
-    signal: str
-    detail: str
 
 
 class Finding(BaseModel):
@@ -76,12 +70,15 @@ class Finding(BaseModel):
     message: str = ""
     original_value: Optional[str] = None
     proposed_value: Optional[str] = None
-    # Structured evidence breakdown (additive — every existing Finding
-    # construction site, e.g. figures.py, keeps working with just the
-    # free-text `evidence` string above; new verifiers populate this list
-    # going forward so a reviewer sees "font size / spacing / bold" as
-    # discrete signals rather than one opaque sentence).
-    evidence_items: List[EvidenceItem] = Field(default_factory=list)
+    # Structured, weighted evidence breakdown (additive — every existing
+    # Finding construction site, e.g. figures.py, keeps working with just
+    # the free-text `evidence` string above; verifiers populate this list
+    # with EvidenceSignal(name, score, weight, note) so a reviewer sees
+    # "font size / spacing / bold" as discrete, weighted signals rather
+    # than one opaque sentence — the same primitive
+    # src/verification/evidence.py's EvidenceBundle aggregates for
+    # cross-signal confidence fusion (FEATURE_019).
+    evidence_items: List[EvidenceSignal] = Field(default_factory=list)
 
 
 class RuleSpec(BaseModel):
@@ -124,5 +121,5 @@ class RepairSuggestion(BaseModel):
     suggested_value: str
     reason: str
     confidence: Optional[float] = None
-    evidence: List[EvidenceItem] = Field(default_factory=list)
+    evidence: List[EvidenceSignal] = Field(default_factory=list)
     benchmark_outcome: Optional[BenchmarkOutcome] = None

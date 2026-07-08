@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>RAWRS Main Workstation Screen</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=JetBrains+Mono:wght@400;500;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "surface-tint": "#a2c9ff",
+                      "inverse-on-surface": "#2d3137",
+                      "on-secondary-fixed-variant": "#41474f",
+                      "secondary": "#c1c7d0",
+                      "tertiary": "#ffba42",
+                      "on-primary": "#00315c",
+                      "on-primary-container": "#003a6b",
+                      "primary-container": "#58a6ff",
+                      "surface-container": "#1c2026",
+                      "primary": "#a2c9ff",
+                      "on-error-container": "#ffdad6",
+                      "primary-fixed-dim": "#a2c9ff",
+                      "on-tertiary-container": "#4f3400",
+                      "on-background": "#dfe2eb",
+                      "on-tertiary": "#432c00",
+                      "outline-variant": "#414752",
+                      "inverse-surface": "#dfe2eb",
+                      "surface-variant": "#31353c",
+                      "on-tertiary-fixed-variant": "#614000",
+                      "error-container": "#93000a",
+                      "on-surface": "#dfe2eb",
+                      "error": "#ffb4ab",
+                      "on-primary-fixed": "#001c38",
+                      "on-secondary": "#2b3138",
+                      "secondary-container": "#41474f",
+                      "surface-container-low": "#181c22",
+                      "on-error": "#690005",
+                      "surface-container-lowest": "#0a0e14",
+                      "surface-dim": "#10141a",
+                      "surface-container-high": "#262a31",
+                      "surface-bright": "#353940",
+                      "secondary-fixed-dim": "#c1c7d0",
+                      "tertiary-container": "#da9600",
+                      "on-secondary-container": "#b0b5be",
+                      "primary-fixed": "#d3e4ff",
+                      "tertiary-fixed": "#ffddaf",
+                      "on-tertiary-fixed": "#281800",
+                      "surface-container-highest": "#31353c",
+                      "inverse-primary": "#0060aa",
+                      "on-secondary-fixed": "#161c23",
+                      "outline": "#8b919d",
+                      "on-primary-fixed-variant": "#004882",
+                      "background": "#10141a",
+                      "tertiary-fixed-dim": "#ffba42",
+                      "on-surface-variant": "#c0c7d4",
+                      "secondary-fixed": "#dde3ec",
+                      "surface": "#10141a"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.125rem",
+                      "lg": "0.25rem",
+                      "xl": "0.5rem",
+                      "full": "0.75rem"
+              },
+              "spacing": {
+                      "sidebar-width": "240px",
+                      "space-sm": "8px",
+                      "space-xs": "4px",
+                      "panel-gutter": "1px",
+                      "space-md": "12px",
+                      "space-lg": "16px"
+              },
+              "fontFamily": {
+                      "headline-sm": [
+                              "Inter"
+                      ],
+                      "code-md": [
+                              "JetBrains Mono"
+                      ],
+                      "label-md": [
+                              "JetBrains Mono"
+                      ],
+                      "body-md": [
+                              "Inter"
+                      ],
+                      "body-sm": [
+                              "Inter"
+                      ]
+              },
+              "fontSize": {
+                      "headline-sm": [
+                              "16px",
+                              {
+                                      "lineHeight": "24px",
+                                      "letterSpacing": "-0.01em",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "code-md": [
+                              "13px",
+                              {
+                                      "lineHeight": "20px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "label-md": [
+                              "12px",
+                              {
+                                      "lineHeight": "16px",
+                                      "fontWeight": "500"
+                              }
+                      ],
+                      "body-md": [
+                              "14px",
+                              {
+                                      "lineHeight": "20px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "body-sm": [
+                              "12px",
+                              {
+                                      "lineHeight": "18px",
+                                      "fontWeight": "400"
+                              }
+                      ]
+              }
+      },
+          },
+        }
+      </script>
+<style>
+        /* Custom scrollbar for high-density feel */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0d1117;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #30363d;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #414752;
+        }
+        
+        /* IDE Panel Borders */
+        .ide-panel-right {
+            border-right: 1px solid #30363d;
+        }
+        .ide-panel-left {
+            border-left: 1px solid #30363d;
+        }
+        .ide-panel-bottom {
+            border-bottom: 1px solid #30363d;
+        }
+        .ide-panel-top {
+            border-top: 1px solid #30363d;
+        }
+        
+        /* Tree View Indentation */
+        .tree-indent {
+            margin-left: 16px;
+            border-left: 1px dashed #30363d;
+            padding-left: 8px;
+        }
+    </style>
+</head>
+<body class="bg-background text-on-surface h-screen overflow-hidden flex flex-col font-body-sm selection:bg-primary-container selection:text-on-primary-container">
+<!-- TopAppBar -->
+<header class="flex justify-between items-center h-12 px-space-md w-full bg-surface-container border-b border-outline-variant shrink-0 z-20">
+<div class="flex items-center gap-space-md h-full">
+<span class="font-headline-sm text-headline-sm font-bold text-primary tracking-tighter cursor-pointer">RAWRS</span>
+<nav class="hidden md:flex items-center h-full gap-space-md ml-space-lg">
+<a class="text-on-surface-variant font-label-md text-label-md hover:bg-surface-variant transition-colors cursor-pointer active:opacity-80 px-2 py-1 rounded" href="#">OCR</a>
+<a class="text-on-surface-variant font-label-md text-label-md hover:bg-surface-variant transition-colors cursor-pointer active:opacity-80 px-2 py-1 rounded" href="#">Structure</a>
+<a class="text-on-surface-variant font-label-md text-label-md hover:bg-surface-variant transition-colors cursor-pointer active:opacity-80 px-2 py-1 rounded" href="#">Headings</a>
+<a class="text-on-surface-variant font-label-md text-label-md hover:bg-surface-variant transition-colors cursor-pointer active:opacity-80 px-2 py-1 rounded" href="#">Images</a>
+<a class="text-on-surface-variant font-label-md text-label-md hover:bg-surface-variant transition-colors cursor-pointer active:opacity-80 px-2 py-1 rounded" href="#">MD Gen</a>
+<a class="text-primary border-b-2 border-primary pb-1 font-label-md text-label-md cursor-pointer px-2 h-full flex items-center pt-1" href="#">Validation</a>
+</nav>
+</div>
+<div class="flex items-center gap-space-sm text-primary">
+<button class="p-1 hover:bg-surface-variant rounded transition-colors" title="settings_suggest">
+<span class="material-symbols-outlined text-[20px]" data-icon="settings_suggest">settings_suggest</span>
+</button>
+<button class="p-1 hover:bg-surface-variant rounded transition-colors" title="dns">
+<span class="material-symbols-outlined text-[20px]" data-icon="dns">dns</span>
+</button>
+<div class="w-6 h-6 rounded-full bg-secondary-container ml-2 flex items-center justify-center overflow-hidden border border-outline-variant">
+<img class="w-full h-full object-cover" data-alt="A small, professional user avatar portrait of an engineer looking forward. Technical minimalistic setting. High contrast lighting, deep blacks and bright white highlights. 50 words max." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAu8tHDz1QV00kggWJdA2J5ZiJ0uK3qAJWlV0kl3FRpPw19y1KsQHqXefhElQfVPHoX4_SElZjPph8X0hGAfCEYG9kRqG_bE_etDzm2idof85a-4-8rbjOkYrM4CGh-RyfMiKdvJs6CXg3qIpmVmQlKVCTxie7wepHC5L9E17MnrHGh9RNlC8tiLFxa56LRjix49uvzG8pKDUVoGWA299WETm4jt7qqUFL0WbM_Ak07MeNKfsJHaLuaHcyT9lPMuuE0R3b-ASxUXg"/>
+</div>
+</div>
+</header>
+<div class="flex-1 flex overflow-hidden">
+<!-- SideNavBar -->
+<nav class="hidden md:flex flex-col bg-surface-container-low w-sidebar-width shrink-0 z-10 ide-panel-right">
+<div class="flex-1 overflow-y-auto py-space-sm">
+<!-- Global Tabs (from JSON) -->
+<div class="mb-space-md border-b border-outline-variant pb-space-sm px-space-xs">
+<a class="flex items-center gap-space-sm text-on-surface-variant px-space-md py-space-sm font-label-md text-label-md hover:bg-surface-container-high transition-all duration-150 rounded-md mx-1 mb-1" href="#">
+<span class="material-symbols-outlined text-[18px]" data-icon="grid_view">grid_view</span>
+                        Workspace
+                    </a>
+<a class="flex items-center gap-space-sm text-on-surface-variant px-space-md py-space-sm font-label-md text-label-md hover:bg-surface-container-high transition-all duration-150 rounded-md mx-1 mb-1" href="#">
+<span class="material-symbols-outlined text-[18px]" data-icon="inventory_2">inventory_2</span>
+                        Assets
+                    </a>
+<a class="flex items-center gap-space-sm bg-secondary-container text-on-secondary-container border-l-2 border-primary px-space-md py-space-sm font-label-md text-label-md transition-all duration-150 rounded-r-md mr-1 mb-1" href="#">
+<span class="material-symbols-outlined text-[18px]" data-icon="fact_check">fact_check</span>
+                        Validation
+                    </a>
+<a class="flex items-center gap-space-sm text-on-surface-variant px-space-md py-space-sm font-label-md text-label-md hover:bg-surface-container-high transition-all duration-150 rounded-md mx-1 mb-1" href="#">
+<span class="material-symbols-outlined text-[18px]" data-icon="history">history</span>
+                        History
+                    </a>
+<a class="flex items-center gap-space-sm text-on-surface-variant px-space-md py-space-sm font-label-md text-label-md hover:bg-surface-container-high transition-all duration-150 rounded-md mx-1" href="#">
+<span class="material-symbols-outlined text-[18px]" data-icon="settings">settings</span>
+                        Settings
+                    </a>
+</div>
+<!-- Document Structure Panel Content -->
+<div class="px-space-md pb-space-sm">
+<div class="flex justify-between items-center mb-space-sm text-outline font-label-md text-label-md uppercase tracking-wider">
+<span>Document Structure</span>
+<div class="flex gap-1">
+<button class="hover:text-primary transition-colors"><span class="material-symbols-outlined text-[16px]">unfold_less</span></button>
+<button class="hover:text-primary transition-colors"><span class="material-symbols-outlined text-[16px]">refresh</span></button>
+</div>
+</div>
+<!-- Tree View -->
+<div class="font-code-md text-code-md">
+<!-- Page 1 -->
+<div class="flex items-center gap-2 py-1 hover:bg-surface-variant cursor-pointer rounded px-1 group">
+<span class="material-symbols-outlined text-[16px] text-outline group-hover:text-primary">expand_more</span>
+<span class="material-symbols-outlined text-[14px] text-primary">description</span>
+<span class="text-on-surface">Page 1</span>
+</div>
+<div class="tree-indent text-on-surface-variant">
+<div class="flex items-center gap-2 py-1 hover:bg-surface-variant cursor-pointer rounded px-1 pl-4 relative">
+<div class="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-primary-container"></div>
+<span class="text-primary-container font-medium w-6">H1</span>
+<span class="truncate">Annual Report 2023</span>
+</div>
+<div class="flex items-center gap-2 py-1 hover:bg-surface-variant cursor-pointer rounded px-1 pl-4 relative">
+<div class="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-tertiary"></div>
+<span class="text-tertiary font-medium w-6">H2</span>
+<span class="truncate">Executive Summary</span>
+</div>
+</div>
+<!-- Page 2 -->
+<div class="flex items-center gap-2 py-1 hover:bg-surface-variant cursor-pointer rounded px-1 mt-1 group">
+<span class="material-symbols-outlined text-[16px] text-outline group-hover:text-primary">expand_more</span>
+<span class="material-symbols-outlined text-[14px] text-primary">description</span>
+<span class="text-on-surface">Page 2</span>
+</div>
+<div class="tree-indent text-on-surface-variant">
+<div class="flex items-center gap-2 py-1 hover:bg-surface-variant cursor-pointer rounded px-1 pl-4 relative">
+<div class="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-tertiary"></div>
+<span class="text-tertiary font-medium w-6">H2</span>
+<span class="truncate">Financial Highlights</span>
+</div>
+<div class="flex items-center gap-2 py-1 hover:bg-surface-variant cursor-pointer rounded px-1 pl-4 relative bg-surface-variant text-on-surface border-l-2 border-primary -ml-[1px]">
+<div class="absolute left-1 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-secondary"></div>
+<span class="text-secondary font-medium w-6">H3</span>
+<span class="truncate">Q3 Revenue Breakdown</span>
+</div>
+<div class="flex items-center gap-2 py-1 hover:bg-surface-variant cursor-pointer rounded px-1 pl-4 relative">
+<div class="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-secondary"></div>
+<span class="text-secondary font-medium w-6">H3</span>
+<span class="truncate">Operating Costs</span>
+</div>
+</div>
+<!-- Page 3 -->
+<div class="flex items-center gap-2 py-1 hover:bg-surface-variant cursor-pointer rounded px-1 mt-1 group opacity-60">
+<span class="material-symbols-outlined text-[16px] text-outline">chevron_right</span>
+<span class="material-symbols-outlined text-[14px] text-primary">description</span>
+<span class="text-on-surface">Page 3</span>
+</div>
+</div>
+</div>
+</div>
+</nav>
+<!-- Main Content Area (Center + Right) -->
+<main class="flex-1 flex flex-col min-w-0 bg-surface">
+<!-- Center + Right Split -->
+<div class="flex-1 flex min-h-0">
+<!-- Center Panel: Document Review (Split View) -->
+<div class="flex-1 flex flex-col min-w-0 bg-[#0d1117] relative">
+<!-- Toolbar -->
+<div class="h-10 border-b border-outline-variant bg-surface-container flex items-center justify-between px-space-md shrink-0">
+<div class="flex items-center gap-space-sm text-on-surface-variant font-code-md text-code-md">
+<span class="material-symbols-outlined text-[18px]">find_in_page</span>
+<span>annual_report_draft_v2.pdf</span>
+</div>
+<div class="flex items-center gap-2">
+<button class="w-8 h-8 flex items-center justify-center rounded hover:bg-surface-variant text-on-surface-variant transition-colors">
+<span class="material-symbols-outlined text-[18px]">remove</span>
+</button>
+<span class="font-code-md text-code-md text-on-surface px-2">125%</span>
+<button class="w-8 h-8 flex items-center justify-center rounded hover:bg-surface-variant text-on-surface-variant transition-colors">
+<span class="material-symbols-outlined text-[18px]">add</span>
+</button>
+<div class="w-px h-4 bg-outline-variant mx-1"></div>
+<button class="w-8 h-8 flex items-center justify-center rounded hover:bg-surface-variant text-on-surface-variant transition-colors">
+<span class="material-symbols-outlined text-[18px]">keyboard_arrow_left</span>
+</button>
+<span class="font-code-md text-code-md text-on-surface">2 / 48</span>
+<button class="w-8 h-8 flex items-center justify-center rounded hover:bg-surface-variant text-on-surface-variant transition-colors">
+<span class="material-symbols-outlined text-[18px]">keyboard_arrow_right</span>
+</button>
+<div class="w-px h-4 bg-outline-variant mx-1"></div>
+<button class="w-8 h-8 flex items-center justify-center rounded hover:bg-surface-variant text-primary transition-colors bg-surface-variant" title="Sync Scroll">
+<span class="material-symbols-outlined text-[18px]">sync_alt</span>
+</button>
+</div>
+</div>
+<!-- Split View Content -->
+<div class="flex-1 flex overflow-hidden">
+<!-- PDF View -->
+<div class="flex-1 overflow-y-auto p-space-md flex justify-center bg-[#10141a] ide-panel-right">
+<div class="w-[85%] max-w-[600px] bg-white text-black p-8 shadow-md h-max relative origin-top" style="transform: scale(0.9);">
+<!-- Faux PDF Content -->
+<h2 class="text-2xl font-bold mb-4 text-[#333]">Financial Highlights</h2>
+<p class="mb-4 text-sm leading-relaxed text-[#555]">
+                                    The third quarter saw a significant increase in overall revenue, driven primarily by our enterprise sector. Operating costs remained stable, adhering closely to the projections outlined in our Q2 forecast.
+                                </p>
+<div class="relative border-2 border-[#58a6ff] p-4 bg-[#58a6ff]/10 mb-4 rounded">
+<div class="absolute -top-3 -left-3 bg-[#58a6ff] text-white text-xs px-2 py-0.5 rounded-sm font-bold flex items-center gap-1">
+<span class="material-symbols-outlined text-[12px]">visibility</span> Focus
+                                    </div>
+<h3 class="text-xl font-semibold mb-2 text-[#444]">Q3 Revenue Breakdown</h3>
+<table class="w-full text-sm text-left border-collapse">
+<tbody><tr class="border-b border-[#ccc]">
+<th class="py-2">Sector</th>
+<th class="py-2">Revenue (M)</th>
+<th class="py-2">Growth</th>
+</tr>
+<tr class="border-b border-[#eee]">
+<td class="py-2">Enterprise</td>
+<td class="py-2">$45.2</td>
+<td class="py-2 text-green-600">+12%</td>
+</tr>
+<tr>
+<td class="py-2">Consumer</td>
+<td class="py-2">$28.7</td>
+<td class="py-2 text-red-600">-3%</td>
+</tr>
+</tbody></table>
+</div>
+<h3 class="text-xl font-semibold mb-2 text-[#444]">Operating Costs</h3>
+<p class="text-sm text-[#555]">
+                                    Marketing spend increased slightly to support the launch of the new product line, but was offset by reductions in administrative overhead.
+                                </p>
+</div>
+</div>
+<!-- Markdown View -->
+<div class="flex-1 overflow-y-auto p-space-md bg-[#0d1117] font-code-md text-code-md">
+<div class="w-full max-w-[700px] mx-auto text-on-surface">
+<div class="text-outline-variant mb-2 select-none">24</div>
+<div class="flex mb-1 hover:bg-surface-container-low">
+<div class="w-8 text-right pr-4 text-outline-variant select-none">25</div>
+<div class="flex-1"><span class="text-tertiary">##</span> Financial Highlights</div>
+</div>
+<div class="flex mb-1 hover:bg-surface-container-low">
+<div class="w-8 text-right pr-4 text-outline-variant select-none">26</div>
+<div class="flex-1"></div>
+</div>
+<div class="flex mb-1 hover:bg-surface-container-low">
+<div class="w-8 text-right pr-4 text-outline-variant select-none">27</div>
+<div class="flex-1 text-on-surface-variant">The third quarter saw a significant increase in overall revenue, driven primarily by our enterprise sector. Operating costs remained stable, adhering closely to the projections outlined in our Q2 forecast.</div>
+</div>
+<div class="flex mb-1 hover:bg-surface-container-low">
+<div class="w-8 text-right pr-4 text-outline-variant select-none">28</div>
+<div class="flex-1"></div>
+</div>
+<div class="flex mb-1 bg-surface-container-highest border-l-2 border-primary">
+<div class="w-8 text-right pr-4 text-primary select-none">29</div>
+<div class="flex-1"><span class="text-secondary">###</span> Q3 Revenue Breakdown</div>
+</div>
+<div class="flex mb-1 bg-surface-container-highest border-l-2 border-primary">
+<div class="w-8 text-right pr-4 text-primary select-none">30</div>
+<div class="flex-1"></div>
+</div>
+<div class="flex mb-1 bg-surface-container-highest border-l-2 border-primary">
+<div class="w-8 text-right pr-4 text-primary select-none">31</div>
+<div class="flex-1 text-on-surface-variant">| Sector     | Revenue (M) | Growth |</div>
+</div>
+<div class="flex mb-1 bg-surface-container-highest border-l-2 border-primary">
+<div class="w-8 text-right pr-4 text-primary select-none">32</div>
+<div class="flex-1 text-on-surface-variant">| ---------- | ----------- | ------ |</div>
+</div>
+<div class="flex mb-1 bg-surface-container-highest border-l-2 border-primary">
+<div class="w-8 text-right pr-4 text-primary select-none">33</div>
+<div class="flex-1 text-on-surface-variant">| Enterprise | $45.2       | +12%   |</div>
+</div>
+<div class="flex mb-1 bg-surface-container-highest border-l-2 border-primary">
+<div class="w-8 text-right pr-4 text-primary select-none">34</div>
+<div class="flex-1 text-on-surface-variant">| Consumer   | $28.7       | -3%    |</div>
+</div>
+<div class="flex mb-1 hover:bg-surface-container-low">
+<div class="w-8 text-right pr-4 text-outline-variant select-none">35</div>
+<div class="flex-1"></div>
+</div>
+<div class="flex mb-1 hover:bg-surface-container-low">
+<div class="w-8 text-right pr-4 text-outline-variant select-none">36</div>
+<div class="flex-1"><span class="text-secondary">###</span> Operating Costs</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Right Panel: Validation & Issues -->
+<div class="w-[300px] shrink-0 bg-surface-container-low ide-panel-left flex flex-col z-10">
+<div class="h-10 border-b border-outline-variant flex items-center justify-between px-space-md shrink-0 bg-surface-container text-on-surface font-label-md text-label-md uppercase tracking-wider">
+<span>Validation Issues</span>
+<span class="bg-error-container text-on-error-container px-2 py-0.5 rounded text-[10px] font-bold">3 Open</span>
+</div>
+<div class="flex-1 overflow-y-auto p-space-sm gap-space-sm flex flex-col">
+<!-- Issue Card: Warning -->
+<div class="bg-surface-container-high border border-outline-variant rounded-md p-space-md flex flex-col gap-2 relative overflow-hidden">
+<div class="absolute left-0 top-0 bottom-0 w-1 bg-tertiary"></div>
+<div class="flex items-start justify-between pl-1">
+<div class="flex items-center gap-1.5 text-tertiary">
+<span class="material-symbols-outlined text-[16px]">warning</span>
+<span class="font-label-md text-label-md font-bold">OCR Confidence Low</span>
+</div>
+<span class="text-[10px] text-outline font-code-md">Pg 4</span>
+</div>
+<p class="text-body-sm text-on-surface-variant pl-1">Average confidence score of 0.82 falls below the strict threshold of 0.90 for financial tables.</p>
+<div class="flex justify-end mt-1">
+<button class="bg-transparent border border-outline-variant text-on-surface hover:bg-surface-variant hover:border-outline font-label-md text-label-md px-3 py-1.5 rounded transition-colors">Review OCR</button>
+</div>
+</div>
+<!-- Issue Card: Error (Active/Selected) -->
+<div class="bg-surface-container border border-primary rounded-md p-space-md flex flex-col gap-2 relative overflow-hidden shadow-[0_0_0_1px_rgba(88,166,255,0.3)]">
+<div class="absolute left-0 top-0 bottom-0 w-1 bg-error"></div>
+<div class="flex items-start justify-between pl-1">
+<div class="flex items-center gap-1.5 text-error">
+<span class="material-symbols-outlined text-[16px]">error</span>
+<span class="font-label-md text-label-md font-bold">Hierarchy Violation</span>
+</div>
+<span class="text-[10px] text-outline font-code-md">Pg 2</span>
+</div>
+<p class="text-body-sm text-on-surface-variant pl-1">H3 skipped directly to H5 in section 'Q3 Revenue Breakdown'. Expected H4.</p>
+<div class="flex justify-end gap-2 mt-1">
+<button class="bg-transparent text-on-surface-variant hover:text-on-surface font-label-md text-label-md px-2 py-1.5 rounded transition-colors">Ignore</button>
+<button class="bg-primary-container text-on-primary-container hover:opacity-90 font-label-md text-label-md px-3 py-1.5 rounded transition-opacity font-medium">Auto-Fix to H4</button>
+</div>
+</div>
+<!-- Issue Card: Info -->
+<div class="bg-surface-container-high border border-outline-variant rounded-md p-space-md flex flex-col gap-2 relative overflow-hidden">
+<div class="absolute left-0 top-0 bottom-0 w-1 bg-secondary"></div>
+<div class="flex items-start justify-between pl-1">
+<div class="flex items-center gap-1.5 text-secondary">
+<span class="material-symbols-outlined text-[16px]">info</span>
+<span class="font-label-md text-label-md font-bold">Image Extraction Failed</span>
+</div>
+<span class="text-[10px] text-outline font-code-md">Pg 12</span>
+</div>
+<p class="text-body-sm text-on-surface-variant pl-1">Complex vector diagram could not be cleanly rasterized or converted to SVG.</p>
+<div class="flex justify-end mt-1">
+<button class="bg-transparent border border-outline-variant text-on-surface hover:bg-surface-variant hover:border-outline font-label-md text-label-md px-3 py-1.5 rounded transition-colors">Manual Extract</button>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Footer / Processing Console -->
+<footer class="h-24 bg-surface-container-lowest border-t border-outline-variant flex flex-col shrink-0 font-code-md text-code-md z-20 w-full relative">
+<div class="h-6 flex items-center gap-4 px-space-md border-b border-[#30363d] bg-surface-container-low text-[11px] text-on-surface-variant">
+<span class="font-bold text-on-surface">Terminal</span>
+<a class="hover:text-on-surface" href="#">Logs</a>
+<a class="hover:text-on-surface" href="#">Monitor</a>
+<div class="ml-auto flex items-center gap-2 text-primary">
+<div class="w-2 h-2 rounded-full bg-primary animate-pulse"></div>
+                        Processing Active
+                    </div>
+</div>
+<div class="flex-1 overflow-y-auto p-space-xs px-space-md bg-[#0a0e14] text-[#8b949e]">
+<div class="flex gap-2 font-mono"><span class="text-secondary">[14:32:01]</span> <span class="text-tertiary">[INFO]</span> Document loading complete. Initiating structural pass...</div>
+<div class="flex gap-2 font-mono"><span class="text-secondary">[14:32:05]</span> <span class="text-tertiary">[INFO]</span> Page 1 parsed successfully. H1 anchor found.</div>
+<div class="flex gap-2 font-mono"><span class="text-secondary">[14:32:12]</span> <span class="text-error">[WARN]</span> Hierarchy gap detected on Page 2 (H3 -&gt; H5). Flagged for validation.</div>
+<div class="flex gap-2 font-mono"><span class="text-secondary">[14:32:15]</span> <span class="text-tertiary">[INFO]</span> Page 3 parsed.</div>
+<div class="flex gap-2 font-mono"><span class="text-secondary">[14:32:18]</span> <span class="text-tertiary">[INFO]</span> Page 4 parsed.</div>
+<div class="flex gap-2 font-mono bg-[#93000a]/20 border-l-2 border-[#93000a] pl-2 -ml-[2px] text-on-surface"><span class="text-secondary">[14:32:19]</span> <span class="text-error font-bold">[WARNING]</span> OCR confidence low (0.82) on complex table region.</div>
+<div class="flex gap-2 font-mono"><span class="text-secondary">[14:32:20]</span> <span class="text-tertiary">[INFO]</span> Awaiting user validation... <span class="animate-pulse ml-1">_</span></div>
+</div>
+<div class="absolute bottom-2 right-4 text-[10px] text-on-surface-variant opacity-50 pointer-events-none">Processing Console [v1.0.4]</div>
+</footer>
+</main>
+</div>
+</body></html>

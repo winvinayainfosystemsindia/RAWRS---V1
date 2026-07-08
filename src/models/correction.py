@@ -22,7 +22,7 @@ from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
-from src.models.verification import EvidenceItem
+from src.verification.evidence import EvidenceSignal
 
 
 class CorrectionStatus(str, Enum):
@@ -103,10 +103,13 @@ class CorrectionRecord(BaseModel):
     original_value: str
     proposed_value: str
     evidence: str = ""
-    # Structured evidence breakdown, mirrored from Finding.evidence_items
-    # (see engine.findings_to_corrections) — additive, existing readers of
-    # the free-text `evidence` string above are unaffected.
-    evidence_items: List[EvidenceItem] = Field(default_factory=list)
+    # Structured, weighted evidence breakdown, mirrored from
+    # Finding.evidence_items (see engine.findings_to_corrections) —
+    # additive, existing readers of the free-text `evidence` string above
+    # are unaffected. EvidenceSignal(name, score, weight, note) is the
+    # shared evidence-fusion primitive (FEATURE_019) every semantic
+    # object's verifier uses, not just this one.
+    evidence_items: List[EvidenceSignal] = Field(default_factory=list)
     confidence: Optional[float] = None
     reason: str = ""
     reason_code: str = ""

@@ -2,6 +2,10 @@
 
 import { useState } from "react";
 import { api, type HeadingItem } from "@/lib/api";
+import { ObjectInspectorFrame } from "./workspace/ObjectInspectorFrame";
+import { CorrectionHistoryList } from "./CorrectionHistoryList";
+import { useObjectInspectorContext } from "@/lib/store/useObjectInspectorContext";
+import { useDocumentDispatch } from "@/lib/store/DocumentDataContext";
 
 interface Props {
   heading: HeadingItem;
@@ -22,6 +26,8 @@ function buildSrAnnouncement(heading: HeadingItem): string {
 }
 
 export function HeadingDetailPanel({ heading, jobId, onUpdated }: Props) {
+  const { corrections, documentVersion } = useObjectInspectorContext("heading", null, heading.page_number);
+  const dispatch = useDocumentDispatch();
   const [level, setLevel] = useState<number>(heading.level);
   const [text, setText] = useState<string>(heading.text);
   const [note, setNote] = useState<string>(heading.reviewer_note ?? "");
@@ -92,15 +98,18 @@ export function HeadingDetailPanel({ heading, jobId, onUpdated }: Props) {
   const isRejected = heading.review_status === "rejected";
   const isApproved = heading.review_status === "approved";
 
-  return (
-    <div className="space-y-5 p-1">
-      {/* Location */}
-      <div>
-        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Location</p>
-        <p className="text-sm text-gray-700">Page {heading.page_number}</p>
-        <p className="text-xs text-gray-400 mt-0.5">Document order: {heading.document_order}</p>
-      </div>
+  const header = (
+    <div>
+      <h3 className="text-sm font-semibold text-text-primary">{heading.text || "(untitled heading)"}</h3>
+      <p className="text-xs text-text-secondary">Page {heading.page_number} · Document order: {heading.document_order}</p>
+    </div>
+  );
 
+  return (
+    <ObjectInspectorFrame
+      header={header}
+      metadata={
+        <div className="space-y-5">
       {/* Heading level */}
       <div>
         <label htmlFor="heading-level" className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
@@ -168,67 +177,18 @@ export function HeadingDetailPanel({ heading, jobId, onUpdated }: Props) {
 
       {/* Error */}
       {error && (
-        <p className="text-sm text-red-600" role="alert">{error}</p>
+        <p className="text-sm text-danger" role="alert">{error}</p>
       )}
 
-      {/* Actions */}
-      <div className="flex flex-wrap gap-2">
-        {isDirty && (
-          <button
-            onClick={handleSaveChanges}
-            disabled={saving || !text.trim()}
-            className="rounded bg-gray-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
-          >
-            {saving ? "Saving…" : "Save changes"}
-          </button>
-        )}
-        {!isApproved && !isRejected && (
-          <button
-            onClick={handleApprove}
-            disabled={saving || !text.trim()}
-            className="rounded bg-green-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-800 disabled:opacity-50"
-          >
-            {saving ? "Saving…" : "Approve"}
-          </button>
-        )}
-        {isApproved && (
-          <button
-            onClick={handleApprove}
-            disabled={saving || !text.trim()}
-            className="rounded bg-green-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-800 disabled:opacity-50"
-          >
-            {saving ? "Saving…" : "Re-approve"}
-          </button>
-        )}
-        {!isRejected && (
-          <button
-            onClick={handleReject}
-            disabled={saving}
-            className="rounded border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
-          >
-            {saving ? "Saving…" : "Mark as false positive"}
-          </button>
-        )}
-        {isRejected && (
-          <button
-            onClick={handleApprove}
-            disabled={saving}
-            className="rounded border border-green-300 px-3 py-1.5 text-sm font-medium text-green-700 hover:bg-green-50 disabled:opacity-50"
-          >
-            {saving ? "Saving…" : "Restore"}
-          </button>
-        )}
-      </div>
-
       {/* Status badge */}
-      <div className="border-t pt-3">
-        <p className="text-xs text-gray-500">
+      <div className="border-t border-border pt-3">
+        <p className="text-xs text-text-secondary">
           Status:{" "}
           <span className={`font-medium ${
-            heading.review_status === "approved" ? "text-green-700"
-            : heading.review_status === "rejected" ? "text-red-700"
-            : heading.review_status === "level_changed" ? "text-blue-700"
-            : "text-yellow-700"
+            heading.review_status === "approved" ? "text-success"
+            : heading.review_status === "rejected" ? "text-danger"
+            : heading.review_status === "level_changed" ? "text-accent"
+            : "text-warning"
           }`}>
             {heading.review_status === "detected" && "Awaiting review"}
             {heading.review_status === "approved" && "Approved"}
@@ -237,6 +197,70 @@ export function HeadingDetailPanel({ heading, jobId, onUpdated }: Props) {
           </span>
         </p>
       </div>
-    </div>
+        </div>
+      }
+      correctionHistory={
+        <CorrectionHistoryList
+          corrections={corrections}
+          jobId={jobId}
+          onUpdated={(updated) => dispatch({ type: "UPDATE_CORRECTION", correction: updated })}
+          emptyMessage="No cross-source corrections proposed for headings on this page."
+        />
+      }
+      version={
+        documentVersion !== null ? (
+          <p className="text-sm text-text-secondary">As of Document v{documentVersion}</p>
+        ) : undefined
+      }
+      actions={
+        <>
+          {isDirty && (
+            <button
+              onClick={handleSaveChanges}
+              disabled={saving || !text.trim()}
+              className="rounded bg-text-secondary px-3 py-1.5 text-sm font-medium text-surface-canvas hover:opacity-90 disabled:opacity-50"
+            >
+              {saving ? "Saving…" : "Save changes"}
+            </button>
+          )}
+          {!isApproved && !isRejected && (
+            <button
+              onClick={handleApprove}
+              disabled={saving || !text.trim()}
+              className="rounded bg-success px-3 py-1.5 text-sm font-medium text-accent-contrast hover:opacity-90 disabled:opacity-50"
+            >
+              {saving ? "Saving…" : "Approve"}
+            </button>
+          )}
+          {isApproved && (
+            <button
+              onClick={handleApprove}
+              disabled={saving || !text.trim()}
+              className="rounded bg-success px-3 py-1.5 text-sm font-medium text-accent-contrast hover:opacity-90 disabled:opacity-50"
+            >
+              {saving ? "Saving…" : "Re-approve"}
+            </button>
+          )}
+          {!isRejected && (
+            <button
+              onClick={handleReject}
+              disabled={saving}
+              className="rounded border border-danger/40 px-3 py-1.5 text-sm font-medium text-danger hover:bg-danger/10 disabled:opacity-50"
+            >
+              {saving ? "Saving…" : "Mark as false positive"}
+            </button>
+          )}
+          {isRejected && (
+            <button
+              onClick={handleApprove}
+              disabled={saving}
+              className="rounded border border-success/40 px-3 py-1.5 text-sm font-medium text-success hover:bg-success/10 disabled:opacity-50"
+            >
+              {saving ? "Saving…" : "Restore"}
+            </button>
+          )}
+        </>
+      }
+    />
   );
 }

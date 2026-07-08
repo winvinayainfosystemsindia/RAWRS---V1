@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { type ImageItem } from "@/lib/api";
+import { type AiStatus, type ImageItem } from "@/lib/api";
 import { ImageCard } from "./ImageCard";
 import { ImageDetailPanel } from "./ImageDetailPanel";
 import { BulkActions } from "./BulkActions";
@@ -9,10 +9,11 @@ import { BulkActions } from "./BulkActions";
 interface Props {
   images: ImageItem[];
   jobId: string;
+  aiStatus: AiStatus | null;
   onImagesUpdated: (updated: ImageItem[]) => void;
 }
 
-export function ImageGrid({ images, jobId, onImagesUpdated }: Props) {
+export function ImageGrid({ images, jobId, aiStatus, onImagesUpdated }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
 
@@ -50,15 +51,16 @@ export function ImageGrid({ images, jobId, onImagesUpdated }: Props) {
         onActionComplete={handleBulkComplete}
       />
 
-      <div className="flex gap-4 items-start">
+      <div className="flex flex-col gap-4">
         {/* Image grid */}
-        <div className={selectedImage ? "flex-1 min-w-0" : "w-full"}>
+        <div className={selectedImage ? "w-full max-h-64 overflow-y-auto" : "w-full"}>
           <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {images.map((image) => (
               <ImageCard
                 key={image.image_id}
                 image={image}
                 jobId={jobId}
+                aiStatus={aiStatus}
                 isSelected={selectedId === image.image_id}
                 onSelect={() =>
                   setSelectedId((prev) => (prev === image.image_id ? null : image.image_id))
@@ -73,11 +75,12 @@ export function ImageGrid({ images, jobId, onImagesUpdated }: Props) {
 
         {/* Detail panel — shown when an image is selected */}
         {selectedImage && (
-          <div className="w-80 shrink-0">
+          <div className="w-full">
             <ImageDetailPanel
               key={selectedImage.image_id}
               image={selectedImage}
               jobId={jobId}
+              aiStatus={aiStatus}
               onClose={() => setSelectedId(null)}
               onActionComplete={handleActionComplete}
             />

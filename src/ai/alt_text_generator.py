@@ -7,10 +7,10 @@ POST /api/documents/{id}/images/{id}/generate-alt-text (src/api/routes.py),
 which calls generate_alt_text() here.
 
 Provider abstraction: this module does not know which AI model runs.
-It requests a vision provider from src/ai/registry.py, which returns
-the best available provider (Qwen2.5-VL in production; StubProvider in
-tests). The provider does the inference; this module handles the
-RAWRS-level concerns: input assembly, quality evaluation, and retry.
+It requests a provider from src/ai/registry.py, which returns the best
+available provider (Qwen2.5-VL in production; StubProvider in tests).
+The provider does the inference; this module handles the RAWRS-level
+concerns: input assembly, quality evaluation, and retry.
 
 Quality evaluation: after generation, AltTextQualityEvaluator inspects
 the result. If quality is poor (placeholder text, description just
@@ -71,10 +71,15 @@ def generate_alt_text(request: AltTextRequest) -> AltTextResult:
     is retried once. The second result is returned regardless of quality
     (the human reviewer is always the final gate).
     """
-    from src.ai.registry import get_alt_text_provider
+    from src.ai.provider import AIProviderUnavailableError
+    from src.ai.registry import get_provider
     from src.ai.quality import AltTextQualityEvaluator
 
-    provider = get_alt_text_provider()
+    try:
+        provider = get_provider()
+    except AIProviderUnavailableError as exc:
+        raise AltTextGenerationError(str(exc)) from exc
+
     result = provider.generate_alt_text(request)
 
     evaluator = AltTextQualityEvaluator()

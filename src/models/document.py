@@ -10,6 +10,7 @@ from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
+from src.models.callout import Callout
 from src.models.correction import CorrectionRecord
 from src.models.footnote import Footnote
 from src.models.front_matter import FrontMatter
@@ -17,7 +18,8 @@ from src.models.heading import Heading
 from src.models.image import Image
 from src.models.list_block import ListBlock
 from src.models.metadata import Metadata
-from src.models.page import Page
+from src.models.page import Page, PageLabelSection
+from src.models.paragraph import Paragraph
 from src.models.sanitization import SanitizationEvent
 from src.models.table import Table
 from src.models.text_block import TextBlock
@@ -92,3 +94,28 @@ class Document(BaseModel):
     # (src/verification/engine.py) for this run — corrections and
     # validation_issues are both derived views over the same findings.
     verification_findings: List[Finding] = Field(default_factory=list)
+    # FEATURE_018 — reviewer-defined bulk page numbering schemes. Empty by
+    # default: every page falls back to its detected Page.printed_label,
+    # identical to pre-FEATURE_018 behavior. See src/structure/page_label_resolver.py.
+    page_label_sections: List[PageLabelSection] = Field(default_factory=list)
+    # FEATURE_019 — boxed asides (Case Study, Thinking Point, Key Ideas,
+    # Summary, Activity, ...) detected by src/mathpix/mmd_parser.py's
+    # label-pattern classifier. Empty for any document with no such
+    # labels — see src/models/callout.py.
+    callouts: List[Callout] = Field(default_factory=list)
+    # FEATURE_020 — Mathpix-path PARAGRAPH/ABSTRACT blocks, promoted from
+    # page.cleaned_text's flat concatenation (still populated in
+    # parallel, unchanged) into real objects markdown_builder.py's
+    # _render_page_semantic() can sort by source_line alongside
+    # headings/lists/tables/images/callouts. Empty for the RAWRS-native
+    # path — see src/models/paragraph.py's docstring.
+    paragraphs: List[Paragraph] = Field(default_factory=list)
+    # FEATURE_020 — bumped by exactly one line at every reviewer-driven
+    # mutation site (engine.apply_correction()/revert_correction(), the
+    # alt-text/page-label/reading-order review endpoints) — see
+    # src/api/routes.py's export-download handlers, which compare this
+    # against the version a static Markdown/DOCX file was generated at
+    # to decide whether a download needs regenerating. Never read for
+    # any other purpose; not a general-purpose optimistic-concurrency
+    # token.
+    version: int = 0

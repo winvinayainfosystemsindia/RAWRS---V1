@@ -162,7 +162,7 @@ def _run_single_page(
     try:
         image = render_page_to_image(pdf_path, page_number)
         [result] = predictor([image], full_page=True)
-        text = _page_result_to_text(result)
+        text = page_result_to_text(result)
     except Exception as exc:
         duration = perf_counter() - start
         metrics.record(page_number, duration)
@@ -205,13 +205,19 @@ def _run_single_page(
     return []
 
 
-def _page_result_to_text(result) -> str:
+def page_result_to_text(result) -> str:
     """Flatten a Surya PageOCRResult into reading-order plain text.
 
     Each non-skipped block's html is per-block markup (e.g. <p>...</p>)
     - strip tags via BeautifulSoup rather than hand-rolling a parser.
     Skipped blocks (figures, etc. - see Surya's SKIP_CANON_LABELS) carry
     no text and are omitted, not just blank.
+
+    Public (not module-private) because src/ocr/targeted.py's region-
+    scoped OCR (FEATURE_019) reuses it — PageOCRResult has the exact same
+    shape (.blocks[].html/.skipped/.reading_order) whether the predictor
+    was called with full_page=True (this module's whole-page path) or
+    full_page=False (a small, already-isolated region).
     """
     ordered_blocks = sorted(result.blocks, key=lambda block: block.reading_order)
     paragraphs = []

@@ -22,14 +22,17 @@ from loguru import logger
 
 from src.api.jobs import Job, JobStatus, create_job, get_job, list_jobs, start_job, _lock
 from src.api.schemas import (
+    AIStatusResponse,
     BlockOut,
+    BoundingBoxOut,
     BulkActionRequest,
+    CalloutOut,
+    CalloutsResponse,
     CellUpdateRequest,
     CorrectionAction,
     CorrectionActionRequest,
     CorrectionOut,
     CorrectionsResponse,
-    EvidenceItemOut,
     EvidenceSignalOut,
     ExportReadinessOut,
     FigureOut,
@@ -43,9 +46,17 @@ from src.api.schemas import (
     ImageReviewRequest,
     ImagesResponse,
     JobSummary,
+    ListItemOut,
+    ListOut,
+    ListsResponse,
     MarkdownResponse,
     MetadataOut,
     MetadataUpdateRequest,
+    PageLabelOut,
+    PageLabelOverrideRequest,
+    PageLabelSectionOut,
+    PageLabelSectionsRequest,
+    PageLabelsResponse,
     PageOcrInfoOut,
     PageReadingOrderOut,
     PagesResponse,
@@ -72,6 +83,37 @@ from src.validation.readiness import compute_readiness
 from src.verification.engine import UnknownAssetTypeError, engine
 
 router = APIRouter(prefix="/api")
+
+
+# --- AI status --------------------------------------------------------------
+
+
+@router.get("/ai/status", response_model=AIStatusResponse)
+def get_ai_status() -> AIStatusResponse:
+    """Current AI provider availability.
+
+    Never raises — this is the one endpoint the frontend polls before
+    attempting any AI action, so an unavailable AI provider (missing
+    dependencies, insufficient RAM/VRAM, still loading) always renders
+    as a clear reason rather than a hung button or a 503 surprise.
+    """
+    from src.ai.provider import AIProviderUnavailableError
+    from src.ai.registry import get_provider
+
+    try:
+        provider = get_provider()
+    except AIProviderUnavailableError as exc:
+        return AIStatusResponse(
+            provider="none", available=False, unavailable_reason=str(exc), capabilities=[]
+        )
+
+    caps = provider.capabilities()
+    return AIStatusResponse(
+        provider=provider.name,
+        available=caps.available,
+        unavailable_reason=caps.unavailable_reason,
+        capabilities=["alt_text", "table_analysis"],
+    )
 
 
 # --- Upload / job lifecycle -------------------------------------------------
@@ -182,6 +224,19 @@ def get_image_file(job_id: str, image_id: str) -> FileResponse:
     return FileResponse(path)
 
 
+@router.get("/documents/{job_id}/source-pdf")
+def get_source_pdf(job_id: str) -> FileResponse:
+    """Serve the original source PDF, read-only, for the frontend's PDF
+    Inspector pane. Mirrors get_image_file's existing pattern."""
+    document = _require_document(job_id)
+    if document is None:
+        raise HTTPException(status_code=404, detail="No document for this job.")
+    path = Path(document.source_pdf_path)
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Source PDF is missing from disk.")
+    return FileResponse(path, media_type="application/pdf")
+
+
 @router.post("/documents/{job_id}/images/{image_id}/generate-alt-text", response_model=ImageOut)
 def generate_image_alt_text(job_id: str, image_id: str) -> ImageOut:
     """On-demand AI alt text generation for a single image.
@@ -272,6 +327,7 @@ def review_image(job_id: str, image_id: str, body: ImageReviewRequest) -> ImageO
         elif action in (ReviewAction.REJECT, ReviewAction.MARK_DECORATIVE,
                         ReviewAction.MARK_COMPLEX, ReviewAction.SKIP, ReviewAction.EDIT):
             image.lifecycle_status = ObjectLifecycleStatus.HUMAN_REVIEWED
+        document.version += 1  # FEATURE_020 — invalidates cached exports
 
     return _image_out(image, job_id)
 
@@ -297,6 +353,7 @@ def bulk_review_images(job_id: str, body: BulkActionRequest) -> ImagesResponse:
                 from src.models.figure import Figure
                 image.figure = Figure()
             _apply_review_action(image.figure, body.action, alt_text=None)
+        document.version += 1  # FEATURE_020 — invalidates cached exports
 
     images_out = [_image_out(img, job_id) for img in document.images]
     return ImagesResponse(images=images_out)
@@ -491,18 +548,7 @@ def get_headings(job_id: str) -> HeadingsResponse:
     """Return all content headings (H1–H5). Page markers (H6) are excluded."""
     document = _require_document(job_id)
     headings = [h for h in (document.headings if document else []) if not h.is_page_marker]
-    headings_out = [
-        HeadingOut(
-            document_order=h.document_order,
-            level=int(h.level),
-            text=h.text,
-            page_number=h.page_number,
-            is_page_marker=h.is_page_marker,
-            review_status=h.review_status.value,
-            reviewer_note=h.reviewer_note,
-        )
-        for h in headings
-    ]
+    headings_out = [_heading_out(h) for h in headings]
     return HeadingsResponse(headings=headings_out)
 
 
@@ -546,15 +592,7 @@ def review_heading(job_id: str, document_order: int, body: HeadingReviewRequest)
         if body.reviewer_note is not None:
             heading.reviewer_note = body.reviewer_note
 
-    return HeadingOut(
-        document_order=heading.document_order,
-        level=int(heading.level),
-        text=heading.text,
-        page_number=heading.page_number,
-        is_page_marker=heading.is_page_marker,
-        review_status=heading.review_status.value,
-        reviewer_note=heading.reviewer_note,
-    )
+    return _heading_out(heading)
 
 
 @router.get("/documents/{job_id}/footnotes", response_model=FootnotesResponse)
@@ -562,20 +600,7 @@ def get_footnotes(job_id: str) -> FootnotesResponse:
     document = _require_document(job_id)
     notes = document.footnotes if document else []
 
-    notes_out = [
-        FootnoteOut(
-            footnote_id=note.footnote_id,
-            note_type=note.note_type.value,
-            number=note.number,
-            marker=note.marker,
-            anchor_page_number=note.anchor_page_number,
-            body=note.body,
-            body_page_number=note.body_page_number,
-            review_status=note.review_status.value,
-            reviewer_note=note.reviewer_note,
-        )
-        for note in notes
-    ]
+    notes_out = [_footnote_out(note) for note in notes]
     return FootnotesResponse(footnotes=notes_out)
 
 
@@ -610,17 +635,51 @@ def review_footnote(job_id: str, footnote_id: str, body: FootnoteReviewRequest) 
         if body.reviewer_note is not None:
             note.reviewer_note = body.reviewer_note
 
-    return FootnoteOut(
-        footnote_id=note.footnote_id,
-        note_type=note.note_type.value,
-        number=note.number,
-        marker=note.marker,
-        anchor_page_number=note.anchor_page_number,
-        body=note.body,
-        body_page_number=note.body_page_number,
-        review_status=note.review_status.value,
-        reviewer_note=note.reviewer_note,
-    )
+    return _footnote_out(note)
+
+
+@router.get("/documents/{job_id}/lists", response_model=ListsResponse)
+def get_lists(job_id: str) -> ListsResponse:
+    """Read-only: semantic lists detected/recovered for this document.
+
+    No PATCH — review actions for a list's corrections already flow
+    through the generic PATCH /corrections/{id} endpoint.
+    """
+    document = _require_document(job_id)
+    lists_out = [
+        ListOut(
+            id=lst.id,
+            list_type=lst.list_type.value,
+            items=[ListItemOut(text=i.text, level=i.level) for i in lst.items],
+            page_number=lst.page_number,
+            document_order=lst.document_order,
+            source_line=lst.source_line,
+            bbox=_bbox_out(lst.bbox),
+        )
+        for lst in (document.lists if document else [])
+    ]
+    return ListsResponse(lists=lists_out)
+
+
+@router.get("/documents/{job_id}/callouts", response_model=CalloutsResponse)
+def get_callouts(job_id: str) -> CalloutsResponse:
+    """Read-only: boxed asides (case studies, thinking points, ...) detected
+    for this document. No PATCH — same reasoning as get_lists above."""
+    document = _require_document(job_id)
+    callouts_out = [
+        CalloutOut(
+            id=c.id,
+            callout_type=c.callout_type,
+            label=c.label,
+            heading_id=c.heading_id,
+            page_number=c.page_number,
+            document_order=c.document_order,
+            source_line=c.source_line,
+            bbox=_bbox_out(c.bbox),
+        )
+        for c in (document.callouts if document else [])
+    ]
+    return CalloutsResponse(callouts=callouts_out)
 
 
 @router.get("/documents/{job_id}/metadata", response_model=MetadataOut)
@@ -805,6 +864,7 @@ def update_reading_order(job_id: str, page_num: int, body: ReadingOrderPatchRequ
                 status_code=422,
                 detail=f"Unknown action '{body.action}'. Use 'approve' or 'reorder'.",
             )
+        document.version += 1  # FEATURE_020 — invalidates cached exports
 
     sorted_blocks = sorted(
         page_blocks,
@@ -814,6 +874,217 @@ def update_reading_order(job_id: str, page_num: int, body: ReadingOrderPatchRequ
         page_number=page_num,
         reading_order_status=page.reading_order_status.value,
         blocks=[_block_out(b) for b in sorted_blocks],
+    )
+
+
+# --- Page Label Manager (FEATURE_018) ---------------------------------------
+
+
+def _page_label_out(page) -> PageLabelOut:
+    return PageLabelOut(
+        page_number=page.page_number,
+        printed_label=page.printed_label,
+        label_confidence=page.label_confidence,
+        label_conflict=page.label_conflict,
+        page_label=page.page_label,
+        page_label_status=page.page_label_status.value,
+    )
+
+
+def _page_label_section_out(section) -> PageLabelSectionOut:
+    return PageLabelSectionOut(
+        start_page=section.start_page,
+        end_page=section.end_page,
+        style=section.style.value,
+        start_number=section.start_number,
+        prefix=section.prefix,
+        suffix=section.suffix,
+    )
+
+
+def _sync_page_marker_heading(document: Document, page) -> None:
+    """Keep document.headings' H6 page-marker text in sync with
+    page.page_label after a Page Label Manager edit.
+
+    _find_page_marker() (markdown_builder.py) and detect_headings()
+    (heading_detector.py) both prefer an existing H6 heading in
+    document.headings over recomputing from Page fields - those headings
+    are baked in once, at pipeline time. Without this sync, a reviewer's
+    edit would update Page.page_label but Markdown/DOCX regeneration
+    would keep rendering the stale pipeline-time label.
+    """
+    from src.models.contracts import Heading, HeadingLevel
+
+    marker = next(
+        (h for h in document.headings if h.page_number == page.page_number and h.is_page_marker),
+        None,
+    )
+    if page.page_label:
+        if marker is not None:
+            marker.text = page.page_label
+        else:
+            document.headings.append(
+                Heading(
+                    level=HeadingLevel.H6,
+                    text=page.page_label,
+                    page_number=page.page_number,
+                    document_order=0,
+                    is_page_marker=True,
+                )
+            )
+    elif marker is not None:
+        # Resolved to no label at all (e.g. a PageLabelSection with
+        # style=NONE) - remove the marker rather than render a stale one.
+        document.headings.remove(marker)
+
+
+@router.get("/documents/{job_id}/page-labels", response_model=PageLabelsResponse)
+def get_page_labels(job_id: str) -> PageLabelsResponse:
+    document = _require_document(job_id)
+    if document is None:
+        return PageLabelsResponse(pages=[], sections=[])
+    return PageLabelsResponse(
+        pages=[_page_label_out(p) for p in sorted(document.pages, key=lambda p: p.page_number)],
+        sections=[_page_label_section_out(s) for s in document.page_label_sections],
+    )
+
+
+@router.patch("/documents/{job_id}/page-labels/{page_num}", response_model=PageLabelOut)
+def update_page_label(job_id: str, page_num: int, body: PageLabelOverrideRequest) -> PageLabelOut:
+    """Manually override or reset one page's final label.
+
+    action='override': sets page_label_status=OVERRIDDEN and page_label to
+        body.label. This always wins over any PageLabelSection.
+    action='reset': clears the override and re-resolves this page from
+        document.page_label_sections / its detected printed_label.
+
+    Either action appends a CorrectionRecord (object_type="page_label")
+    recording the previous value alongside the reviewer's change -
+    GET /documents/{job_id}/corrections?object_type=page_label surfaces
+    the full detected-to-final history via the existing generic
+    Corrections API (src/models/correction.py), the same audit-trail
+    model used for Mathpix cross-source corrections - no new history
+    endpoint needed here.
+    """
+    from src.models.page import PageLabelStatus
+    from src.structure.page_label_resolver import resolve_page_labels
+
+    document = _require_document(job_id)
+    if document is None:
+        raise HTTPException(status_code=404, detail="No document for this job.")
+
+    page = next((p for p in document.pages if p.page_number == page_num), None)
+    if page is None:
+        raise HTTPException(status_code=404, detail=f"Page {page_num} not found.")
+
+    with _lock:
+        previous_label = page.page_label
+        if body.action == "override":
+            if not body.label:
+                raise HTTPException(
+                    status_code=422, detail="label is required for action='override'."
+                )
+            page.page_label = body.label
+            page.page_label_status = PageLabelStatus.OVERRIDDEN
+            reason = "Manual page label override"
+        elif body.action == "reset":
+            page.page_label_status = PageLabelStatus.DETECTED
+            resolve_page_labels(document)
+            reason = "Reset to detected value"
+        else:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Unknown action '{body.action}'. Use 'override' or 'reset'.",
+            )
+
+        if page.page_label != previous_label:
+            document.corrections.append(
+                CorrectionRecord(
+                    object_type="page_label",
+                    object_id=str(page_num),
+                    field="page_label",
+                    original_value=previous_label or "",
+                    proposed_value=page.page_label or "",
+                    confidence=page.label_confidence,
+                    reason=reason,
+                    reason_code="PAGE_LABEL_MANUAL_REVIEW",
+                    provider="rawrs_native",
+                    status=CorrectionStatus.EDITED,
+                    reviewed_at=datetime.now(timezone.utc),
+                )
+            )
+            _sync_page_marker_heading(document, page)
+            document.version += 1  # FEATURE_020 — invalidates cached exports
+
+    return _page_label_out(page)
+
+
+@router.put("/documents/{job_id}/page-label-sections", response_model=PageLabelsResponse)
+def set_page_label_sections(job_id: str, body: PageLabelSectionsRequest) -> PageLabelsResponse:
+    """Replace the document's bulk page-numbering scheme and re-resolve
+    every page's final label.
+
+    One generic mechanism covers every listed bulk operation: offset (a
+    whole-document section with a shifted start_number), restart
+    numbering (a new section beginning mid-document), roman numerals
+    (style), and prefixes/suffixes (the two string fields) - see
+    PageLabelSection's docstring in src/models/page.py.
+
+    Appends one CorrectionRecord per page whose label actually changed.
+    Manual per-page overrides (page_label_status=OVERRIDDEN) are left
+    untouched by the resolver, so they never appear here.
+    """
+    from src.models.page import PageLabelSection, PageLabelStyle
+    from src.structure.page_label_resolver import resolve_page_labels
+
+    document = _require_document(job_id)
+    if document is None:
+        raise HTTPException(status_code=404, detail="No document for this job.")
+
+    try:
+        sections = [
+            PageLabelSection(
+                start_page=s.start_page,
+                end_page=s.end_page,
+                style=PageLabelStyle(s.style),
+                start_number=s.start_number,
+                prefix=s.prefix,
+                suffix=s.suffix,
+            )
+            for s in body.sections
+        ]
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    with _lock:
+        previous_labels = {p.page_number: p.page_label for p in document.pages}
+        document.page_label_sections = sections
+        changed_pages = resolve_page_labels(document)
+
+        for page_num in changed_pages:
+            page = next(p for p in document.pages if p.page_number == page_num)
+            document.corrections.append(
+                CorrectionRecord(
+                    object_type="page_label",
+                    object_id=str(page_num),
+                    field="page_label",
+                    original_value=previous_labels.get(page_num) or "",
+                    proposed_value=page.page_label or "",
+                    confidence=page.label_confidence,
+                    reason="Bulk page label section applied",
+                    reason_code="PAGE_LABEL_BULK_SECTION",
+                    provider="rawrs_native",
+                    status=CorrectionStatus.ACCEPTED,
+                    reviewed_at=datetime.now(timezone.utc),
+                )
+            )
+            _sync_page_marker_heading(document, page)
+        if changed_pages:
+            document.version += 1  # FEATURE_020 — invalidates cached exports
+
+    return PageLabelsResponse(
+        pages=[_page_label_out(p) for p in sorted(document.pages, key=lambda p: p.page_number)],
+        sections=[_page_label_section_out(s) for s in document.page_label_sections],
     )
 
 
@@ -1053,7 +1324,10 @@ def _correction_out(correction: CorrectionRecord) -> CorrectionOut:
         suggested_value=correction.proposed_value,
         reason=correction.reason,
         confidence=correction.confidence,
-        evidence=[EvidenceItemOut(signal=e.signal, detail=e.detail) for e in correction.evidence_items],
+        evidence=[
+            EvidenceSignalOut(name=e.name, score=e.score, weight=e.weight, note=e.note)
+            for e in correction.evidence_items
+        ],
         status=correction.status.value,
         created_at=correction.created_at,
         reviewer_notes=correction.reviewer_notes,
@@ -1132,34 +1406,66 @@ def review_correction(job_id: str, correction_id: str, body: CorrectionActionReq
 # --- Downloads ---------------------------------------------------------------
 
 
+def _needs_export_regen(document: Optional[Document], generated_at_version: Optional[int]) -> bool:
+    """True when in-memory Document state has diverged from the static
+    file written at pipeline time, so a download must be rebuilt from
+    current state rather than served as-is.
+
+    FEATURE_020: one document.version comparison, not an enumeration of
+    correction types. document.version is bumped at every reviewer-
+    driven mutation site (engine.apply_correction()/revert_correction(),
+    and this module's alt-text/page-label/reading-order endpoints) — any
+    new correction type or review endpoint added anywhere in the system
+    invalidates cached exports automatically, with zero changes needed
+    here."""
+    if document is None:
+        return False
+    return document.version != generated_at_version
+
+
 @router.get("/documents/{job_id}/download/markdown")
 def download_markdown(job_id: str) -> FileResponse:
-    job = _require_job(job_id)
-    return _download(job.result.markdown_path if job.result else None, job.filename, ".md")
+    """Download the Markdown.
 
-
-@router.get("/documents/{job_id}/download/docx")
-def download_docx(job_id: str) -> FileResponse:
-    """Download the DOCX.
-
-    If any image has been reviewed (alt_text_status != PENDING_REVIEW),
-    re-generate the DOCX from current in-memory state so the download
-    reflects approved alt texts. The original docx_path file written
-    during the pipeline run is kept as-is (it's the pre-review backup).
+    Re-generates from current in-memory Document state when it has
+    diverged from the static pipeline-time file (see _needs_export_regen)
+    - same regen-on-demand treatment as download_docx below, so a
+    reviewed page label (or alt text) is reflected here too.
     """
     job = _require_job(job_id)
     if job.result is None:
         raise HTTPException(status_code=404, detail="This output was not generated for this document.")
 
     document = job.result.document
-    needs_regen = document is not None and any(
-        img.figure
-        and img.figure.alt_text_status is not None
-        and img.figure.alt_text_status != AltTextStatus.PENDING_REVIEW
-        for img in document.images
-    )
+    if _needs_export_regen(document, job.result.markdown_generated_at_version) and document is not None:
+        from src.markdown.markdown_builder import build_markdown
+        tmp = tempfile.NamedTemporaryFile(suffix=".md", delete=False, mode="w", encoding="utf-8")
+        try:
+            tmp.write(build_markdown(document))
+        finally:
+            tmp.close()
+        stem = job.filename.rsplit(".", 1)[0] if "." in job.filename else job.filename
+        return FileResponse(tmp.name, filename=f"{stem}.md")
 
-    if needs_regen and document is not None:
+    return _download(job.result.markdown_path, job.filename, ".md")
+
+
+@router.get("/documents/{job_id}/download/docx")
+def download_docx(job_id: str) -> FileResponse:
+    """Download the DOCX.
+
+    Re-generates from current in-memory Document state when it has
+    diverged from the static pipeline-time file (see _needs_export_regen)
+    - e.g. an image's alt text was reviewed, or a page label was reviewed.
+    The original docx_path file written during the pipeline run is kept
+    as-is (it's the pre-review backup).
+    """
+    job = _require_job(job_id)
+    if job.result is None:
+        raise HTTPException(status_code=404, detail="This output was not generated for this document.")
+
+    document = job.result.document
+    if _needs_export_regen(document, job.result.docx_generated_at_version) and document is not None:
         from src.markdown.markdown_builder import build_markdown
         from src.docx.docx_generator import generate_docx
         tmp = tempfile.NamedTemporaryFile(suffix=".docx", delete=False)
@@ -1207,6 +1513,48 @@ def _download(path, filename: str, suffix: str) -> FileResponse:
     return FileResponse(path, filename=f"{stem}{suffix}")
 
 
+def _bbox_out(bbox) -> Optional[BoundingBoxOut]:
+    """Shared SemanticObject.bbox -> BoundingBoxOut conversion.
+
+    Drives the frontend's PDF-jump/highlight — every *_out builder with
+    a bbox-bearing model should go through this rather than repeat the
+    field-by-field copy.
+    """
+    if bbox is None:
+        return None
+    return BoundingBoxOut(x0=bbox.x0, y0=bbox.y0, x1=bbox.x1, y1=bbox.y1)
+
+
+def _heading_out(h) -> HeadingOut:
+    return HeadingOut(
+        document_order=h.document_order,
+        level=int(h.level),
+        text=h.text,
+        page_number=h.page_number,
+        is_page_marker=h.is_page_marker,
+        review_status=h.review_status.value,
+        reviewer_note=h.reviewer_note,
+        bbox=_bbox_out(h.bbox),
+        source_line=h.source_line,
+    )
+
+
+def _footnote_out(note) -> FootnoteOut:
+    return FootnoteOut(
+        footnote_id=note.footnote_id,
+        note_type=note.note_type.value,
+        number=note.number,
+        marker=note.marker,
+        anchor_page_number=note.anchor_page_number,
+        body=note.body,
+        body_page_number=note.body_page_number,
+        review_status=note.review_status.value,
+        reviewer_note=note.reviewer_note,
+        anchor_text=note.anchor_text,
+        body_source_text=note.body_source_text,
+    )
+
+
 def _image_out(image, job_id: str) -> ImageOut:
     """Build an ImageOut from an Image model, including AI fields."""
     figure_out = None
@@ -1232,6 +1580,7 @@ def _image_out(image, job_id: str) -> ImageOut:
         url=None if image.extraction_failed else f"/api/documents/{job_id}/images/{image.image_id}/file",
         extraction_failed=image.extraction_failed,
         figure=figure_out,
+        bbox=_bbox_out(image.bbox),
     )
 
 
@@ -1339,6 +1688,8 @@ def _table_out(table) -> TableOut:
         evidence_signals=evidence_out,
         lifecycle_status=table.lifecycle_status.value if hasattr(table.lifecycle_status, "value") else str(table.lifecycle_status),
         confidence_explanation=explanation,
+        bbox=_bbox_out(table.bbox),
+        source_line=table.source_line,
     )
 
 
@@ -1367,4 +1718,7 @@ def _to_summary(job: Job) -> JobSummary:
         docx_available=bool(job.result and job.result.docx_path and job.result.docx_path.is_file()),
         report_available=bool(job.result and job.result.report_path and job.result.report_path.is_file()),
         has_front_matter=bool(document and document.front_matter and document.front_matter.title is not None),
+        document_version=document.version if document else None,
+        markdown_generated_at_version=job.result.markdown_generated_at_version if job.result else None,
+        docx_generated_at_version=job.result.docx_generated_at_version if job.result else None,
     )

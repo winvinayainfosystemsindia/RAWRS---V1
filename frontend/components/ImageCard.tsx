@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { api, type ImageItem, type ReviewAction } from "@/lib/api";
-import { AltTextStatusBadge } from "./Badge";
+import { api, type AiStatus, type ImageItem, type ReviewAction } from "@/lib/api";
+import { AiUnavailableBadge, AltTextStatusBadge } from "./Badge";
 
 function resolveImageUrl(url: string, baseUrl: string): string {
   return url.startsWith("http") ? url : `${baseUrl}${url}`;
@@ -11,6 +11,7 @@ function resolveImageUrl(url: string, baseUrl: string): string {
 interface Props {
   image: ImageItem;
   jobId: string;
+  aiStatus: AiStatus | null;
   isSelected: boolean;
   onSelect: () => void;
   onActionComplete: (updated: ImageItem) => void;
@@ -21,6 +22,7 @@ interface Props {
 export function ImageCard({
   image,
   jobId,
+  aiStatus,
   isSelected,
   onSelect,
   onActionComplete,
@@ -123,8 +125,11 @@ export function ImageCard({
 
       {/* Action buttons */}
       {!image.extraction_failed && (
-        <div className="flex flex-wrap gap-1.5">
-          {canGenerate && (
+        <div className="flex flex-wrap gap-1.5 items-center">
+          {canGenerate && aiStatus && !aiStatus.available && (
+            <AiUnavailableBadge reason={aiStatus.unavailable_reason} />
+          )}
+          {canGenerate && (!aiStatus || aiStatus.available) && (
             <ActionButton onClick={handleGenerate} loading={loading} variant="primary">
               Generate AI Alt Text
             </ActionButton>
@@ -143,7 +148,10 @@ export function ImageCard({
               Reject
             </ActionButton>
           )}
-          {canRegenerate && (
+          {canRegenerate && aiStatus && !aiStatus.available && (
+            <AiUnavailableBadge reason={aiStatus.unavailable_reason} />
+          )}
+          {canRegenerate && (!aiStatus || aiStatus.available) && (
             <ActionButton onClick={handleGenerate} loading={loading} variant="primary">
               Re-generate
             </ActionButton>

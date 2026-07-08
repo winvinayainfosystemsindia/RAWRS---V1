@@ -47,6 +47,11 @@ class P2Heading:
     source: str = "mmd"  # "mmd" | "docx_supplement"
     is_running_header: bool = False
     mmd_command: str = "section*"  # "title" | "section*" | "subsection*" | etc.
+    # Set by src/mathpix/mmd_parser.py::classify_callout_type() when this
+    # heading's text matches a known boxed-aside label pattern (Case
+    # study/Thinking point/Key ideas/Summary/Activity) — None for an
+    # ordinary content heading. See src/models/callout.py.
+    callout_type: Optional[str] = None
 
 
 @dataclass

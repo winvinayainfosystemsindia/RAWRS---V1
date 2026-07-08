@@ -1,0 +1,15 @@
+# Optional AI dependencies for RAWRS.
+#
+# RAWRS's AI subsystem (src/ai/) is an optional, pluggable capability —
+# the base install (requirements.txt) is fully functional without these.
+# Install this file only if you want real Qwen2.5-VL inference for alt
+# text generation / table analysis instead of the RAWRS_AI_STUB stub.
+#
+# Without these installed, src/ai/providers/qwen.py reports itself
+# unavailable with a clear "dependencies not installed" reason via
+# GET /api/ai/status — it never crashes the backend.
+
+torch
+transformers
+qwen-vl-utils
+psutil

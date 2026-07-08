@@ -1,9 +1,9 @@
 """AI provider abstraction for RAWRS.
 
-All AI operations (alt text generation, future caption generation, etc.)
-go through this abstraction layer. The alt text generator does not know
-which model produced the output — it requests accessibility descriptions
-from an AIProvider interface and trusts the registry to supply the best
+All AI operations (alt text generation, table analysis, future
+capabilities) go through this abstraction layer. Callers do not know
+which model produced the output — they request results from an
+AIProvider interface and trust the registry to supply the best
 available provider.
 
 This makes future model migration trivial: swap the provider in the
@@ -24,6 +24,15 @@ is the caller's responsibility (src/ai/alt_text_generator.py).
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Optional
+
+
+class AIProviderUnavailableError(Exception):
+    """Raised by the registry when no AI provider is currently available.
+
+    This is the generic, capability-agnostic error. Callers (alt_text_generator,
+    table_analyzer) catch this and re-raise their own domain-specific error type
+    so existing HTTP handlers don't need to change.
+    """
 
 
 @dataclass
@@ -74,4 +83,16 @@ class AIProvider(ABC):
 
         Raises AltTextGenerationError (from alt_text_generator.py) on
         any failure — model load error, inference error, parse error.
+        """
+
+    @abstractmethod
+    def analyze_table(self, request: "TableAnalysisRequest") -> "TableAnalysisResult":
+        """Analyze a table's structure and suggest accessibility metadata.
+
+        request: TableAnalysisRequest from src/ai/table_analyzer.py.
+
+        Returns TableAnalysisResult.
+
+        Raises TableAnalysisError (from table_analyzer.py) on any
+        failure — model load error, inference error, parse error.
         """

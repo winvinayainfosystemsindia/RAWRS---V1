@@ -95,7 +95,9 @@
 * [x] 016G — Formatting fidelity (bold/italic inline detection → Markdown markers → DOCX runs)
 * [ ] 016C full model — List/ListItem models, list_detector.py, list review API, review workspace UI (DEFERRED)
 
-## Phase 2 — Mathpix MMD Pipeline (IN PROGRESS)
+## Phase 2 — Mathpix MMD Pipeline (SUPERSEDED)
+
+This F-011..F-020 skeleton (below) was never continued past the two files marked done. The actual Mathpix integration shipped through a different, since-completed path: Phase M-1 Mathpix Import Layer → Phase M-2 Cross-Source Verification Engine (`FEATURE_017`–`020`) — see `PHASE_STATUS.md`. In particular `src/mathpix/mmd_parser.py` (listed unchecked below) has existed and been tested since Phase M-1; this section's checkboxes were never updated to match. Left as-is for the historical record rather than rewritten.
 
 * [x] src/models/phase2_document.py — Phase2Document model
 * [x] src/mathpix/__init__.py
@@ -113,6 +115,18 @@
 * [ ] src/phase2_docx/ — DOCX renderer (F-019 heading hierarchy + F-020 metadata)
 * [ ] src/phase2_validation/ — validation rules
 * [ ] tests/test_phase2_*.py — test suite
+
+## Cross-Source Verification Engine (Phase M-2 — FEATURE_017–020)
+
+* [x] src/verification/ — SemanticVerifier engine, matching, merge, evidence fusion
+* [x] src/verification/figures.py / headings.py / lists.py / callouts.py — 4 registered asset types
+* [x] src/models/callout.py, src/models/semantic_object.py
+* [x] src/structure/page_label_resolver.py — Page Label Manager (FEATURE_018)
+* [x] src/ocr/targeted.py — region-scoped OCR (infrastructure, not yet called by any verifier)
+* [x] src/verification/benchmark_report.py — cross-source accuracy aggregation
+* [x] AI subsystem: requirements-ai.txt split + RAM/VRAM preflight (src/ai/providers/qwen.py)
+* [x] frontend/components/workspace/ — WorkspaceShell redesign
+* [ ] Theming sweep — several pre-existing panels still hardcode raw Tailwind colors, not yet on the new theme-token system (see PHASE_STATUS.md Phase M-2)
 
 ---
 

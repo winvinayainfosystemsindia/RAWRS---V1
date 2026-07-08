@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>RAWRS - Assets Workspace</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .fill-icon {
+            font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-tint": "#a2c9ff",
+                        "inverse-on-surface": "#2d3137",
+                        "on-secondary-fixed-variant": "#41474f",
+                        "secondary": "#c1c7d0",
+                        "tertiary": "#ffba42",
+                        "on-primary": "#00315c",
+                        "on-primary-container": "#003a6b",
+                        "primary-container": "#58a6ff",
+                        "surface-container": "#1c2026",
+                        "primary": "#a2c9ff",
+                        "on-error-container": "#ffdad6",
+                        "primary-fixed-dim": "#a2c9ff",
+                        "on-tertiary-container": "#4f3400",
+                        "on-background": "#dfe2eb",
+                        "on-tertiary": "#432c00",
+                        "outline-variant": "#414752",
+                        "inverse-surface": "#dfe2eb",
+                        "surface-variant": "#31353c",
+                        "on-tertiary-fixed-variant": "#614000",
+                        "error-container": "#93000a",
+                        "on-surface": "#dfe2eb",
+                        "error": "#ffb4ab",
+                        "on-primary-fixed": "#001c38",
+                        "on-secondary": "#2b3138",
+                        "secondary-container": "#41474f",
+                        "surface-container-low": "#181c22",
+                        "on-error": "#690005",
+                        "surface-container-lowest": "#0a0e14",
+                        "surface-dim": "#10141a",
+                        "surface-container-high": "#262a31",
+                        "surface-bright": "#353940",
+                        "secondary-fixed-dim": "#c1c7d0",
+                        "tertiary-container": "#da9600",
+                        "on-secondary-container": "#b0b5be",
+                        "primary-fixed": "#d3e4ff",
+                        "tertiary-fixed": "#ffddaf",
+                        "on-tertiary-fixed": "#281800",
+                        "surface-container-highest": "#31353c",
+                        "inverse-primary": "#0060aa",
+                        "on-secondary-fixed": "#161c23",
+                        "outline": "#8b919d",
+                        "on-primary-fixed-variant": "#004882",
+                        "background": "#10141a",
+                        "tertiary-fixed-dim": "#ffba42",
+                        "on-surface-variant": "#c0c7d4",
+                        "secondary-fixed": "#dde3ec",
+                        "surface": "#10141a"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "spacing": {
+                        "sidebar-width": "240px",
+                        "space-sm": "8px",
+                        "space-xs": "4px",
+                        "panel-gutter": "1px",
+                        "space-md": "12px",
+                        "space-lg": "16px"
+                    },
+                    "fontFamily": {
+                        "headline-sm": ["Inter"],
+                        "code-md": ["JetBrains Mono"],
+                        "label-md": ["JetBrains Mono"],
+                        "body-md": ["Inter"],
+                        "body-sm": ["Inter"]
+                    },
+                    "fontSize": {
+                        "headline-sm": ["16px", { "lineHeight": "24px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+                        "code-md": ["13px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "label-md": ["12px", { "lineHeight": "16px", "fontWeight": "500" }],
+                        "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "body-sm": ["12px", { "lineHeight": "18px", "fontWeight": "400" }]
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-background text-on-surface font-body-md text-body-md min-h-screen overflow-hidden selection:bg-primary-container selection:text-on-primary-container">
+<!-- TopAppBar -->
+<header class="bg-surface-container dark:bg-surface-container docked full-width top-0 border-b border-outline-variant flat no shadows flex justify-between items-center h-12 px-space-md w-full fixed z-50">
+<div class="flex items-center gap-space-lg">
+<span class="font-headline-sm text-headline-sm font-bold text-primary dark:text-primary tracking-tighter cursor-pointer active:opacity-80">RAWRS</span>
+<nav class="hidden md:flex gap-space-sm items-center">
+<a class="font-headline-sm text-headline-sm text-on-surface-variant hover:bg-surface-variant transition-colors px-2 py-1 rounded cursor-pointer active:opacity-80" href="#">OCR</a>
+<a class="font-headline-sm text-headline-sm text-on-surface-variant hover:bg-surface-variant transition-colors px-2 py-1 rounded cursor-pointer active:opacity-80" href="#">Structure</a>
+<a class="font-headline-sm text-headline-sm text-on-surface-variant hover:bg-surface-variant transition-colors px-2 py-1 rounded cursor-pointer active:opacity-80" href="#">Headings</a>
+<a class="font-headline-sm text-headline-sm text-on-surface-variant hover:bg-surface-variant transition-colors px-2 py-1 rounded cursor-pointer active:opacity-80" href="#">Images</a>
+<a class="font-headline-sm text-headline-sm text-on-surface-variant hover:bg-surface-variant transition-colors px-2 py-1 rounded cursor-pointer active:opacity-80" href="#">MD Gen</a>
+<a class="font-headline-sm text-headline-sm text-on-surface-variant hover:bg-surface-variant transition-colors px-2 py-1 rounded cursor-pointer active:opacity-80" href="#">Validation</a>
+</nav>
+</div>
+<div class="flex items-center gap-space-md text-primary dark:text-primary">
+<button class="flex items-center justify-center w-8 h-8 rounded hover:bg-surface-variant transition-colors cursor-pointer active:opacity-80">
+<span class="material-symbols-outlined text-[20px]" data-icon="settings_suggest">settings_suggest</span>
+</button>
+<button class="flex items-center justify-center w-8 h-8 rounded hover:bg-surface-variant transition-colors cursor-pointer active:opacity-80">
+<span class="material-symbols-outlined text-[20px]" data-icon="dns">dns</span>
+</button>
+</div>
+</header>
+<!-- SideNavBar -->
+<aside class="bg-surface-container-low dark:bg-surface-container-low docked left-0 h-full w-sidebar-width border-r border-outline-variant flat no shadows fixed left-0 top-12 h-[calc(100vh-48px)] flex flex-col z-40">
+<div class="p-space-md border-b border-outline-variant flex items-center gap-space-sm mb-space-sm">
+<div class="w-8 h-8 bg-surface-container-high rounded flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-[18px] text-on-surface-variant">person</span>
+</div>
+<div class="flex flex-col overflow-hidden">
+<span class="font-headline-sm text-headline-sm text-primary truncate">RAWRS</span>
+<span class="font-label-md text-label-md text-on-surface-variant truncate">Remediation Workstation</span>
+</div>
+</div>
+<nav class="flex flex-col gap-[1px] px-space-xs font-label-md text-label-md">
+<a class="flex items-center gap-space-sm text-on-surface-variant px-space-md py-space-sm hover:bg-surface-container-high transition-all duration-150 rounded-[2px]" href="#">
+<span class="material-symbols-outlined text-[18px]" data-icon="grid_view">grid_view</span>
+                Workspace
+            </a>
+<!-- Active State -->
+<a class="flex items-center gap-space-sm bg-secondary-container text-on-secondary-container border-l-2 border-primary px-space-md py-space-sm transition-all duration-150 rounded-r-[2px]" href="#">
+<span class="material-symbols-outlined text-[18px] fill-icon" data-icon="inventory_2" data-weight="fill">inventory_2</span>
+                Assets
+            </a>
+<a class="flex items-center gap-space-sm text-on-surface-variant px-space-md py-space-sm hover:bg-surface-container-high transition-all duration-150 rounded-[2px]" href="#">
+<span class="material-symbols-outlined text-[18px]" data-icon="fact_check">fact_check</span>
+                Validation
+            </a>
+<a class="flex items-center gap-space-sm text-on-surface-variant px-space-md py-space-sm hover:bg-surface-container-high transition-all duration-150 rounded-[2px]" href="#">
+<span class="material-symbols-outlined text-[18px]" data-icon="history">history</span>
+                History
+            </a>
+<a class="flex items-center gap-space-sm text-on-surface-variant px-space-md py-space-sm hover:bg-surface-container-high transition-all duration-150 rounded-[2px]" href="#">
+<span class="material-symbols-outlined text-[18px]" data-icon="settings">settings</span>
+                Settings
+            </a>
+</nav>
+</aside>
+<!-- Main Content Canvas -->
+<main class="ml-[240px] mt-[48px] h-[calc(100vh-48px)] bg-background flex flex-col overflow-hidden">
+<!-- Filter/Toolbar Area -->
+<div class="flex items-center justify-between px-space-lg py-space-md border-b border-outline-variant bg-surface shrink-0">
+<div class="flex items-center gap-space-md">
+<span class="font-headline-sm text-headline-sm text-on-surface">Extracted Assets</span>
+<span class="font-label-md text-label-md text-on-surface-variant bg-surface-container-high px-2 py-0.5 rounded-[2px]">1,204 Items</span>
+</div>
+<div class="flex items-center gap-space-sm">
+<!-- Filters -->
+<div class="flex bg-surface-container p-[2px] rounded-[2px] border border-outline-variant">
+<button class="font-label-md text-label-md px-3 py-1 bg-surface-variant text-on-surface rounded-[2px] border border-outline-variant transition-colors">All</button>
+<button class="font-label-md text-label-md px-3 py-1 text-on-surface-variant hover:bg-surface-container-high rounded-[2px] border border-transparent transition-colors">Images</button>
+<button class="font-label-md text-label-md px-3 py-1 text-on-surface-variant hover:bg-surface-container-high rounded-[2px] border border-transparent transition-colors">Figures</button>
+<button class="font-label-md text-label-md px-3 py-1 text-on-surface-variant hover:bg-surface-container-high rounded-[2px] border border-transparent transition-colors">Charts</button>
+<button class="font-label-md text-label-md px-3 py-1 text-on-surface-variant hover:bg-surface-container-high rounded-[2px] border border-transparent transition-colors">Tables</button>
+</div>
+<div class="w-px h-6 bg-outline-variant mx-space-xs"></div>
+<!-- Layout Toggles -->
+<button class="w-8 h-8 flex items-center justify-center text-primary-container bg-surface-variant rounded-[2px] border border-outline-variant hover:bg-surface-container-high transition-colors">
+<span class="material-symbols-outlined text-[18px]">grid_view</span>
+</button>
+<button class="w-8 h-8 flex items-center justify-center text-on-surface-variant rounded-[2px] border border-transparent hover:bg-surface-container-high transition-colors">
+<span class="material-symbols-outlined text-[18px]">table_rows</span>
+</button>
+</div>
+</div>
+<!-- Scrollable Asset Grid Workspace -->
+<div class="flex-1 overflow-y-auto p-space-lg">
+<!-- 1px strict grid simulation -->
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-[1px] bg-outline-variant border border-outline-variant">
+<!-- Card 1: Diagram -->
+<div class="bg-surface-container-low flex flex-col relative group hover:bg-surface-container transition-colors">
+<div class="h-48 bg-surface-dim border-b border-outline-variant relative flex items-center justify-center overflow-hidden p-space-sm">
+<img class="object-contain w-full h-full opacity-80 group-hover:opacity-100 transition-opacity" data-alt="A highly detailed technical diagram extracted from an engineering manual, displayed against a dark charcoal background. The diagram features precise, thin white lines depicting a complex mechanical assembly with various gears and shafts. Annotation labels use a monospaced technical font. The overall aesthetic is strictly technical, minimalist, and analytical, fitting perfectly within a professional dark-mode software interface designed for engineers and data scientists. No gradients or decorative elements, strictly functional line art." src="https://lh3.googleusercontent.com/aida-public/AB6AXuA-jLvpGpskQQm0muMpSiA_Jz7UgEki2X9Qu2YVkzrKO7H2wfqalD1KfL6tbOrtPum9AtWmWduAOEHCi7uRQIRY35xJkIPrCW_bVZ0TiZksBFKV4H5Y1jkn55ybqZV_udIOzA-ikAL9Jft8l3yUd1BrPHYeqmCYp2V_7wTCYLZtNDNsgK1b0KgEFdnkIJcU4JWcfYv8xNBNxAEGhhhB5lLVwYXX6z9WzGh05F44LFa18xRbD9FT8aT7_tUa_I9PsZCHynNDAK84OQ"/>
+<!-- Overlay actions on hover -->
+<div class="absolute top-space-sm right-space-sm opacity-0 group-hover:opacity-100 transition-opacity flex gap-space-xs">
+<button class="w-7 h-7 bg-surface-variant border border-outline-variant rounded flex items-center justify-center text-on-surface hover:text-primary-container">
+<span class="material-symbols-outlined text-[16px]">zoom_in</span>
+</button>
+<button class="w-7 h-7 bg-surface-variant border border-outline-variant rounded flex items-center justify-center text-on-surface hover:text-primary-container">
+<span class="material-symbols-outlined text-[16px]">download</span>
+</button>
+</div>
+</div>
+<div class="p-space-sm flex flex-col gap-space-sm">
+<div class="flex justify-between items-start">
+<div class="flex flex-col">
+<span class="font-label-md text-label-md font-bold text-on-surface">Fig 1.4 Main Assembly</span>
+<span class="font-code-md text-code-md text-on-surface-variant">Pg 12 • Diagram</span>
+</div>
+<button class="text-on-surface-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-[20px]">info</span>
+</button>
+</div>
+<div class="flex justify-between items-end mt-auto pt-space-xs border-t border-outline-variant/50">
+<span class="font-code-md text-code-md text-on-surface-variant text-[11px]">2400 x 1800</span>
+<span class="font-label-md text-label-md text-[10px] uppercase tracking-widest text-[#a2c9ff] bg-[#003a6b]/30 px-2 py-0.5 rounded-[2px] border border-[#003a6b]">Success</span>
+</div>
+</div>
+</div>
+<!-- Card 2: Chart -->
+<div class="bg-surface-container-low flex flex-col relative group hover:bg-surface-container transition-colors">
+<div class="h-48 bg-surface-dim border-b border-outline-variant relative flex items-center justify-center overflow-hidden p-space-sm">
+<img class="object-contain w-full h-full opacity-80 group-hover:opacity-100 transition-opacity" data-alt="A complex data visualization chart showing network traffic analysis over time, rendered in a strict dark mode palette. The background is a deep, flat black. Data series are plotted using crisp, 1-pixel thick lines in subdued blue and amber tones. The axes feature small, legible tick marks and monospaced numerical labels in a light grey color. The visual style is purely analytical, dense with information, and devoid of any glossy or 3D effects, aligning with a high-end technical workstation UI." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCJJ5LHD-G2hOtgZGPm-b-y0tJx_dTCuOKMaKuBljJxB__V-4HIBNEdY4MDP8wW8Nl83e3hKDHK1wDd6IwZQs6gPs9WRTIrLJwMQzD9xmdIVXxRRLkJXbyZwDDHtkcO3fX6nAmvmzcLh_b7X8ld4fZfObDfK9hO8jmTFfHqGJ3_9IzDRrD1ipOFa4aK8D4HSMXzHRWlC48SjMlV1MoN9ppg827lFfCL1MsniXuX9anoOCB4qH4mRn6AY4tR8F_eNE3fIeizZ5Ursw"/>
+<div class="absolute top-space-sm right-space-sm opacity-0 group-hover:opacity-100 transition-opacity flex gap-space-xs">
+<button class="w-7 h-7 bg-surface-variant border border-outline-variant rounded flex items-center justify-center text-on-surface hover:text-primary-container"><span class="material-symbols-outlined text-[16px]">zoom_in</span></button>
+</div>
+</div>
+<div class="p-space-sm flex flex-col gap-space-sm">
+<div class="flex justify-between items-start">
+<div class="flex flex-col">
+<span class="font-label-md text-label-md font-bold text-on-surface">Chart 3.B Throughput</span>
+<span class="font-code-md text-code-md text-on-surface-variant">Pg 45 • Chart</span>
+</div>
+<button class="text-primary-container transition-colors">
+<span class="material-symbols-outlined text-[20px] fill-icon">info</span>
+</button>
+</div>
+<div class="flex justify-between items-end mt-auto pt-space-xs border-t border-outline-variant/50">
+<span class="font-code-md text-code-md text-on-surface-variant text-[11px]">1024 x 768</span>
+<span class="font-label-md text-label-md text-[10px] uppercase tracking-widest text-[#a2c9ff] bg-[#003a6b]/30 px-2 py-0.5 rounded-[2px] border border-[#003a6b]">Success</span>
+</div>
+</div>
+</div>
+<!-- Card 3: Table -->
+<div class="bg-surface-container-low flex flex-col relative group hover:bg-surface-container transition-colors ring-1 ring-inset ring-primary-container z-10 shadow-[0_0_0_1px_#58a6ff]">
+<!-- Highlighted State simulation -->
+<div class="h-48 bg-surface border-b border-outline-variant relative flex items-center justify-center overflow-hidden p-space-sm">
+<img class="object-contain w-full h-full" data-alt="A high-density data table extracted from a financial report, shown as a static image artifact on a dark slate background. The table grid consists of precise 1-pixel grey borders separating numerous rows and columns. The text within the cells is a crisp, white, monospaced font detailing numerical values and technical identifiers. The lighting is perfectly even, typical of a scanned document or digital render. The aesthetic is extremely utilitarian, clean, and optimized for data review in a professional dark-theme software environment." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBo6Xr2P1FztM3Fc0fEM9gTPOw3EnjLuyz06SMDbqfgRYZ77CMPUTV-lxV52wpNU040QSTtMSAbIXYKxRgG_PwV3GxgaE3gg9gpnhFC9nIGzhdAhvOxvWpQoD9MOcS3vT8y5ITspFHrGJRHVhTgo6VgXZBpcstxXmDqapUKb3Qic6vODBDWxeOZ3X_WfXjFqY1SPx3I9i9A2XCRJ4tX0upS9R1THlpdHqDSXwhHjcVjP0_Dd9OWE_hyy6gXLtQYMof0r6m572pkGg"/>
+<div class="absolute top-space-sm left-space-sm">
+<span class="flex h-3 w-3 relative">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary-container opacity-75"></span>
+<span class="relative inline-flex rounded-full h-3 w-3 bg-primary-container border-2 border-surface-container-low"></span>
+</span>
+</div>
+</div>
+<div class="p-space-sm flex flex-col gap-space-sm">
+<div class="flex justify-between items-start">
+<div class="flex flex-col">
+<span class="font-label-md text-label-md font-bold text-primary-container">Table 1.1 Params</span>
+<span class="font-code-md text-code-md text-on-surface-variant">Pg 102 • Table</span>
+</div>
+<button class="text-on-surface-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-[20px]">info</span>
+</button>
+</div>
+<div class="flex justify-between items-end mt-auto pt-space-xs border-t border-outline-variant/50">
+<span class="font-code-md text-code-md text-on-surface-variant text-[11px]">1920 x 400</span>
+<span class="font-label-md text-label-md text-[10px] uppercase tracking-widest text-[#ffba42] bg-[#4f3400]/50 px-2 py-0.5 rounded-[2px] border border-[#614000]">Review Req</span>
+</div>
+</div>
+</div>
+<!-- Card 4: Low Res / Error -->
+<div class="bg-surface-container-low flex flex-col relative group hover:bg-surface-container transition-colors">
+<div class="h-48 bg-surface-dim border-b border-error-container/30 relative flex items-center justify-center overflow-hidden p-space-sm">
+<div class="absolute inset-0 bg-error-container/5 mix-blend-overlay"></div>
+<img class="object-contain w-full h-full opacity-60 sepia-[.2]" data-alt="A slightly blurry, low-resolution black and white photograph of an industrial facility floor, intended to look like an imperfect scan or older document artifact. The image shows large machinery and walkways, but lacks fine crispness, exhibiting subtle digital artifacting or noise. It is displayed on a dark grey canvas, emphasizing its status as an extracted asset needing review. The overall mood is serious and documentary, fitting within a technical remediation workflow UI where users process imperfect data." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAGDEZaCuH7XyWZWnRCVGKNgVOFpI_yVwn3aRqENprl9rBuvdGcx6Qe5eb1u3V-2nNz6rY7p5wB0eVTUjYX3Wz50FYB4QpB0Pr2jt8j8Lz7R7kjjy8bTcMMnoCz9oMoiZNS_WOyNG94o-PWMTQn6esTnu1pY-zZtTGK9GCvYyOwGsURD3xZQL1-7F4bBP-KL543gKkclWBFkBLD6QAo2tbp9fBhIMeYqJQeXXg9REkhVuMS6VDVuDkYhavbTXGSx1BmbHFIWbAvpQ"/>
+</div>
+<div class="p-space-sm flex flex-col gap-space-sm">
+<div class="flex justify-between items-start">
+<div class="flex flex-col">
+<span class="font-label-md text-label-md font-bold text-error">Img 4. Scan Artifact</span>
+<span class="font-code-md text-code-md text-on-surface-variant">Pg 211 • Image</span>
+</div>
+<button class="text-on-surface-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-[20px]">info</span>
+</button>
+</div>
+<div class="flex justify-between items-end mt-auto pt-space-xs border-t border-outline-variant/50">
+<span class="font-code-md text-code-md text-error/80 text-[11px]">320 x 240</span>
+<span class="font-label-md text-label-md text-[10px] uppercase tracking-widest text-[#ffb4ab] bg-[#93000a]/30 px-2 py-0.5 rounded-[2px] border border-[#93000a]">Low Res</span>
+</div>
+</div>
+</div>
+<!-- Card 5: Empty Slot / Loading -->
+<div class="bg-surface-container-low flex flex-col relative p-space-sm justify-center items-center h-full min-h-[260px] opacity-50">
+<div class="w-8 h-8 border-2 border-outline-variant border-t-primary-container rounded-full animate-spin mb-space-sm"></div>
+<span class="font-code-md text-code-md text-on-surface-variant">Extracting Pg 212...</span>
+</div>
+</div>
+</div>
+</main>
+</body></html>

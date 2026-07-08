@@ -9,7 +9,7 @@ Covers:
   - Candidate IoU merge logic in table_extractor (_iou, merge)
   - AltTextQualityEvaluator (all 5 dimensions, pass/fail thresholds)
   - AIProvider / StubProvider (capabilities, generate_alt_text)
-  - get_alt_text_provider() registry (RAWRS_AI_STUB env var)
+  - get_provider() registry (RAWRS_AI_STUB env var)
   - ObjectLifecycleStatus model enum and transitions on Table / Image
   - Table.evidence_signals + lifecycle_status field round-trip via JSON
   - Image.lifecycle_status field
@@ -576,7 +576,7 @@ class TestStubProvider:
 
 
 # ===========================================================================
-# Registry: get_alt_text_provider()
+# Registry: get_provider()
 # ===========================================================================
 
 
@@ -584,24 +584,24 @@ class TestAltTextRegistry:
     def test_stub_env_returns_stub_provider(self):
         os.environ["RAWRS_AI_STUB"] = "1"
         try:
-            from src.ai.registry import get_alt_text_provider
+            from src.ai.registry import get_provider
             from src.ai.providers.stub import StubProvider
-            provider = get_alt_text_provider()
+            provider = get_provider()
             assert isinstance(provider, StubProvider)
         finally:
             os.environ.pop("RAWRS_AI_STUB", None)
 
     def test_no_provider_raises(self):
         os.environ.pop("RAWRS_AI_STUB", None)
-        from src.ai.alt_text_generator import AltTextGenerationError
+        from src.ai.provider import AIProviderUnavailableError
         import src.ai.registry as reg_mod
         unavail = MagicMock()
         unavail.capabilities.return_value = MagicMock(available=False, vision=True,
                                                        unavailable_reason="no GPU")
         unavail.name = "Mock"
         with patch.object(reg_mod, "_candidate_providers", return_value=[unavail]):
-            with pytest.raises(AltTextGenerationError):
-                reg_mod.get_alt_text_provider()
+            with pytest.raises(AIProviderUnavailableError):
+                reg_mod.get_provider()
 
 
 # ===========================================================================

@@ -113,6 +113,8 @@ from src.models.contracts import (
     HeadingLevel,
     NoteType,
     OCRConfidence,
+    PageLabelStatus,
+    PageLabelStyle,
     Severity,
     TextBlock,
     ValidationIssue,
@@ -146,6 +148,7 @@ def validate_document(document: Document) -> List[ValidationIssue]:
     issues.extend(_check_missing_page_markers(document))
     issues.extend(_check_page_ordering(document))
     issues.extend(_check_reading_order_anomalies(document))
+    issues.extend(_check_page_labels(document))
     issues.extend(_check_low_ocr_confidence(document))
     issues.extend(_check_ocr_artifacts(document))
     issues.extend(_check_xml_invalid_characters(document))
@@ -624,6 +627,99 @@ def _check_reading_order_anomalies(document: Document) -> List[ValidationIssue]:
                 ),
             )
         )
+
+    return issues
+
+
+def _check_page_labels(document: Document) -> List[ValidationIssue]:
+    """FEATURE_018: validation rules for the Page Label Manager.
+
+    Deliberately conservative, matching this file's established "prefer
+    under-reporting over false positives" convention for per-page
+    review-status warnings (see _check_reading_order_anomalies just
+    above): PAGE_007/PAGE_008 only fire for pages the detector itself
+    flagged as ambiguous, never for the overwhelmingly common case of an
+    ordinary unreviewed-but-unambiguous auto-detected label.
+    """
+    issues: List[ValidationIssue] = []
+
+    # PAGE_004: duplicate final labels.
+    pages_by_label: Dict[str, List[int]] = {}
+    for page in document.pages:
+        if page.page_label:
+            pages_by_label.setdefault(page.page_label, []).append(page.page_number)
+    for label, page_numbers in pages_by_label.items():
+        if len(page_numbers) > 1:
+            issues.append(
+                ValidationIssue(
+                    severity=Severity.ERROR,
+                    rule_id="PAGE_004",
+                    message=f"Page label '{label}' is used on {len(page_numbers)} pages: {page_numbers}.",
+                    page_number=page_numbers[0],
+                    suggested_action="Adjust page label sections or manual overrides so every label is unique.",
+                )
+            )
+
+    # PAGE_005: a page covered by an explicit numbering section (expecting a
+    # label, i.e. style != NONE) resolved to no label at all.
+    for section in document.page_label_sections:
+        if section.style == PageLabelStyle.NONE:
+            continue
+        for page in document.pages:
+            if section.start_page <= page.page_number <= section.end_page and not page.page_label:
+                issues.append(
+                    ValidationIssue(
+                        severity=Severity.ERROR,
+                        rule_id="PAGE_005",
+                        message=f"Page {page.page_number} is covered by a page label section but has no resolved label.",
+                        page_number=page.page_number,
+                        suggested_action="Check the section's start_page/end_page range and style.",
+                    )
+                )
+
+    # PAGE_006: overlapping page label sections produce an ambiguous/invalid
+    # numbering sequence for whichever pages fall in the overlap.
+    sections = sorted(document.page_label_sections, key=lambda s: s.start_page)
+    for earlier, later in zip(sections, sections[1:]):
+        if later.start_page <= earlier.end_page:
+            issues.append(
+                ValidationIssue(
+                    severity=Severity.ERROR,
+                    rule_id="PAGE_006",
+                    message=(
+                        f"Page label sections [{earlier.start_page}-{earlier.end_page}] and "
+                        f"[{later.start_page}-{later.end_page}] overlap, producing an invalid "
+                        "numbering sequence."
+                    ),
+                    page_number=later.start_page,
+                    suggested_action="Adjust section ranges so they don't overlap.",
+                )
+            )
+
+    # PAGE_007 / PAGE_008: conflicting detected candidates, and conflicts
+    # that still haven't been reviewed by a human.
+    for page in document.pages:
+        if not page.label_conflict:
+            continue
+        issues.append(
+            ValidationIssue(
+                severity=Severity.WARNING,
+                rule_id="PAGE_007",
+                message=f"Page {page.page_number} has 2+ conflicting detected page-number candidates.",
+                page_number=page.page_number,
+                suggested_action="Review this page's margin text and set the correct label manually.",
+            )
+        )
+        if page.page_label_status == PageLabelStatus.DETECTED:
+            issues.append(
+                ValidationIssue(
+                    severity=Severity.WARNING,
+                    rule_id="PAGE_008",
+                    message=f"Page {page.page_number}'s conflicting page label has not been reviewed.",
+                    page_number=page.page_number,
+                    suggested_action="Open the Page Label Manager and resolve this page's label.",
+                )
+            )
 
     return issues
 

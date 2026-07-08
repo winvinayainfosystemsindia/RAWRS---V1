@@ -1,6 +1,7 @@
 """Tests for src/verification/headings.py::HeadingVerifier and
 src/headings/heading_detector.py::detect_headings_from_pdf()."""
 
+import json
 from pathlib import Path
 from typing import List, Tuple
 
@@ -217,3 +218,163 @@ class TestEngineIntegration:
         assert heading.level == HeadingLevel.H1
         engine.revert_correction(document, correction)
         assert heading.level == HeadingLevel.H3
+
+
+# ===========================================================================
+# FEATURE_019: multi-signal EvidenceBundle
+# ===========================================================================
+
+
+class TestRunningHeaderRecurrenceSignal:
+    def test_unique_text_is_not_flagged(self) -> None:
+        verifier = HeadingVerifier()
+        canonical = _heading("Introduction", page=1)
+        result = verifier.build_pdf_matcher().match([canonical], [])
+        findings = verifier.classify(result)
+        assert findings[0].kind == "unconfirmed"
+        # Fused confidence now reports a real number (running-header signal
+        # always runs, even with zero PDF candidates) instead of None.
+        assert findings[0].confidence is not None
+
+    def test_text_recurring_across_pages_proposes_removal(self) -> None:
+        """A heading whose exact text repeats across several pages (the
+        running-header/footer signature) gets a likely_running_header
+        REMOVE proposal — closes the forensic-audit DEF-10 gap: this guard
+        previously only ran inside heading_detector.py's PDF-native
+        classification loop, never for Mathpix-sourced headings."""
+        verifier = HeadingVerifier()
+        recurring = [_heading("PROFESSIONAL IDENTITY", page=p, order=p) for p in range(1, 5)]
+        result = verifier.build_pdf_matcher().match(recurring, [])
+        findings = verifier.classify(result)
+        kinds = {f.kind for f in findings}
+        assert kinds == {"likely_running_header"}
+        assert len(findings) == 4
+        for f in findings:
+            assert f.confidence is not None and f.confidence < 0.5
+
+    def test_accepting_removal_deletes_the_heading(self) -> None:
+        verifier = HeadingVerifier()
+        heading = _heading("Running Header", page=1)
+        correction = CorrectionRecord(
+            object_type="heading",
+            object_id=heading.id,
+            field="likely_running_header",
+            original_value="Running Header",
+            proposed_value="",
+        )
+
+        class _Doc:
+            headings = [heading]
+
+        document = _Doc()
+        verifier.apply(document, correction)
+        assert document.headings == []
+
+    def test_proposed_value_carries_full_restore_payload(self) -> None:
+        """classify() must encode enough to reconstruct the Heading after
+        apply() deletes it — not just leave proposed_value empty."""
+        verifier = HeadingVerifier()
+        recurring = [_heading("PROFESSIONAL IDENTITY", level=HeadingLevel.H3, page=p, order=p) for p in range(1, 5)]
+        result = verifier.build_pdf_matcher().match(recurring, [])
+        finding = verifier.classify(result)[0]
+        assert finding.proposed_value
+        payload = json.loads(finding.proposed_value)
+        assert payload == {"level": 3, "text": "PROFESSIONAL IDENTITY", "page_number": 1}
+
+    def test_revert_restores_the_exact_removed_heading(self) -> None:
+        """FEATURE_020 Part 1 — the revert() override, not the base
+        class's swap-and-replay default (which would have nothing left
+        to swap, since apply() already deleted the object)."""
+        verifier = HeadingVerifier()
+        recurring = [_heading("PROFESSIONAL IDENTITY", level=HeadingLevel.H2, page=p, order=p) for p in range(1, 5)]
+        result = verifier.build_pdf_matcher().match(recurring, [])
+        finding = verifier.classify(result)[0]
+
+        class _Doc:
+            headings = list(recurring)
+
+        document = _Doc()
+        correction = CorrectionRecord(
+            object_type="heading",
+            object_id=finding.object_id,
+            field=finding.kind,
+            original_value=finding.original_value,
+            proposed_value=finding.proposed_value,
+        )
+
+        verifier.apply(document, correction)
+        assert len(document.headings) == 3
+
+        verifier.revert(document, correction)
+        assert len(document.headings) == 4
+        restored = next(h for h in document.headings if h.source == "rawrs_recovery")
+        assert restored.text == "PROFESSIONAL IDENTITY"
+        assert restored.level == HeadingLevel.H2
+        assert restored.page_number == 1
+
+    def test_engine_revert_correction_uses_the_override_not_the_default(self) -> None:
+        engine = CrossSourceVerificationEngine()
+        engine.register(HeadingVerifier())
+        heading = _heading("Running Header", page=1, order=0)
+
+        class _Doc:
+            headings = [heading]
+
+        document = _Doc()
+        verifier = HeadingVerifier()
+        result = verifier.build_pdf_matcher().match([heading], [])
+        # Force a low running-header score directly via classify() would
+        # need 2+ pages; simplest reliable trigger here is to build the
+        # correction the same shape classify() would for a flagged heading.
+        correction = CorrectionRecord(
+            object_type="heading",
+            object_id=heading.id,
+            field="likely_running_header",
+            original_value=heading.text,
+            proposed_value=json.dumps({"level": int(heading.level), "text": heading.text, "page_number": heading.page_number}),
+            status=CorrectionStatus.ACCEPTED,
+        )
+        engine.apply_correction(document, correction)
+        assert document.headings == []
+        engine.revert_correction(document, correction)
+        assert len(document.headings) == 1
+        assert document.headings[0].source == "rawrs_recovery"
+
+
+class TestMultiSignalEvidenceWithRealPdf:
+    """Typography/whitespace signals need a real PDF text layer — built
+    via the same _build_pdf() helper TestDetectHeadingsFromPdf already
+    uses, so classify() is exercised with pdf_path in context exactly as
+    src/pipeline/phase1_pipeline.py's Mathpix branch calls it."""
+
+    def test_matched_pair_gets_typography_and_whitespace_signals(self, tmp_path: Path) -> None:
+        pdf_path = _build_pdf(
+            tmp_path,
+            [
+                ("A Bold Section Heading", "hebo", 18),
+                ("Body text follows here, at normal size.", "helv", 10),
+                ("More ordinary body text on this page.", "helv", 10),
+            ],
+        )
+        verifier = HeadingVerifier()
+        canonical = _heading("A Bold Section Heading", level=HeadingLevel.H2, page=1)
+        pdf_heading = _heading("A Bold Section Heading", level=HeadingLevel.H2, page=1)
+        result = verifier.build_pdf_matcher().match([canonical], [pdf_heading])
+        findings = verifier.classify(result, pdf_path=pdf_path)
+        # Agreement + strong typography/whitespace evidence -> VERIFIED, no findings.
+        assert findings == []
+        assert canonical.verification_status == VerificationStatus.VERIFIED
+        assert canonical.confidence is not None and canonical.confidence > 0.5
+
+    def test_no_pdf_path_falls_back_to_pdf_match_and_recurrence_only(self) -> None:
+        """When no pdf_path is supplied (e.g. a caller that hasn't been
+        updated), classify() must not raise — typography/whitespace are
+        simply skipped, matching the pre-FEATURE_019 behavior's signal
+        coverage for that case."""
+        verifier = HeadingVerifier()
+        canonical = _heading("Introduction", level=HeadingLevel.H2)
+        pdf_heading = _heading("Introduction", level=HeadingLevel.H2)
+        result = verifier.build_pdf_matcher().match([canonical], [pdf_heading])
+        findings = verifier.classify(result)  # no pdf_path kwarg
+        assert findings == []
+        assert canonical.verification_status == VerificationStatus.VERIFIED

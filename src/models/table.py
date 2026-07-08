@@ -113,3 +113,5 @@ class Table(BaseModel):
     evidence_signals: List[Dict[str, Any]] = []
     # Universal lifecycle tracking (see src/models/lifecycle.py).
     lifecycle_status: ObjectLifecycleStatus = ObjectLifecycleStatus.DETECTED
+    # FEATURE_020 — see Heading.source_line's docstring (src/models/heading.py).
+    source_line: Optional[int] = None

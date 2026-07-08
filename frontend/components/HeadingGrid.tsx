@@ -46,9 +46,9 @@ export function HeadingGrid({ headings, jobId, onHeadingsUpdated }: Props) {
         {rejectedCount > 0 && <span className="text-red-700">{rejectedCount} rejected</span>}
       </div>
 
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
+      <div className="flex flex-col gap-4">
         {/* Heading list */}
-        <div className="w-full lg:w-72 shrink-0">
+        <div className="w-full max-h-64 overflow-y-auto">
           <ul className="space-y-2">
             {headings.map((heading) => (
               <HeadingCard
@@ -63,7 +63,7 @@ export function HeadingGrid({ headings, jobId, onHeadingsUpdated }: Props) {
 
         {/* Detail panel */}
         {selectedHeading && (
-          <div className="flex-1 min-w-0 rounded-lg border border-gray-200 bg-white p-4">
+          <div className="flex-1 min-w-0">
             <HeadingDetailPanel
               heading={selectedHeading}
               jobId={jobId}

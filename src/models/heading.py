@@ -79,6 +79,16 @@ class Heading(SemanticObject):
     # "rawrs_recovery" (RAWRS found it; provider missed it), "pdf_native"
     # (a PDF-side verification candidate — see detect_headings_from_pdf()).
     source: str = "rawrs"
+    # FEATURE_020 — P2Block.source_line (src/mathpix/mmd_parser.py), the
+    # position in the source .mmd this heading came from. Mathpix-path
+    # only; None for RAWRS-native headings (document_order already
+    # orders those correctly within their own type). The shared,
+    # cross-type sort key src/markdown/markdown_builder.py's
+    # _render_page_semantic() uses to interleave headings/paragraphs/
+    # lists/tables/images/callouts in true document order on one page —
+    # document_order alone can't do this, since it only orders within
+    # one object type.
+    source_line: Optional[int] = None
 
     @model_validator(mode="after")
     def _backfill_semantic_object_id(self) -> "Heading":

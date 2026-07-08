@@ -595,7 +595,29 @@ class TestStructureDetectionDoesNotChangeExistingOutputs:
         # under plain physical page_number, which is always unique per
         # page. "with" correctly flags this real duplicate; "without"
         # can never produce it since printed_label is never populated.
-        _EXCLUDED_RULE_IDS = {"PAGE_003", "DOC_004", "NOTE_001", "NOTE_002", "HEADING_004"}
+        #
+        # PAGE_004 (FEATURE_018) joins for the identical reason, one
+        # layer down the same chain: Page.page_label (resolved by
+        # src/structure/page_label_resolver.py, called at the end of
+        # detect_structure()) defaults to printed_label whenever no
+        # reviewer section/override exists, so it is likewise only ever
+        # populated when Structure Detection actually runs. The same
+        # sockett_profession.pdf pages-3-and-5 duplicate "I" that makes
+        # HEADING_004 fire only in "with" makes PAGE_004 (duplicate
+        # final page label) fire only in "with" too.
+        #
+        # PAGE_007/PAGE_008 (FEATURE_018) join for the same reason one
+        # step earlier in the chain: Page.label_conflict (set by
+        # structure_detector._detect_printed_label when 2+ ambiguous
+        # margin candidates are found) defaults to False and is never
+        # populated at all unless Structure Detection actually runs -
+        # sockett_profession.pdf has a genuinely ambiguous page (the
+        # same ambiguity feature_009's audit already documented), so
+        # "with" correctly flags it and "without" never can.
+        _EXCLUDED_RULE_IDS = {
+            "PAGE_003", "PAGE_004", "PAGE_007", "PAGE_008",
+            "DOC_004", "NOTE_001", "NOTE_002", "HEADING_004",
+        }
         with_keys = [
             _issue_key(i) for i in result_with.validation_issues if i.rule_id not in _EXCLUDED_RULE_IDS
         ]

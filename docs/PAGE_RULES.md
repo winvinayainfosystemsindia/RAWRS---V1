@@ -42,6 +42,20 @@ No page markers are generated.
 
 ---
 
+## Page Label Manager (FEATURE_018)
+
+`Page.printed_label` (above) is a **detection** — what structure_detector.py's per-page margin scan found, with confidence scoring (`Page.label_confidence`, `Page.label_conflict`). It is never edited by a reviewer.
+
+`Page.page_label` is the **final, reviewer-facing label** — what Markdown/DOCX generation actually render (both `heading_detector.py` and `markdown_builder.py`'s H6 marker logic read `page.page_label`, falling back to `page.printed_label`, then the physical page number, exactly as before whenever no reviewer action has been taken). It is computed by `src/structure/page_label_resolver.py::resolve_page_labels()` from:
+
+1. A manual per-page override (`page_label_status == OVERRIDDEN`) — always wins.
+2. The first `Document.page_label_sections` entry covering that page — a reviewer-defined bulk scheme (page range + style [arabic/roman upper/roman lower/none] + start number + prefix + suffix). Offset, restart-numbering, roman numerals, and prefix/suffix are all just parameter values on this one `PageLabelSection` shape.
+3. Otherwise, the detected `printed_label`.
+
+Reviewed through `GET/PATCH /api/documents/{id}/page-labels` and `PUT /api/documents/{id}/page-label-sections` (the Page Label Manager tab). Every change is recorded as a `CorrectionRecord` (`object_type="page_label"`) — the same audit-trail model used for Mathpix cross-source corrections — surfaced via the existing `GET /api/documents/{id}/corrections?object_type=page_label`. Validation rules `PAGE_004`–`PAGE_008` (see `VALIDATION_RULES.md`) cover duplicate labels, missing labels, invalid/overlapping numbering sections, conflicting detected candidates, and unreviewed conflicts.
+
+---
+
 ## Legacy Behavior (no policy passed)
 
 When `page_numbering_policy=None` (the default for `run_pipeline()`, `detect_headings()`, and `build_markdown()`), the original behavior is preserved for backward compatibility: every page receives a marker whose text is the detected printed label (`Page.printed_label`) when available, or the physical page number (`str(Page.page_number)`) otherwise. This is identical to the behavior before the configurable policy was introduced.

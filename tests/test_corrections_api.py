@@ -139,6 +139,35 @@ class TestReviewCorrection:
         assert resp.json()["status"] == "ignored"
         assert heading.level == 3
 
+
+class TestDocumentVersionBump:
+    """FEATURE_020 — document.version is the generic signal
+    _needs_export_regen() now compares against, replacing per-field
+    checks. It must bump exactly when engine.apply_correction()/
+    revert_correction() actually mutate the document, not on every
+    review action."""
+
+    def test_accept_bumps_version(self, client, synthetic_job):
+        from src.api.jobs import _jobs
+        job_id, correction_id, _ = synthetic_job
+        assert _jobs[job_id].result.document.version == 0
+        client.patch(f"/api/documents/{job_id}/corrections/{correction_id}", json={"action": "accept"})
+        assert _jobs[job_id].result.document.version == 1
+
+    def test_reject_does_not_bump_version(self, client, synthetic_job):
+        from src.api.jobs import _jobs
+        job_id, correction_id, _ = synthetic_job
+        client.patch(f"/api/documents/{job_id}/corrections/{correction_id}", json={"action": "reject"})
+        assert _jobs[job_id].result.document.version == 0
+
+    def test_revert_after_accept_bumps_again(self, client, synthetic_job):
+        from src.api.jobs import _jobs
+        job_id, correction_id, _ = synthetic_job
+        client.patch(f"/api/documents/{job_id}/corrections/{correction_id}", json={"action": "accept"})
+        resp = client.patch(f"/api/documents/{job_id}/corrections/{correction_id}", json={"action": "undo"})
+        assert resp.status_code == 200
+        assert _jobs[job_id].result.document.version == 2
+
     def test_needs_review_sets_pending_status(self, client, synthetic_job):
         job_id, correction_id, _heading = synthetic_job
         resp = client.patch(

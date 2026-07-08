@@ -11,6 +11,7 @@ src/models/ can change without changing every other module's imports.
 """
 
 from src.models.bounding_box import BoundingBox
+from src.models.callout import Callout
 from src.models.correction import CorrectionRecord, CorrectionStatus
 from src.models.document import Document, ProcessingStatus
 from src.models.figure import AltTextStatus, Figure
@@ -21,7 +22,17 @@ from src.models.image import Image
 from src.models.lifecycle import ObjectLifecycleStatus
 from src.models.list_block import ListBlock, ListItem, ListType
 from src.models.metadata import Metadata
-from src.models.page import ExtractionMethod, OCRConfidence, Page, PageType, ReadingOrderStatus, RoutingDecision
+from src.models.page import (
+    ExtractionMethod,
+    OCRConfidence,
+    Page,
+    PageLabelSection,
+    PageLabelStatus,
+    PageLabelStyle,
+    PageType,
+    ReadingOrderStatus,
+    RoutingDecision,
+)
 from src.models.paragraph import Paragraph
 from src.models.sanitization import SanitizationEvent
 from src.models.semantic_object import ProvenanceSource, SemanticObject
@@ -31,23 +42,25 @@ from src.models.text_block import TextBlock
 from src.models.validation_issue import Severity, ValidationIssue
 from src.models.verification import (
     BenchmarkOutcome,
-    EvidenceItem,
     Finding,
     ImportSource,
     RepairSuggestion,
     RuleSpec,
     VerificationStatus,
 )
+from src.verification.evidence import EvidenceBundle, EvidenceSignal
 
 __all__ = [
     "AltTextStatus",
     "BenchmarkOutcome",
     "BoundingBox",
+    "Callout",
     "CorrectionRecord",
     "CorrectionStatus",
     "Document",
     "ProcessingStatus",
-    "EvidenceItem",
+    "EvidenceBundle",
+    "EvidenceSignal",
     "ExtractionMethod",
     "Figure",
     "Finding",
@@ -67,6 +80,9 @@ __all__ = [
     "NoteType",
     "OCRConfidence",
     "Page",
+    "PageLabelSection",
+    "PageLabelStatus",
+    "PageLabelStyle",
     "PageType",
     "Paragraph",
     "ProvenanceSource",
