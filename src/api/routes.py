@@ -73,11 +73,14 @@ from src.api.schemas import (
     TableRowOut,
     TablesResponse,
     UploadResponse,
+    ValidationIssueAction,
+    ValidationIssueActionRequest,
     ValidationIssueOut,
     ValidationResponse,
 )
 from src.models.contracts import Document, HeadingLevel, HeadingReviewStatus, FootnoteReviewStatus, Severity
 from src.models.correction import CorrectionRecord, CorrectionStatus
+from src.models.validation_issue import ValidationIssue, ValidationIssueStatus
 from src.models.figure import AltTextStatus
 from src.validation.readiness import compute_readiness
 from src.verification.engine import UnknownAssetTypeError, engine
@@ -177,27 +180,57 @@ def get_document(job_id: str) -> JobSummary:
 # --- Review sub-resources ----------------------------------------------------
 
 
+def _validation_issue_out(issue: ValidationIssue) -> ValidationIssueOut:
+    return ValidationIssueOut(
+        issue_id=issue.issue_id,
+        severity=issue.severity.value,
+        rule_id=issue.rule_id,
+        message=issue.message,
+        page_number=issue.page_number,
+        suggested_action=issue.suggested_action,
+        status=issue.status.value,
+        reviewed_at=issue.reviewed_at,
+    )
+
+
 @router.get("/documents/{job_id}/validation", response_model=ValidationResponse)
 def get_validation(job_id: str) -> ValidationResponse:
     document = _require_document(job_id)
     issues = document.validation_issues if document else []
 
-    issues_out = [
-        ValidationIssueOut(
-            severity=issue.severity.value,
-            rule_id=issue.rule_id,
-            message=issue.message,
-            page_number=issue.page_number,
-            suggested_action=issue.suggested_action,
-        )
-        for issue in issues
-    ]
     return ValidationResponse(
-        issues=issues_out,
+        issues=[_validation_issue_out(issue) for issue in issues],
         error_count=sum(1 for i in issues if i.severity == Severity.ERROR),
         warning_count=sum(1 for i in issues if i.severity == Severity.WARNING),
         info_count=sum(1 for i in issues if i.severity == Severity.INFO),
     )
+
+
+@router.patch("/documents/{job_id}/validation-issues/{issue_id}", response_model=ValidationIssueOut)
+def review_validation_issue(
+    job_id: str, issue_id: str, body: ValidationIssueActionRequest
+) -> ValidationIssueOut:
+    """Set reviewer triage status on one validation issue: ignore, defer
+    ("review later"), or reopen. Status-only — never mutates the document
+    or bumps document.version (validation is a read-only side-channel;
+    see ValidationIssue's docstring)."""
+    document = _require_document(job_id)
+    if document is None:
+        raise HTTPException(status_code=404, detail="No document for this job.")
+    issue = next((i for i in document.validation_issues if i.issue_id == issue_id), None)
+    if issue is None:
+        raise HTTPException(status_code=404, detail=f"No validation issue '{issue_id}' on this document.")
+
+    with _lock:
+        if body.action == ValidationIssueAction.IGNORE:
+            issue.status = ValidationIssueStatus.IGNORED
+        elif body.action == ValidationIssueAction.DEFER:
+            issue.status = ValidationIssueStatus.DEFERRED
+        elif body.action == ValidationIssueAction.REOPEN:
+            issue.status = ValidationIssueStatus.OPEN
+        issue.reviewed_at = datetime.now(timezone.utc)
+
+    return _validation_issue_out(issue)
 
 
 @router.get("/documents/{job_id}/images", response_model=ImagesResponse)

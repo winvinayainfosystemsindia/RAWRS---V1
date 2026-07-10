@@ -59,11 +59,24 @@ class BoundingBoxOut(BaseModel):
 
 
 class ValidationIssueOut(BaseModel):
+    issue_id: str
     severity: str
     rule_id: str
     message: str
     page_number: Optional[int] = None
     suggested_action: Optional[str] = None
+    status: str = "open"
+    reviewed_at: Optional[datetime] = None
+
+
+class ValidationIssueAction(str, Enum):
+    IGNORE = "ignore"
+    DEFER = "defer"
+    REOPEN = "reopen"
+
+
+class ValidationIssueActionRequest(BaseModel):
+    action: ValidationIssueAction
 
 
 class ValidationResponse(BaseModel):

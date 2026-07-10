@@ -46,12 +46,21 @@ export interface BoundingBox {
 
 export type Severity = "error" | "warning" | "info";
 
+export type ValidationIssueStatus = "open" | "ignored" | "deferred";
+
 export interface ValidationIssue {
+  issue_id: string;
   severity: Severity;
   rule_id: string;
   message: string;
   page_number: number | null;
   suggested_action: string | null;
+  status: ValidationIssueStatus;
+  reviewed_at: string | null;
+}
+
+export interface ValidationIssueActionRequest {
+  action: "ignore" | "defer" | "reopen";
 }
 
 export interface ValidationResponse {
@@ -554,6 +563,21 @@ export const api = {
   ): Promise<CorrectionItem> {
     return request<CorrectionItem>(
       `/api/documents/${jobId}/corrections/${correctionId}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }
+    );
+  },
+
+  reviewValidationIssue(
+    jobId: string,
+    issueId: string,
+    body: ValidationIssueActionRequest
+  ): Promise<ValidationIssue> {
+    return request<ValidationIssue>(
+      `/api/documents/${jobId}/validation-issues/${issueId}`,
       {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },

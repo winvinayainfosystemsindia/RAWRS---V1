@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { Severity, ValidationIssue } from "@/lib/api";
+import { api, type Severity, type ValidationIssue } from "@/lib/api";
 import { SeverityBadge } from "./Badge";
 
 const RULE_CATEGORY_LABELS: Record<string, string> = {
@@ -59,33 +59,42 @@ function sortCategories(categories: string[]): string[] {
   });
 }
 
-function issueKey(issue: ValidationIssue): string {
-  return `${issue.rule_id}:${issue.page_number}`;
+interface Props {
+  issues: ValidationIssue[];
+  onJump?: (pageNumber: number) => void;
+  // Both optional so ValidationIssueTable still works read-only (e.g. a
+  // summary embed) wherever a caller doesn't wire up persistence.
+  jobId?: string;
+  onIssueUpdated?: (issue: ValidationIssue) => void;
 }
 
-export function ValidationIssueTable({ issues, onJump }: { issues: ValidationIssue[]; onJump?: (pageNumber: number) => void }) {
+export function ValidationIssueTable({ issues, onJump, jobId, onIssueUpdated }: Props) {
   const [severityFilter, setSeverityFilter] = useState<Severity | "all">("all");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
-  const [ignored, setIgnored] = useState<Set<string>>(new Set());
-  const [deferred, setDeferred] = useState<Set<string>>(new Set());
   const [showIgnored, setShowIgnored] = useState(false);
+  const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
+
+  async function setStatus(issue: ValidationIssue, action: "ignore" | "defer" | "reopen") {
+    if (!jobId) return;
+    setPendingIds((prev) => new Set(prev).add(issue.issue_id));
+    try {
+      const updated = await api.reviewValidationIssue(jobId, issue.issue_id, { action });
+      onIssueUpdated?.(updated);
+    } finally {
+      setPendingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(issue.issue_id);
+        return next;
+      });
+    }
+  }
 
   function toggleIgnore(issue: ValidationIssue) {
-    const k = issueKey(issue);
-    setIgnored((prev) => {
-      const next = new Set(prev);
-      if (next.has(k)) next.delete(k); else next.add(k);
-      return next;
-    });
+    setStatus(issue, issue.status === "ignored" ? "reopen" : "ignore");
   }
 
   function toggleDefer(issue: ValidationIssue) {
-    const k = issueKey(issue);
-    setDeferred((prev) => {
-      const next = new Set(prev);
-      if (next.has(k)) next.delete(k); else next.add(k);
-      return next;
-    });
+    setStatus(issue, issue.status === "deferred" ? "reopen" : "defer");
   }
 
   const categories = useMemo(() => {
@@ -93,8 +102,10 @@ export function ValidationIssueTable({ issues, onJump }: { issues: ValidationIss
     return sortCategories(Array.from(set));
   }, [issues]);
 
+  const ignoredCount = issues.filter((i) => i.status === "ignored").length;
+
   const filtered = issues.filter((issue) => {
-    if (!showIgnored && ignored.has(issueKey(issue))) return false;
+    if (!showIgnored && issue.status === "ignored") return false;
     if (severityFilter !== "all" && issue.severity !== severityFilter) return false;
     if (categoryFilter !== "all" && categoryOf(issue.rule_id) !== categoryFilter) return false;
     return true;
@@ -163,12 +174,12 @@ export function ValidationIssueTable({ issues, onJump }: { issues: ValidationIss
             </summary>
             <ul className="divide-y divide-border border-t border-border">
               {categoryIssues.map((issue, index) => {
-                const k = issueKey(issue);
-                const isIgnored = ignored.has(k);
-                const isDeferredIssue = deferred.has(k);
+                const isIgnored = issue.status === "ignored";
+                const isDeferredIssue = issue.status === "deferred";
+                const isPending = pendingIds.has(issue.issue_id);
                 return (
                   <li
-                    key={`${issue.rule_id}-${issue.page_number}-${index}`}
+                    key={issue.issue_id || `${issue.rule_id}-${issue.page_number}-${index}`}
                     className={`p-4 ${isIgnored ? "opacity-50" : ""}`}
                   >
                     <div className="flex flex-wrap items-center gap-2">
@@ -197,28 +208,30 @@ export function ValidationIssueTable({ issues, onJump }: { issues: ValidationIss
                             Fix
                           </button>
                         )}
-                        <button
-                          type="button"
-                          onClick={() => toggleDefer(issue)}
-                          className={`rounded border px-2 py-0.5 text-xs font-medium transition-colors ${
-                            isDeferredIssue
-                              ? "border-warning/40 text-warning hover:bg-warning/10"
-                              : "border-border text-text-secondary hover:bg-hover-row"
-                          }`}
-                        >
-                          {isDeferredIssue ? "Undefer" : "Review later"}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => toggleIgnore(issue)}
-                          className={`rounded border px-2 py-0.5 text-xs font-medium transition-colors ${
-                            isIgnored
-                              ? "border-border text-text-secondary hover:bg-hover-row"
-                              : "border-border text-text-secondary hover:bg-hover-row"
-                          }`}
-                        >
-                          {isIgnored ? "Unignore" : "Ignore"}
-                        </button>
+                        {jobId && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => toggleDefer(issue)}
+                              disabled={isPending}
+                              className={`rounded border px-2 py-0.5 text-xs font-medium transition-colors disabled:opacity-40 ${
+                                isDeferredIssue
+                                  ? "border-warning/40 text-warning hover:bg-warning/10"
+                                  : "border-border text-text-secondary hover:bg-hover-row"
+                              }`}
+                            >
+                              {isDeferredIssue ? "Undefer" : "Review later"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => toggleIgnore(issue)}
+                              disabled={isPending}
+                              className="rounded border border-border px-2 py-0.5 text-xs font-medium text-text-secondary transition-colors hover:bg-hover-row disabled:opacity-40"
+                            >
+                              {isIgnored ? "Unignore" : "Ignore"}
+                            </button>
+                          </>
+                        )}
                       </div>
                     </div>
                     <p className="mt-2 text-sm text-text-primary">{issue.message}</p>
@@ -236,13 +249,13 @@ export function ValidationIssueTable({ issues, onJump }: { issues: ValidationIss
         ))}
       </div>
 
-      {ignored.size > 0 && (
+      {ignoredCount > 0 && (
         <button
           type="button"
           onClick={() => setShowIgnored((v) => !v)}
           className="mt-2 text-xs text-text-secondary hover:text-text-primary"
         >
-          {showIgnored ? "Hide" : "Show"} {ignored.size} ignored issue{ignored.size !== 1 ? "s" : ""}
+          {showIgnored ? "Hide" : "Show"} {ignoredCount} ignored issue{ignoredCount !== 1 ? "s" : ""}
         </button>
       )}
     </div>

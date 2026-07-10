@@ -194,7 +194,13 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
   function renderSpecialView() {
     switch (activeSpecialView) {
       case "validation":
-        return <ValidationIssueTable issues={state.validationIssues} />;
+        return (
+          <ValidationIssueTable
+            issues={state.validationIssues}
+            jobId={jobId}
+            onIssueUpdated={(issue) => dispatch({ type: "UPDATE_VALIDATION_ISSUE", issue })}
+          />
+        );
       case "images":
         return (
           <ImageGrid

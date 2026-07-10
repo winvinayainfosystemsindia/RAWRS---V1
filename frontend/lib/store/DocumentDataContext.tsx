@@ -112,7 +112,8 @@ export type DocumentAction =
   | { type: "UPDATE_READING_ORDER_PAGE"; page: PageReadingOrder }
   | { type: "REPLACE_READING_ORDER"; pages: PageReadingOrder[] }
   | { type: "UPDATE_PAGE_LABELS"; pages: PageLabel[]; sections: PageLabelSection[] }
-  | { type: "UPDATE_MARKDOWN"; markdown: string };
+  | { type: "UPDATE_MARKDOWN"; markdown: string }
+  | { type: "UPDATE_VALIDATION_ISSUE"; issue: ValidationIssue };
 
 function keyBy<T>(items: T[], keyFn: (item: T) => string | number): Record<string | number, T> {
   const result: Record<string | number, T> = {};
@@ -206,6 +207,13 @@ function reducer(state: DocumentEntities, action: DocumentAction): DocumentEntit
       };
     case "UPDATE_MARKDOWN":
       return { ...state, markdown: action.markdown };
+    case "UPDATE_VALIDATION_ISSUE":
+      return {
+        ...state,
+        validationIssues: state.validationIssues.map((i) =>
+          i.issue_id === action.issue.issue_id ? action.issue : i
+        ),
+      };
     default:
       return state;
   }

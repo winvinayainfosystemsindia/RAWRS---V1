@@ -98,6 +98,40 @@ class TestGetCorrections:
         assert resp.status_code == 404
 
 
+class TestValidationIssuesApi:
+    """PATCH /documents/{id}/validation-issues/{issue_id} — reviewer
+    triage (ignore/defer/reopen), status-only, mirrors review_correction's
+    action-request pattern without the document-mutation branches."""
+
+    def test_ignore_then_reopen_round_trip(self, client, synthetic_job):
+        job_id, _correction_id, _heading = synthetic_job
+        issue_id = client.get(f"/api/documents/{job_id}/validation").json()["issues"][0]["issue_id"]
+
+        resp = client.patch(f"/api/documents/{job_id}/validation-issues/{issue_id}", json={"action": "ignore"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "ignored"
+        assert body["reviewed_at"] is not None
+
+        resp = client.patch(f"/api/documents/{job_id}/validation-issues/{issue_id}", json={"action": "reopen"})
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "open"
+
+    def test_defer(self, client, synthetic_job):
+        job_id, _correction_id, _heading = synthetic_job
+        issue_id = client.get(f"/api/documents/{job_id}/validation").json()["issues"][0]["issue_id"]
+        resp = client.patch(f"/api/documents/{job_id}/validation-issues/{issue_id}", json={"action": "defer"})
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "deferred"
+
+    def test_unknown_issue_returns_404(self, client, synthetic_job):
+        job_id, _correction_id, _heading = synthetic_job
+        resp = client.patch(
+            f"/api/documents/{job_id}/validation-issues/doesnotexist", json={"action": "ignore"}
+        )
+        assert resp.status_code == 404
+
+
 class TestReviewCorrection:
     def test_accept_applies_and_sets_status(self, client, synthetic_job):
         job_id, correction_id, heading = synthetic_job

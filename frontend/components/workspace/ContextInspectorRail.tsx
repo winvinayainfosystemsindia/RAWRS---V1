@@ -33,6 +33,8 @@ export function ContextInspectorRail({ jobId, aiStatus }: { jobId: string; aiSta
         <ValidationIssueTable
           issues={state.validationIssues}
           onJump={(page) => jumpToObject(page, null)}
+          jobId={jobId}
+          onIssueUpdated={(issue) => dispatch({ type: "UPDATE_VALIDATION_ISSUE", issue })}
         />
       </div>
     );
