@@ -137,10 +137,10 @@ This F-011..F-020 skeleton (below) was never continued past the two files marked
 * [x] ImageGrid filters (Missing Alt/Needs Review/Accepted/Rejected/Decorative/Low Res) + doc-wide bulk AI generation
 * [x] ObjectInspectorFrame converted to tabs (Properties/Evidence/History/AI/Actions)
 * [x] Upload screen polish — hover-reveal Remove, truncated filenames with tooltips
-* [ ] Resizable 22/39/39 Outline/PDF/Markdown panel layout, fill viewport (DEFERRED — next session)
-* [ ] Focus Mode (F11/dblclick/toolbar) + PDF+DOCX / Markdown+DOCX split presets (DEFERRED — next session)
-* [ ] Reading Order numbered overlay on PdfViewer (DEFERRED — next session)
-* [ ] Persistent Validation Issue backend (issue_id/status/timestamps + PATCH endpoint) (DEFERRED — next session)
+* [x] Resizable Outline/PDF/Markdown/Inspector panel layout (react-resizable-panels 3.0.6), viewport-filling body height (2026-07-10)
+* [x] Focus Mode (toolbar toggle, collapses nav+rail via Panel.collapse()) + PDF+DOCX / Markdown+DOCX split presets — skipped F11/dblclick triggers, see PHASE_STATUS.md (2026-07-10)
+* [x] Reading Order numbered overlay on PdfViewer (badges only, always-visible on the main PDF pane — see PHASE_STATUS.md for why a PDF+ReadingOrderPanel split view was out of scope) (2026-07-10)
+* [x] Persistent Validation Issue backend (issue_id/status/timestamps + PATCH /validation-issues/{id}, ignore/defer/reopen) (2026-07-10)
 
 ---
 
