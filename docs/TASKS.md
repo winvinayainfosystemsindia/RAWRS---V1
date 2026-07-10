@@ -80,7 +80,7 @@
 ## Platform (API / Frontend)
 
 * [x] src/api/ (FastAPI: main.py, routes.py, jobs.py, schemas.py) — all review endpoints (headings, images, footnotes, tables, reading order, metadata)
-* [x] frontend/ (Next.js/React/TypeScript/Tailwind) — upload page + per-document workspace with 9 tabs: Validation, Headings, Images & alt text, Footnotes & endnotes, Tables, OCR, Markdown, Reading Order, Metadata
+* [x] frontend/ (Next.js/React/TypeScript/Tailwind) — upload page + per-document `WorkspaceShell` (nav rail + PDF/Markdown/DOCX center switcher + Context Inspector; superseded the old 9-tab layout at Phase M-2 — see `PHASE_STATUS.md`)
 * [x] src/ai/ (alt_text_generator.py, table_analyzer.py, provider.py, providers/, registry.py, quality.py)
 * [x] src/tables/ (table_extractor.py, evidence.py, detectors/)
 
@@ -129,6 +129,18 @@ This F-011..F-020 skeleton (below) was never continued past the two files marked
 * [x] Theming sweep — 19 pre-existing panels migrated onto the theme-token system 2026-07-08 (see PHASE_STATUS.md Phase M-2 / DECISIONS_LOG.md Part 24)
 * [x] Fixed: Next.js dev-server `allowedDevOrigins` blocking HMR and silently dropping upload form state (DECISIONS_LOG.md Part 24, Bug 1)
 * [x] Fixed: Rules of Hooks violation crashing every document workspace page (DECISIONS_LOG.md Part 24, Bug 2)
+
+## Phase 1 IDE Redesign (2026-07-08/09 — see PHASE_STATUS.md and DECISIONS_LOG.md Part 25)
+
+* [x] Fixed: DocxPreview/Markdown never refreshed on document_version change after job completion (Live Projection Model)
+* [x] TableGrid.tsx/HeadingGrid.tsx wired into workspace nav (previously built, never imported anywhere)
+* [x] ImageGrid filters (Missing Alt/Needs Review/Accepted/Rejected/Decorative/Low Res) + doc-wide bulk AI generation
+* [x] ObjectInspectorFrame converted to tabs (Properties/Evidence/History/AI/Actions)
+* [x] Upload screen polish — hover-reveal Remove, truncated filenames with tooltips
+* [ ] Resizable 22/39/39 Outline/PDF/Markdown panel layout, fill viewport (DEFERRED — next session)
+* [ ] Focus Mode (F11/dblclick/toolbar) + PDF+DOCX / Markdown+DOCX split presets (DEFERRED — next session)
+* [ ] Reading Order numbered overlay on PdfViewer (DEFERRED — next session)
+* [ ] Persistent Validation Issue backend (issue_id/status/timestamps + PATCH endpoint) (DEFERRED — next session)
 
 ---
 
