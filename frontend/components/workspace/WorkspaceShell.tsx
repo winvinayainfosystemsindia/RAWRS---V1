@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
-import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
+import { useRef, useState, type ReactNode } from "react";
+import { Panel, PanelGroup, PanelResizeHandle, type ImperativePanelHandle } from "react-resizable-panels";
 import type { JobStatus } from "@/lib/api";
 import { JobStatusBadge } from "@/components/Badge";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -39,14 +39,25 @@ const PANE_HEIGHT = "h-[calc(100vh-15rem)] min-h-[480px]";
 const RESIZE_HANDLE =
   "w-1 shrink-0 bg-border transition-colors hover:bg-accent focus-visible:bg-accent focus-visible:outline-none data-[resize-handle-state=drag]:bg-accent";
 
-type CenterMode = "split" | "pdf" | "markdown" | "docx";
+type CenterMode = "split-pdf-md" | "split-pdf-docx" | "split-md-docx" | "pdf" | "markdown" | "docx";
 
 const CENTER_MODES: { id: CenterMode; label: string }[] = [
-  { id: "split", label: "PDF + Markdown" },
+  { id: "split-pdf-md", label: "PDF + Markdown" },
+  { id: "split-pdf-docx", label: "PDF + DOCX" },
+  { id: "split-md-docx", label: "Markdown + DOCX" },
   { id: "pdf", label: "PDF" },
   { id: "markdown", label: "Markdown" },
   { id: "docx", label: "DOCX Preview" },
 ];
+
+// ponytail: every split preset reuses the same nested-PanelGroup shape,
+// just with a different pair of centerViews keys — cheaper than a branch
+// per preset.
+const SPLIT_PAIRS: Partial<Record<CenterMode, [keyof CenterViews, keyof CenterViews]>> = {
+  "split-pdf-md": ["pdf", "markdown"],
+  "split-pdf-docx": ["pdf", "docx"],
+  "split-md-docx": ["markdown", "docx"],
+};
 
 export function WorkspaceShell({
   filename,
@@ -62,8 +73,24 @@ export function WorkspaceShell({
   bottomPanel,
 }: WorkspaceShellProps) {
   const isActive = status === "queued" || status === "processing";
-  const [centerMode, setCenterMode] = useState<CenterMode>("split");
+  const [centerMode, setCenterMode] = useState<CenterMode>("split-pdf-md");
   const [bottomOpen, setBottomOpen] = useState(false);
+  const [focusMode, setFocusMode] = useState(false);
+  const navPanelRef = useRef<ImperativePanelHandle>(null);
+  const railPanelRef = useRef<ImperativePanelHandle>(null);
+  const splitPair = SPLIT_PAIRS[centerMode];
+
+  function toggleFocusMode() {
+    const next = !focusMode;
+    setFocusMode(next);
+    if (next) {
+      navPanelRef.current?.collapse();
+      railPanelRef.current?.collapse();
+    } else {
+      navPanelRef.current?.expand();
+      railPanelRef.current?.expand();
+    }
+  }
 
   return (
     <div className="flex flex-col rounded border border-border bg-surface-canvas overflow-hidden">
@@ -78,6 +105,20 @@ export function WorkspaceShell({
             <span className="rounded border border-border px-2 py-0.5 font-mono text-xs text-text-secondary">
               Document v{documentVersion}
             </span>
+          )}
+          {mode === "document" && (
+            <button
+              type="button"
+              onClick={toggleFocusMode}
+              aria-pressed={focusMode}
+              className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                focusMode
+                  ? "bg-accent text-accent-contrast"
+                  : "text-text-secondary hover:bg-hover-row hover:text-text-primary"
+              }`}
+            >
+              Focus Mode
+            </button>
           )}
           <ThemeToggle />
         </div>
@@ -111,7 +152,14 @@ export function WorkspaceShell({
           rail folded in as a fourth, narrower pane. */}
       <div className={`flex ${PANE_HEIGHT} min-h-0`}>
         <PanelGroup direction="horizontal" className="flex-1">
-          <Panel defaultSize={18} minSize={12} className="overflow-y-auto border-r border-border bg-surface-panel">
+          <Panel
+            ref={navPanelRef}
+            defaultSize={18}
+            minSize={12}
+            collapsible
+            collapsedSize={0}
+            className="overflow-y-auto border-r border-border bg-surface-panel"
+          >
             {nav}
           </Panel>
           <PanelResizeHandle className={RESIZE_HANDLE} />
@@ -120,15 +168,25 @@ export function WorkspaceShell({
             <Panel minSize={30} className="overflow-auto bg-surface-canvas p-4">
               {specialView}
             </Panel>
-          ) : centerMode === "split" ? (
+          ) : splitPair ? (
             <Panel minSize={40} className="flex overflow-hidden">
               <PanelGroup direction="horizontal">
-                <Panel defaultSize={50} minSize={20} className="overflow-auto border-r border-border bg-surface-canvas">
-                  {centerViews.pdf}
+                <Panel
+                  defaultSize={50}
+                  minSize={20}
+                  className={`overflow-auto border-r border-border bg-surface-canvas ${
+                    splitPair[0] === "docx" ? "p-4" : ""
+                  }`}
+                >
+                  {centerViews[splitPair[0]]}
                 </Panel>
                 <PanelResizeHandle className={RESIZE_HANDLE} />
-                <Panel defaultSize={50} minSize={20} className="overflow-auto bg-surface-canvas">
-                  {centerViews.markdown}
+                <Panel
+                  defaultSize={50}
+                  minSize={20}
+                  className={`overflow-auto bg-surface-canvas ${splitPair[1] === "docx" ? "p-4" : ""}`}
+                >
+                  {centerViews[splitPair[1]]}
                 </Panel>
               </PanelGroup>
             </Panel>
@@ -138,14 +196,21 @@ export function WorkspaceShell({
               minSize={30}
               className={`overflow-auto bg-surface-canvas ${centerMode === "docx" ? "p-4" : ""}`}
             >
-              {centerViews[centerMode]}
+              {centerViews[centerMode as keyof CenterViews]}
             </Panel>
           )}
 
           {mode === "document" && (
             <>
               <PanelResizeHandle className={RESIZE_HANDLE} />
-              <Panel defaultSize={14} minSize={10} className="overflow-auto border-l border-border bg-surface-canvas">
+              <Panel
+                ref={railPanelRef}
+                defaultSize={14}
+                minSize={10}
+                collapsible
+                collapsedSize={0}
+                className="overflow-auto border-l border-border bg-surface-canvas"
+              >
                 {rightRail}
               </Panel>
             </>
