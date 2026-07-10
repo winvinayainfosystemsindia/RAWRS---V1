@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import type { JobStatus } from "@/lib/api";
 import { JobStatusBadge } from "@/components/Badge";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -30,7 +31,13 @@ interface WorkspaceShellProps {
   bottomPanel: ReactNode;
 }
 
-const PANE_HEIGHT = "h-[640px]";
+// ponytail: estimate of surrounding chrome (site header, footer, page
+// padding, WorkspaceShell's own top bar + view switcher) — fills the
+// viewport rather than the old fixed h-[640px]; retune if that chrome grows.
+const PANE_HEIGHT = "h-[calc(100vh-15rem)] min-h-[480px]";
+
+const RESIZE_HANDLE =
+  "w-1 shrink-0 bg-border transition-colors hover:bg-accent focus-visible:bg-accent focus-visible:outline-none data-[resize-handle-state=drag]:bg-accent";
 
 type CenterMode = "split" | "pdf" | "markdown" | "docx";
 
@@ -97,42 +104,53 @@ export function WorkspaceShell({
         </div>
       )}
 
-      {/* Body */}
+      {/* Body — nav/center/rail are resizable panels (react-resizable-panels)
+          so the reader can trade Outline/PDF/Markdown/Inspector width for
+          whatever the current task needs; defaults approximate the
+          Outline≈PDF≈Markdown 22/39/39 split with the Context Inspector
+          rail folded in as a fourth, narrower pane. */}
       <div className={`flex ${PANE_HEIGHT} min-h-0`}>
-        <div className="w-64 shrink-0 overflow-y-auto border-r border-border bg-surface-panel">
-          {nav}
-        </div>
+        <PanelGroup direction="horizontal" className="flex-1">
+          <Panel defaultSize={18} minSize={12} className="overflow-y-auto border-r border-border bg-surface-panel">
+            {nav}
+          </Panel>
+          <PanelResizeHandle className={RESIZE_HANDLE} />
 
-        {mode === "special" ? (
-          <div className="min-w-0 flex-1 overflow-auto bg-surface-canvas p-4">{specialView}</div>
-        ) : (
-          <>
-            {(centerMode === "split" || centerMode === "pdf") && (
-              <div
-                className={`min-w-0 overflow-auto border-r border-border bg-surface-canvas ${
-                  centerMode === "split" ? "flex-1" : "flex-[2]"
-                }`}
-              >
-                {centerViews.pdf}
-              </div>
-            )}
-            {(centerMode === "split" || centerMode === "markdown") && (
-              <div
-                className={`min-w-0 overflow-auto border-r border-border bg-surface-canvas ${
-                  centerMode === "split" ? "flex-1" : "flex-[2]"
-                }`}
-              >
-                {centerViews.markdown}
-              </div>
-            )}
-            {centerMode === "docx" && (
-              <div className="min-w-0 flex-[2] overflow-auto border-r border-border bg-surface-canvas p-4">
-                {centerViews.docx}
-              </div>
-            )}
-            <div className="min-w-0 flex-1 overflow-auto bg-surface-canvas">{rightRail}</div>
-          </>
-        )}
+          {mode === "special" ? (
+            <Panel minSize={30} className="overflow-auto bg-surface-canvas p-4">
+              {specialView}
+            </Panel>
+          ) : centerMode === "split" ? (
+            <Panel minSize={40} className="flex overflow-hidden">
+              <PanelGroup direction="horizontal">
+                <Panel defaultSize={50} minSize={20} className="overflow-auto border-r border-border bg-surface-canvas">
+                  {centerViews.pdf}
+                </Panel>
+                <PanelResizeHandle className={RESIZE_HANDLE} />
+                <Panel defaultSize={50} minSize={20} className="overflow-auto bg-surface-canvas">
+                  {centerViews.markdown}
+                </Panel>
+              </PanelGroup>
+            </Panel>
+          ) : (
+            <Panel
+              defaultSize={68}
+              minSize={30}
+              className={`overflow-auto bg-surface-canvas ${centerMode === "docx" ? "p-4" : ""}`}
+            >
+              {centerViews[centerMode]}
+            </Panel>
+          )}
+
+          {mode === "document" && (
+            <>
+              <PanelResizeHandle className={RESIZE_HANDLE} />
+              <Panel defaultSize={14} minSize={10} className="overflow-auto border-l border-border bg-surface-canvas">
+                {rightRail}
+              </Panel>
+            </>
+          )}
+        </PanelGroup>
       </div>
 
       {/* Collapsible bottom panel */}
