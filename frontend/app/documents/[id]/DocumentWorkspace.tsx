@@ -362,6 +362,7 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
                 overlays={pdfOverlays}
                 selectedOverlayId={selection?.objectId ?? null}
                 onOverlayClick={handlePdfOverlayClick}
+                readingOrderBlocks={readingOrder.flatMap((p) => p.blocks)}
               />
             ),
             markdown: (

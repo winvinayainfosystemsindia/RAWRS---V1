@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Document, Page, pdfjs } from "react-pdf";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
-import { api, type BoundingBox } from "@/lib/api";
+import { api, type BlockItem, type BoundingBox } from "@/lib/api";
 import { usePdfViewport } from "@/lib/store/PdfViewportContext";
 import type { SelectableObjectType } from "@/lib/store/SelectionContext";
 
@@ -30,9 +30,21 @@ interface PdfViewerProps {
   selectedOverlayId?: string | number | null;
   onOverlayClick?: (overlay: PdfObjectOverlay) => void;
   onRegionSelect?: (bbox: BoundingBox, pageNumber: number) => void;
+  // Reading-order sequence numbers, drawn as small badges at each block's
+  // top-left corner — separate from `overlays` (which highlight a single
+  // selectable object's full bbox) since a page can have many blocks and
+  // drawing a full box per block would bury the page in outlines.
+  readingOrderBlocks?: BlockItem[];
 }
 
-export function PdfViewer({ jobId, mode = "view", overlays, selectedOverlayId, onOverlayClick }: PdfViewerProps) {
+export function PdfViewer({
+  jobId,
+  mode = "view",
+  overlays,
+  selectedOverlayId,
+  onOverlayClick,
+  readingOrderBlocks,
+}: PdfViewerProps) {
   const { pageNumber, zoom, jumpTarget, setPageNumber, setZoom } = usePdfViewport();
   const [numPages, setNumPages] = useState<number | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -41,6 +53,9 @@ export function PdfViewer({ jobId, mode = "view", overlays, selectedOverlayId, o
     jumpTarget && jumpTarget.pageNumber === pageNumber && jumpTarget.bbox ? jumpTarget.bbox : null;
 
   const pageOverlays = overlays?.filter((o) => o.pageNumber === pageNumber) ?? [];
+  const pageOrderBlocks = [...(readingOrderBlocks?.filter((b) => b.page_number === pageNumber) ?? [])].sort(
+    (a, b) => (a.corrected_order ?? a.block_order) - (b.corrected_order ?? b.block_order)
+  );
 
   return (
     <div className="flex h-full flex-col">
@@ -160,6 +175,22 @@ export function PdfViewer({ jobId, mode = "view", overlays, selectedOverlayId, o
                   }}
                 />
               )}
+
+              {/* Reading order sequence badges — decorative, pointer-events-none;
+                  the numbered list with reorder controls lives in ReadingOrderPanel. */}
+              {pageOrderBlocks.map((block, idx) => (
+                <div
+                  key={block.block_order}
+                  title={block.text.slice(0, 140)}
+                  className="pointer-events-none absolute flex h-5 w-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-accent bg-accent font-mono text-[10px] font-semibold text-accent-contrast shadow"
+                  style={{
+                    left: block.bbox_x0 * zoom,
+                    top: block.bbox_y0 * zoom,
+                  }}
+                >
+                  {idx + 1}
+                </div>
+              ))}
             </div>
           </Document>
         )}
