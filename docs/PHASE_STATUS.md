@@ -738,3 +738,21 @@ Closes the headline finding from Phase F-1: establishes accessibility testing in
 * **Performance impact:** none on the shipped app — `next.config.ts`'s `transpilePackages` addition only affects Jest's transform allowlist (verified via a clean `next build`); no runtime code changed.
 
 **Phase F-2.1 complete.** Per the ticket: not proceeding to keyboard parity, search unification, responsive layout, or workspace redesign — stopping here for approval. Recommended next milestone: the deferred manual keyboard-only + screen-reader pass on the Reviewer Workspace and Document Workspace, since its findings should shape which components get the next round of automated tests.
+
+## Phase F-2.2 — Manual Accessibility Validation
+
+Performs the manual pass Phase F-2.1 deferred: keyboard-only navigation, focus visibility, reading order, and landmark/heading structure, against a **live, running instance** (both dev servers started for this session, stopped after). Full detail: `docs/ACCESSIBILITY_TESTING.md`'s new "Manual validation findings" section.
+
+**Disclosed limitation, stated per the ticket's own instruction rather than glossed over:** no real screen reader (NVDA/JAWS/Narrator/VoiceOver) was executed — this environment can't run one and interpret its output. Chrome DevTools Protocol's accessibility tree was used instead, via live browser automation (`take_snapshot`/`evaluate_script`/`press_key`) — the same underlying tree data a screen reader consumes via the OS's platform accessibility API, so accessible names/roles/landmarks/focus state are verified accurately, but the *spoken* experience of a real AT was not.
+
+**Confirmed working, no fix needed:** the skip-to-content link (textbook-correct reveal-on-focus pattern), the landing page's heading/landmark structure, real keyboard-focus visibility (verified via `:focus-visible` + computed box-shadow, not just source inspection), logical initial tab order with no trap, and — a genuinely good surprise — `OutputWorkspace`'s tab bar already has a fully correct ARIA tabs pattern (`role="tablist"/"tab"`/`aria-selected`/`aria-controls` matching `role="tabpanel"`/`aria-labelledby`), just not on the default-visible surface.
+
+**Found and fixed (both confirmed live, before/after):**
+1. **Zero heading elements anywhere on the Document Workspace** (`/documents/[id]`) — the single most-used page in the app had no `h1`–`h6` at all, confirmed by live DOM query. Fixed: a visually-hidden `<h1>{job.filename}</h1>` in `frontend/app/documents/[id]/DocumentWorkspace.tsx`, mirroring `app/page.tsx`'s existing correct pattern.
+2. **Static, generic `document.title` on every document page** — screen readers announce title on navigation; every workspace page shared the same generic title. Fixed: a `useEffect` in the same file sets `document.title` to `"{filename} — RAWRS"`.
+
+**Found, not fixed (backlog — larger than "minimal fix, no redesign" allows this milestone):** `WorkspaceShell`'s center-view switcher and `SemanticNavTree`'s mode buttons lack the ARIA tabs pattern `OutputWorkspace` already has; internal panel headings (Outline, inspector sections) are still styled text, not real heading elements, below the new page-level H1; the Reviewer Workspace's 9 keyboard shortcuts and the Validation/Corrections/Image workspaces' populated-data states were not re-verified live this session (relied on prior static code review + Phase F-2.1's empty-state coverage). No dialogs/modals exist anywhere in the codebase, so Escape/dialog-trap behavior has nothing to check against — noted as non-applicable, not an unverified gap.
+
+**Verification:** `npx jest` (6/6 pass, unchanged), `npx tsc --noEmit` (clean), `npx next build` (clean) — all re-run after the two fixes above.
+
+**Phase F-2.2 complete.** Per the ticket: not proceeding to search unification, responsive design, or UI redesign — stopping here for approval.

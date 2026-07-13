@@ -2,6 +2,34 @@
 
 Phase F-2.1's deliverable: an automated accessibility testing foundation for RAWRS's own frontend, so a WCAG regression can no longer ship unnoticed (see `FRONTEND_COMPLETION_AUDIT_2026-07-13.md` item 34 — until this phase, RAWRS had zero automated accessibility testing and zero frontend test files of any kind).
 
+Phase F-2.2 (below, "Manual validation findings") followed up with the manual keyboard/screen-reader-proxy pass this doc's own "Known scope limits" section had flagged as the recommended next step.
+
+## Manual validation findings (Phase F-2.2)
+
+`jest-axe` checks the static DOM tree — it cannot evaluate real tab order, focus visibility in practice, keyboard traps, or whether the page structure makes sense to someone navigating by heading or landmark. Phase F-2.2 validated those specifically, against a **live, running instance** of RAWRS (both the FastAPI backend and Next.js frontend dev servers, started for this session and stopped afterward) with real, already-processed documents.
+
+**Disclosed limitation, per this milestone's own instruction:** no actual screen reader (NVDA, JAWS, Windows Narrator, VoiceOver) was executed with its audio/braille output interpreted — this CLI environment has no way to run one and listen to it. Instead, Chrome DevTools Protocol's accessibility tree (`take_snapshot`/`evaluate_script` via a live browser) was used as the most rigorous available proxy: this is the same underlying accessibility-tree data a real screen reader consumes via the OS's platform accessibility API (MSAA/UIA on Windows, AX API on macOS), so it verifies accessible names, roles, landmark structure, and focus state accurately — but it does not verify that the *spoken experience* of a real AT reads naturally, only that the underlying tree is correct. Treat these findings as "verified against the accessibility tree a screen reader would use," not as "verified with a real screen reader."
+
+### Confirmed working (no fix needed)
+
+- Skip-to-content link: correctly `sr-only` by default, reveals on keyboard focus, first tab stop, navigates to `#main-content`. Textbook-correct implementation.
+- Landing page: proper heading hierarchy (one H1, four H2s, no level skips), real semantic landmarks (`<header>`/`<nav>`/`<main>`/`<footer>`, not just ARIA roles), and Recent Documents links have correct, well-formed accessible names + descriptions.
+- Keyboard focus visibility: verified via `:focus-visible` match + real computed `box-shadow` (an accent-colored 2px ring) on the theme-toggle button — Tailwind's `focus-visible:ring-2` pattern is genuinely applying, not just present in source.
+- Tab order through the initial toolbar (skip link → logo → nav link → theme toggle) is logical; no keyboard trap observed in this sequence.
+- The `OutputWorkspace` tab bar (Review Queue / Accessible Markdown / Accessible DOCX Preview / Raw Mathpix Markdown) has a **fully correct ARIA tabs pattern already built** — `role="tablist"`/`role="tab"`/`aria-selected`/`aria-controls` on the buttons, matching `role="tabpanel"`/`aria-labelledby` on the panels. It just isn't the default-visible surface (see below).
+
+### Issues found and fixed this milestone
+
+1. **Zero heading elements anywhere on the Document Workspace.** The single most content-rich, most-used page in the app (`/documents/[id]`) had no `h1`–`h6` at all — confirmed by querying the live DOM, not assumed. A screen-reader user's "jump to next heading" navigation (one of the most common AT techniques) had nothing to land on. **Fixed:** added a visually-hidden `<h1>{job.filename}</h1>` in `frontend/app/documents/[id]/DocumentWorkspace.tsx` — the same "exactly one H1 per page" pattern `app/page.tsx` already had correctly. No visual change (the filename is already shown in `WorkspaceShell`'s own toolbar).
+2. **Static, generic `<title>` on every document page.** `document.title` never changed per document — every workspace page shared the app's generic title, so a screen reader announcing the page on navigation (and a sighted user's browser tab/history) couldn't distinguish one document from another. **Fixed:** a `useEffect` in the same file sets `document.title` to `"{filename} — RAWRS"` once the job loads.
+
+### Issues found, not fixed this milestone (backlog — out of scope for "minimal fix, no redesign")
+
+- **`WorkspaceShell`'s center-view switcher and `SemanticNavTree`'s mode buttons (Outline/By Type/Pending/Issues/Search/Bookmarks) are plain buttons, not an ARIA tabs/tablist pattern** — unlike the properly-built `OutputWorkspace` tab bar above. A screen-reader user gets no signal that these form a mutually-exclusive view-switcher group or which one is active, beyond visual styling. Retrofitting the same pattern `OutputWorkspace` already uses is the right fix, but touches multiple components — out of scope for this milestone's "fix only what directly blocks, do not redesign."
+- **Internal panel structure still has no heading hierarchy below the new page-level H1** — panel titles ("Outline," section labels in the inspector rail, etc.) are still styled `<div>`/`<span>` text, not real `<h2>`/`<h3>` elements. Adding the outer H1 fixed "the page has no heading at all"; it did not fix "the page's internal structure is heading-navigable," which would require touching `SemanticNavTree`, `ContextInspectorRail`, and `BottomPanel` — a larger change, deferred.
+- **Keyboard shortcuts (Reviewer Workspace's 9-shortcut set) and Validation/Corrections/Image workspace interaction states were not re-verified live this session** — relied on the existing static code review (the shortcut implementation's `isTypingTarget()` guard, on-screen legend) from when that code was written, plus the Phase F-2.1 empty-state `jest-axe` coverage. A full live keyboard walkthrough of those three areas with populated data remains open.
+- **No dialogs/modals exist anywhere in the codebase** (confirmed during the Phase F-1 audit) — so Escape-key/dialog-focus-trap behavior has nothing to verify against. Noted here so it isn't mistaken for an unverified gap; it's a non-applicable check.
+
 ## What this is — and isn't
 
 `jest-axe` runs the same automated ruleset [axe-core](https://github.com/dequelabs/axe-core) uses (missing labels, invalid ARIA, contrast issues it can detect statically, landmark/heading structure problems, etc.) against a rendered component's DOM. **It is not a substitute for manual testing.** Axe-core's own documentation states it catches roughly 30-50% of WCAG issues automatically — things like "does this interaction make sense to a screen reader user," "is the reading order logical," or most color-contrast-in-context cases still need a human, ideally with a real screen reader (NVDA, JAWS, Windows Narrator, VoiceOver). Treat a clean `jest-axe` run as "no *automatically detectable* violations," not as "WCAG compliant."

@@ -126,6 +126,13 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
 
   const { job, notFound } = state;
 
+  // Phase F-2.2: every page needs its own <title> — screen readers announce
+  // it on navigation, and every document workspace previously shared the
+  // app's generic title, making tabs/history indistinguishable by name.
+  useEffect(() => {
+    if (job) document.title = `${job.filename} — RAWRS`;
+  }, [job]);
+
   if (notFound) {
     return (
       <div className="space-y-4">
@@ -276,6 +283,13 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
 
   return (
     <div className="space-y-4">
+      {/* Phase F-2.2: this workspace had zero heading elements of any level
+          (confirmed via live accessibility-tree inspection) — screen
+          reader "jump to next heading" navigation had nothing to land on.
+          Visually hidden since the filename is already shown in
+          WorkspaceShell's own toolbar; this exists purely so the page has
+          the one H1 every page needs, same as app/page.tsx already has. */}
+      <h1 className="sr-only">{job.filename}</h1>
       {/* Error banner */}
       {job.status === "failed" && (
         <div role="alert" className="rounded-lg border border-danger/30 bg-danger/10 p-4">

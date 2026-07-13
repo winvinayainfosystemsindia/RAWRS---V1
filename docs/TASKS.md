@@ -202,10 +202,20 @@ Reliability-only follow-up: closes the timeout gap flagged at the end of Phase M
 * [x] `next.config.ts` gained `transpilePackages: ["react-resizable-panels"]` — required for `next/jest` to transform this ESM-only dependency at all (there is no direct `transformIgnorePatterns` override under `next/jest`).
 * [x] 6 accessibility tests, one per Phase F-2.1's minimum scope (Landing/Upload, Document Workspace, Reviewer Workspace, Image Workspace, Validation Center, Corrections Center) — `frontend/__tests__/a11y/*.a11y.test.tsx`. **6/6 passing, 0 violations** (empty-state baseline).
 * [x] Verification: `npx jest` (6/6), `npx tsc --noEmit` (clean), `npx next build` (clean).
-* [ ] Manual keyboard-only + screen-reader pass on Reviewer Workspace / Document Workspace — not performed this session (deferred, documented as the explicit next step, not silently skipped).
+* [x] Manual keyboard-only + accessibility-tree validation on Landing/Upload and Document Workspace, performed live against both dev servers (see Phase F-2.2 below) — the item above is superseded, not still open.
 * [x] `docs/ACCESSIBILITY_TESTING.md` (new) — how to run, scope limits, how to add a new test, config gotchas.
 
 **Phase F-2.1 complete.** Not proceeding to keyboard parity, search unification, responsive layout, or workspace redesign per the ticket — stopped for approval.
+
+## Phase F-2.2 — Manual Accessibility Validation (see PHASE_STATUS.md, docs/ACCESSIBILITY_TESTING.md)
+
+* [x] Live keyboard-only + accessibility-tree validation (Chrome DevTools Protocol, not a real screen reader — disclosed explicitly) against both dev servers with real processed documents.
+* [x] Confirmed working: skip link, landing-page heading/landmark structure, real keyboard-focus visibility, logical initial tab order, `OutputWorkspace`'s already-correct ARIA tabs pattern.
+* [x] Found + fixed: zero heading elements on the Document Workspace — added a visually-hidden `<h1>`. Found + fixed: static/generic `document.title` on every document page — added a per-document `useEffect`.
+* [ ] Backlog (not fixed, larger than this milestone's scope): `WorkspaceShell`/`SemanticNavTree` view-switcher buttons lack ARIA tabs semantics; internal panel headings still aren't real heading elements; Reviewer Workspace keyboard shortcuts and Validation/Corrections/Image populated-data states not re-verified live this session.
+* [x] Verification: `npx jest` (6/6), `npx tsc --noEmit` (clean), `npx next build` (clean) — re-run after the two fixes.
+
+**Phase F-2.2 complete.** Not proceeding to search unification, responsive design, or UI redesign per the ticket — stopped for approval.
 
 ---
 
