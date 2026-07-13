@@ -142,6 +142,39 @@ This F-011..F-020 skeleton (below) was never continued past the two files marked
 * [x] Reading Order numbered overlay on PdfViewer (badges only, always-visible on the main PDF pane — see PHASE_STATUS.md for why a PDF+ReadingOrderPanel split view was out of scope) (2026-07-10)
 * [x] Persistent Validation Issue backend (issue_id/status/timestamps + PATCH /validation-issues/{id}, ignore/defer/reopen) (2026-07-10)
 
+## Phase M-3 — Cross-Source Intelligence Engine extension (see PHASE_STATUS.md)
+
+Extends the existing Phase M-2 verification engine (`src/verification/`) to asset types it doesn't cover yet — no new architecture, per the plan at the top of this milestone's PHASE_STATUS.md entry.
+
+* [x] M-3.1 — FootnoteVerifier, the 5th registered asset type. Resolves `src/mathpix/ingestor.py::_p2footnote_to_footnote()`'s `anchor_page_number=1` placeholder via PDF-side cross-check against `src/footnotes/footnote_detector.py`. `FOOTNOTE_VERIFY_001-003`. 1500 passed / 0 failed full suite (2026-07-10).
+* [x] M-3.2 — TableVerifier, the 6th registered asset type. Cross-checks Mathpix tables against `src/tables/table_extractor.py::extract_tables()`. `TABLE_VERIFY_001-007`. 1514 passed / 0 failed full suite; table-detection benchmark unchanged from baseline (2026-07-11).
+* [x] M-3.3 — Benchmark & Quality Metrics extension: Accessibility Score, Manual Corrections Remaining, Repair Rate, Object Counts, Confidence Distribution (`src/verification/benchmark_report.py`), DOCX Fidelity (`src/verification/docx_fidelity.py`, new). Human Minutes Saved deliberately deferred — no telemetry to ground it. 15 new tests; 1518 passed / 1 pre-existing unrelated OCR failure (2026-07-11).
+
+**Phase M-3 complete** (M-3.1, M-3.2, M-3.3 all done). Phase review pending before M-4.
+
+## Phase M-4 — Reviewer Workspace & Queue Navigation (see PHASE_STATUS.md)
+
+* [x] M-4.1 — ReviewerWorkspace shell: status tabs, filters, search, sort over `document.corrections`; fills the "Review Queue" slot `OutputWorkspace.tsx` reserved under `SOON_TABS`. `frontend/components/ReviewerWorkspace.tsx` (new), `frontend/lib/correctionFilters.ts` (new, extracted from `CorrectionsPanel.tsx`).
+* [x] M-4.2 — Reviewer Queue Navigation: `CorrectionOut` gained derived `rule_id`/`severity`/`page_number`; selecting a queue item syncs `SelectionContext`/`PdfViewportContext`. 2 infinite-render-loop bugs fixed (caught via live browser verification, not unit tests).
+* [x] M-4.3 — Proposal Review Experience: keyboard-first review (`n`/`p`/`a`/`r`/`i`/`u`/`e`/`j`/`/`), same Corrections API the mouse buttons already call.
+* [x] M-4.4 — Minimal correction telemetry: `CorrectionTelemetryEvent` appended to `CorrectionRecord.telemetry_events` on every reviewer action; collection only, not yet exposed via the API.
+
+**Phase M-4 complete** (M-4.1, M-4.2, M-4.3, M-4.4 all done).
+
+## Phase M-5 — Targeted OCR Evidence Integration (see PHASE_STATUS.md)
+
+Wires the previously-unused `src/ocr/targeted.py::ocr_region()` (FEATURE_019) into `HeadingVerifier` as an evidence-of-last-resort `EvidenceSignal`.
+
+* [x] M-5.1 — Targeted OCR as one more `EvidenceSignal` in `HeadingVerifier`, gated to only run when the fused bundle is already ambiguous (`_OCR_AMBIGUOUS_CONFIDENCE_THRESHOLD = 0.5`).
+* [x] M-5.2 — Real-corpus validation benchmark (`docs/m52_ocr_evidence_benchmark.json`) across all 10 benchmark PDFs; surfaced 2 real bugs (text-resolution misses, a Surya `full_page` API mismatch) fixed by M-5.3/M-5.4.
+* [x] M-5.3 — `TextResolver` (`src/verification/text_resolution.py`, new): generic tiered text-to-key resolution (exact/normalized/containment/fuzzy), wired into `headings.py`'s typography/whitespace/OCR signals.
+* [x] M-5.4 — Targeted OCR compatibility fix: `ocr_region()`'s `full_page=False` → `True` (the old comment had the Surya 0.20.0 semantics backwards).
+* [x] Found + fixed while closing out this phase: `build_recognition_predictor()` (`src/ocr/surya_config.py`) had no caching, so `ocr_region()` rebuilt the entire Surya model once per ambiguous heading (measured 26,160s/5 calls for one document, post-M-5.4). Fixed with `@lru_cache(maxsize=1)` on the shared factory function — process-wide, no call-site changes needed. Confirmed via an uncontended re-run: the same call dropped from ~87min to ~64s.
+* [x] Found + fixed: `tests/test_targeted_ocr.py` still asserted the pre-M-5.4 `full_page=False` call shape; updated to `full_page=True`. Full suite: **1558 passed, 7 skipped, 0 failed**.
+* [ ] Known follow-up, not blocking: `ocr_region()` has no timeout around the Surya `predictor(...)` call. The 10-document corpus re-run hit a hang on this environment (1h23m elapsed, ~116s CPU — blocked, not computing) and had to be killed; every *other* OCR failure mode already degrades gracefully (see `_targeted_ocr_signal()`), a hang does not. Needs a bounded timeout wrapper around the call.
+
+**Phase M-5 complete** (M-5.1, M-5.2, M-5.3, M-5.4, plus the predictor-caching fix and stale-test fix, all done). The timeout gap above is tracked as a follow-up.
+
 ---
 
 Not yet started (see `KNOWN_LIMITATIONS.md`): equation remediation, multi-column reconstruction, cross-page paragraph stitching, span-level text model (`feature_005_span_level_text_model` — design review complete, no code written).

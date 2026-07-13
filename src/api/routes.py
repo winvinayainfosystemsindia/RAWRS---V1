@@ -14,7 +14,7 @@ import json
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, UploadFile, File
 from fastapi.responses import FileResponse
@@ -79,7 +79,12 @@ from src.api.schemas import (
     ValidationResponse,
 )
 from src.models.contracts import Document, HeadingLevel, HeadingReviewStatus, FootnoteReviewStatus, Severity
-from src.models.correction import CorrectionRecord, CorrectionStatus
+from src.models.correction import (
+    CorrectionRecord,
+    CorrectionStatus,
+    CorrectionTelemetryAction,
+    CorrectionTelemetryEvent,
+)
 from src.models.validation_issue import ValidationIssue, ValidationIssueStatus
 from src.models.figure import AltTextStatus
 from src.validation.readiness import compute_readiness
@@ -1346,7 +1351,52 @@ def get_readiness(job_id: str) -> ReadinessReportOut:
 # --- Generic Corrections (Document Merge Layer reviewer surface) -----------
 
 
-def _correction_out(correction: CorrectionRecord) -> CorrectionOut:
+# Non-generic id attribute per asset type — Table/Footnote predate the
+# SemanticObject migration and have no generic `.id` (see M-3.3's
+# closeout note in docs/PHASE_STATUS.md); every other registered asset
+# type does. Same lookup problem benchmark_report.py's object-population
+# tallying already solves per-type; kept local here rather than importing
+# that module's private helper across a package boundary.
+# M-4.4 — CorrectionAction (the reviewer-facing request vocabulary) to
+# CorrectionTelemetryAction (the narrower, past-tense telemetry
+# vocabulary): NEEDS_REVIEW deliberately has no entry — it's an
+# escalation, not one of the 5 decisions this milestone measures.
+_DECISION_TELEMETRY_ACTION = {
+    CorrectionAction.ACCEPT: CorrectionTelemetryAction.ACCEPTED,
+    CorrectionAction.REJECT: CorrectionTelemetryAction.REJECTED,
+    CorrectionAction.EDIT: CorrectionTelemetryAction.EDITED,
+    CorrectionAction.IGNORE: CorrectionTelemetryAction.IGNORED,
+    CorrectionAction.UNDO: CorrectionTelemetryAction.UNDONE,
+}
+
+_OBJECT_ID_ATTR = {"table": "table_id", "footnote": "footnote_id", "image": "image_id"}
+_OBJECT_COLLECTION = {
+    "heading": lambda d: d.headings,
+    "list": lambda d: d.lists,
+    "callout": lambda d: d.callouts,
+    "table": lambda d: d.tables,
+    "image": lambda d: d.images,
+    "footnote": lambda d: d.footnotes,
+}
+
+
+def _correction_page_number(document: Any, object_type: str, object_id: Optional[str]) -> Optional[int]:
+    if object_id is None:
+        return None
+    get_collection = _OBJECT_COLLECTION.get(object_type)
+    if get_collection is None:
+        return None
+    id_attr = _OBJECT_ID_ATTR.get(object_type, "id")
+    for obj in get_collection(document):
+        if getattr(obj, id_attr, None) == object_id:
+            return getattr(obj, "page_number", None)
+    return None
+
+
+def _correction_out(document: Any, correction: CorrectionRecord) -> CorrectionOut:
+    verifier = engine._verifiers.get(correction.object_type)
+    spec = verifier.rule_table().get(correction.field) if verifier else None
+
     return CorrectionOut(
         correction_id=correction.correction_id,
         object_type=correction.object_type,
@@ -1364,6 +1414,9 @@ def _correction_out(correction: CorrectionRecord) -> CorrectionOut:
         status=correction.status.value,
         created_at=correction.created_at,
         reviewer_notes=correction.reviewer_notes,
+        rule_id=spec.rule_id if spec else None,
+        severity=spec.severity if spec else None,
+        page_number=_correction_page_number(document, correction.object_type, correction.object_id),
     )
 
 
@@ -1381,7 +1434,7 @@ def get_corrections(
     if status is not None:
         corrections = [c for c in corrections if c.status.value == status]
 
-    return CorrectionsResponse(corrections=[_correction_out(c) for c in corrections])
+    return CorrectionsResponse(corrections=[_correction_out(document, c) for c in corrections])
 
 
 @router.patch("/documents/{job_id}/corrections/{correction_id}", response_model=CorrectionOut)
@@ -1405,6 +1458,12 @@ def review_correction(job_id: str, correction_id: str, body: CorrectionActionReq
     correction = next((c for c in document.corrections if c.correction_id == correction_id), None)
     if correction is None:
         raise HTTPException(status_code=404, detail=f"No correction '{correction_id}' on this document.")
+
+    # M-4.4 (minimal telemetry): captured once per request, reused for
+    # both the "displayed" event (backdated to creation) and the decision
+    # event's latency — no second clock read, no extra request.
+    now = datetime.now(timezone.utc)
+    previous_status = correction.status.value
 
     with _lock:
         try:
@@ -1431,9 +1490,31 @@ def review_correction(job_id: str, correction_id: str, body: CorrectionActionReq
 
         if body.reviewer_notes is not None:
             correction.reviewer_notes = body.reviewer_notes
-        correction.reviewed_at = datetime.now(timezone.utc)
+        correction.reviewed_at = now
 
-    return _correction_out(correction)
+        if not correction.telemetry_events:
+            correction.telemetry_events.append(
+                CorrectionTelemetryEvent(
+                    correction_id=correction.correction_id,
+                    timestamp=correction.created_at,
+                    action=CorrectionTelemetryAction.DISPLAYED,
+                )
+            )
+
+        telemetry_action = _DECISION_TELEMETRY_ACTION.get(body.action)
+        if telemetry_action is not None:
+            correction.telemetry_events.append(
+                CorrectionTelemetryEvent(
+                    correction_id=correction.correction_id,
+                    timestamp=now,
+                    action=telemetry_action,
+                    previous_status=previous_status,
+                    new_status=correction.status.value,
+                    latency_seconds=(now - correction.created_at).total_seconds(),
+                )
+            )
+
+    return _correction_out(document, correction)
 
 
 # --- Downloads ---------------------------------------------------------------

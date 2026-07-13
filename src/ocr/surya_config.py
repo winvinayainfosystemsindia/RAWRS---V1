@@ -11,6 +11,7 @@ never needs to touch more than this one file.
 """
 
 import os
+from functools import lru_cache
 
 # Same Windows symlink privilege issue documented in docling_config.py
 # applies to any Hugging Face Hub model download, not just Docling's -
@@ -31,13 +32,22 @@ from surya.recognition import RecognitionPredictor  # noqa: E402
 _RASTER_DPI = 150
 
 
+@lru_cache(maxsize=1)
 def build_recognition_predictor() -> RecognitionPredictor:
     """Build a RecognitionPredictor for full-page Surya OCR.
 
-    Construct one of these per document/run and reuse it across pages -
-    like Docling's DocumentConverter, it lazily loads its models on
+    Cached process-wide: model construction lazily loads weights on
     first use, and that cost should only be paid once per process, not
-    once per page.
+    once per call. src/ocr/surya_engine.py already builds one and
+    reuses it across every page in a document; src/ocr/targeted.py
+    calls this function once per targeted region with no caching of its
+    own (see FEATURE_019/M-5.1) - without this cache, a document with
+    several ambiguous headings rebuilds the whole model once per
+    heading (measured: ~87 min/call, see docs/m52_ocr_evidence_benchmark.json).
+    Tests monkeypatch this name at the call-site module (e.g.
+    `src.ocr.targeted.build_recognition_predictor`), replacing the
+    reference entirely, so the cache on the real function never affects
+    them.
     """
     return RecognitionPredictor(SuryaInferenceManager())
 

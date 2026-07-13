@@ -73,9 +73,16 @@ def extract_tables(document: Document, pdf_path: Path) -> List[Table]:
         List of Table objects in (page_number, detection_order) order.
         Empty list if no tables detected or PDF cannot be opened.
     """
-    direct_text_pages = [
-        p for p in document.pages if p.extraction_method == ExtractionMethod.DIRECT_TEXT_EXTRACTION
-    ]
+    # MATHPIX_IMPORT pages are included alongside DIRECT_TEXT_EXTRACTION:
+    # this function never reads Page.cleaned_text (it re-opens pdf_path via
+    # fitz directly, same "independent PDF re-read" pattern
+    # heading_detector.py/footnote_detector.py use for cross-source
+    # verification), so a page's extraction_method tag doesn't change what
+    # geometry is available here — it only gates out true OCR-only pages
+    # (DOCLING/SURYA/OCR_PENDING), which lack reliable vector-line/span
+    # position data for table detection either way.
+    scannable_methods = {ExtractionMethod.DIRECT_TEXT_EXTRACTION, ExtractionMethod.MATHPIX_IMPORT}
+    direct_text_pages = [p for p in document.pages if p.extraction_method in scannable_methods]
     if not direct_text_pages:
         logger.info(
             "Table extraction: no DIRECT_TEXT_EXTRACTION pages in '{}'; skipping",

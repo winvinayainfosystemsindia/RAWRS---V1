@@ -12,6 +12,24 @@ whole-document summary: objects preserved (VERIFIED), repaired
 Wired into src/pipeline/phase1_pipeline.py's existing JSON validation
 report (_write_validation_report()) rather than a new report or endpoint
 — see FEATURE_019's plan.
+
+M-3.3 extends this with remediation-oriented metrics — repair_rate,
+manual_corrections_remaining, confidence_distribution, object_count, and
+(from document.validation_issues, already populated by Stage 8 before
+this runs — see src/pipeline/phase1_pipeline.py) accessibility_score.
+All additive: every M-3.1/M-3.2-era key keeps its existing meaning.
+
+"Human Minutes Saved" (requested but NOT implemented — do not fabricate
+it): would need a real per-correction-type time estimate, which RAWRS has
+no data source for today. To build it for real: (1) telemetry of actual
+reviewer wall-clock time per correction (timestamp Accept/Reject/Edit
+against when the correction was first shown), aggregated per rule_id
+over enough real review sessions to be a distribution, not a guess; (2)
+a documented per-rule_id minutes-saved constant derived FROM that
+telemetry, not invented; (3) then minutes_saved = sum(count[rule_id] *
+minutes[rule_id]) over accepted+auto_applied corrections. None of that
+data exists yet, so the metric stays absent rather than seeded with a
+made-up constant.
 """
 
 from __future__ import annotations
@@ -19,6 +37,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
+from src.models.validation_issue import Severity, ValidationIssue, ValidationIssueStatus
 from src.models.verification import VerificationStatus
 
 # Finding.kind values every current verifier uses for a RECOVER proposal
@@ -26,7 +45,48 @@ from src.models.verification import VerificationStatus
 # canonical object doesn't exist — and so carries no verification_status
 # to tally — until a reviewer accepts it, so recovery rate can only be
 # computed from document.corrections, not the object populations below.
-_RECOVER_FIELDS = {"missing_from_package", "recovered_from_pdf"}
+# "missing_from_mathpix" is TableVerifier's own name for the same concept
+# (src/verification/tables.py) — kept as its own literal rather than
+# renamed for consistency, since renaming it means touching TableVerifier,
+# out of scope here (see M-3.2's closeout: don't revisit it without cause).
+_RECOVER_FIELDS = {"missing_from_package", "recovered_from_pdf", "missing_from_mathpix"}
+
+# Points deducted per open validation issue, by severity — reused, not
+# reinvented, from the Severity vocabulary validation issues already
+# carry. Deliberately simple linear deduction (Lighthouse-style), clamped
+# to [0, 100]: no per-rule weighting, since no evidence yet justifies one
+# rule being worse than another of the same severity.
+_ACCESSIBILITY_SEVERITY_WEIGHT = {Severity.ERROR: 10, Severity.WARNING: 3, Severity.INFO: 1}
+
+# Confidence histogram buckets for document.corrections' confidence field.
+_CONFIDENCE_BUCKETS = [
+    ("0.0-0.5", 0.0, 0.5),
+    ("0.5-0.7", 0.5, 0.7),
+    ("0.7-0.85", 0.7, 0.85),
+    ("0.85-1.0", 0.85, 1.0001),  # upper bound inclusive of 1.0
+]
+
+
+def compute_accessibility_score(issues: List[ValidationIssue]) -> float:
+    """100 minus a severity-weighted deduction per open validation issue,
+    floored at 0. Ignores IGNORED/DEFERRED issues — a reviewer already
+    triaged those as not worth counting against the document."""
+    deduction = sum(
+        _ACCESSIBILITY_SEVERITY_WEIGHT.get(issue.severity, 1)
+        for issue in issues
+        if issue.status == ValidationIssueStatus.OPEN
+    )
+    return float(max(0, 100 - deduction))
+
+
+def _confidence_distribution(confidences: List[float]) -> Dict[str, int]:
+    buckets = {label: 0 for label, _, _ in _CONFIDENCE_BUCKETS}
+    for c in confidences:
+        for label, lo, hi in _CONFIDENCE_BUCKETS:
+            if lo <= c < hi:
+                buckets[label] += 1
+                break
+    return buckets
 
 _STATUS_FIELD = {
     VerificationStatus.VERIFIED: "verified",
@@ -66,6 +126,22 @@ class AssetTypeBenchmark:
     corrections_reverted: int = 0
     recovered_proposed: int = 0
     recovered_accepted: int = 0
+    repair_proposed: int = 0
+    repair_accepted: int = 0
+    object_count: int = 0
+
+    @property
+    def remaining(self) -> int:
+        """Manual Corrections Remaining: proposals still awaiting a
+        reviewer decision (not yet actioned either way)."""
+        return self.corrections_proposed + self.corrections_pending_review
+
+    @property
+    def repair_rate(self) -> Optional[float]:
+        """Fraction of proposed REPAIR corrections (mismatch found, fix
+        proposed — excludes RECOVER and informational-only findings) a
+        reviewer accepted. None when none were ever proposed."""
+        return self.repair_accepted / self.repair_proposed if self.repair_proposed else None
 
     @property
     def checked_total(self) -> int:
@@ -114,6 +190,11 @@ class AssetTypeBenchmark:
             "recovered_proposed": self.recovered_proposed,
             "recovered_accepted": self.recovered_accepted,
             "recovery_rate": self.recovery_rate,
+            "repair_proposed": self.repair_proposed,
+            "repair_accepted": self.repair_accepted,
+            "repair_rate": self.repair_rate,
+            "manual_corrections_remaining": self.remaining,
+            "object_count": self.object_count,
         }
 
 
@@ -128,6 +209,7 @@ def _canonical_populations(document: Any) -> Dict[str, List[Any]]:
         "callout": list(document.callouts),
         "table": list(document.tables),
         "image": list(document.images),
+        "footnote": list(document.footnotes),
     }
 
 
@@ -138,6 +220,8 @@ def aggregate(document: Any) -> Dict[str, Any]:
     src/pipeline/phase1_pipeline.py::_write_validation_report()'s
     existing JSON report directly, not a new endpoint or schema.
     """
+    from src.verification.engine import engine  # local import: avoids a cycle at module load
+
     populations = _canonical_populations(document)
     by_type: Dict[str, AssetTypeBenchmark] = {
         asset_type: AssetTypeBenchmark(asset_type=asset_type) for asset_type in populations
@@ -145,6 +229,7 @@ def aggregate(document: Any) -> Dict[str, Any]:
 
     for asset_type, objects in populations.items():
         bench = by_type[asset_type]
+        bench.object_count = len(objects)
         for obj in objects:
             status = getattr(obj, "verification_status", VerificationStatus.UNVERIFIED)
             field_name = _STATUS_FIELD.get(status, "unverified")
@@ -162,9 +247,22 @@ def aggregate(document: Any) -> Dict[str, Any]:
             bench.recovered_proposed += 1
             if correction.status.value in ("accepted", "edited"):
                 bench.recovered_accepted += 1
+            continue
+
+        # REPAIR vs. informational-only: every verifier already declares
+        # this distinction via its own rule_table() severity ("info" =
+        # no document mutation proposed, e.g. low_confidence/orphan/
+        # unconfirmed) — reused here rather than re-curated per field name.
+        verifier = engine._verifiers.get(correction.object_type)
+        spec = verifier.rule_table().get(correction.field) if verifier else None
+        if spec is not None and spec.severity != "info":
+            bench.repair_proposed += 1
+            if correction.status.value in ("accepted", "edited"):
+                bench.repair_accepted += 1
 
     total_verified = sum(b.verified for b in by_type.values())
     total_checked = sum(b.checked_total for b in by_type.values())
+    confidences = [c.confidence for c in document.corrections if c.confidence is not None]
 
     return {
         "per_asset_type": {
@@ -172,4 +270,7 @@ def aggregate(document: Any) -> Dict[str, Any]:
         },
         "overall_mathpix_accuracy": (total_verified / total_checked) if total_checked else None,
         "total_corrections_proposed": len(document.corrections),
+        "manual_corrections_remaining": sum(b.remaining for b in by_type.values()),
+        "confidence_distribution": _confidence_distribution(confidences),
+        "accessibility_score": compute_accessibility_score(document.validation_issues),
     }

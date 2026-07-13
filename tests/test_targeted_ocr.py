@@ -66,7 +66,10 @@ class TestOcrRegion:
         result = ocr_region(pdf_path, 1, BoundingBox(x0=60, y0=60, x1=120, y1=90))
 
         assert result == "147"
-        assert fake_predictor.calls == [{"n_images": 1, "full_page": False}]
+        # M-5.4: full_page=True is the correct call shape for a pre-cropped
+        # region (see src/ocr/targeted.py::ocr_region's own comment) — this
+        # assertion previously encoded the pre-M-5.4 (incorrect) behavior.
+        assert fake_predictor.calls == [{"n_images": 1, "full_page": True}]
 
     def test_empty_region_returns_empty_string_not_raise(self, tmp_path: Path, monkeypatch):
         pdf_path = _build_pdf(tmp_path)

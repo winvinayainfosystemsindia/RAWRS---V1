@@ -4,22 +4,23 @@ import { useState } from "react";
 import { api, type JobSummary } from "@/lib/api";
 import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { DocxPreview } from "@/components/DocxPreview";
+import { ReviewerWorkspace } from "@/components/ReviewerWorkspace";
 
 // ─── Tab definitions ──────────────────────────────────────────────────────────
 
-type TabId = "markdown" | "docx" | "raw";
-type SoonId = "diff" | "review" | "ai";
+type TabId = "review" | "markdown" | "docx" | "raw";
+type SoonId = "diff" | "ai";
 
 const ACTIVE_TABS: { id: TabId; label: string }[] = [
+  { id: "review",   label: "Review Queue" },
   { id: "markdown", label: "Accessible Markdown" },
   { id: "docx",     label: "Accessible DOCX Preview" },
   { id: "raw",      label: "Raw Mathpix Markdown" },
 ];
 
 const SOON_TABS: { id: SoonId; label: string }[] = [
-  { id: "diff",   label: "Accessibility Diff" },
-  { id: "review", label: "Review Queue" },
-  { id: "ai",     label: "AI Suggestions" },
+  { id: "diff", label: "Accessibility Diff" },
+  { id: "ai",   label: "AI Suggestions" },
 ];
 
 // ─── Tab bar ──────────────────────────────────────────────────────────────────
@@ -233,7 +234,7 @@ interface OutputWorkspaceProps {
 }
 
 export function OutputWorkspace({ job, generatedMarkdown }: OutputWorkspaceProps) {
-  const [activeTab, setActiveTab] = useState<TabId>("markdown");
+  const [activeTab, setActiveTab] = useState<TabId>("review");
 
   return (
     <section aria-labelledby="workspace-heading" className="rounded-xl border border-border bg-surface-panel overflow-hidden">
@@ -261,6 +262,15 @@ export function OutputWorkspace({ job, generatedMarkdown }: OutputWorkspaceProps
 
       {/* Tab panels */}
       <div className="p-5">
+        <div
+          role="tabpanel"
+          id="ws-panel-review"
+          aria-labelledby="ws-tab-review"
+          hidden={activeTab !== "review"}
+        >
+          {activeTab === "review" && <ReviewerWorkspace jobId={job.job_id} />}
+        </div>
+
         <div
           role="tabpanel"
           id="ws-panel-markdown"

@@ -1,0 +1,258 @@
+[
+  {
+    "name": "1. Nature of Enquiry.pdf",
+    "canonical_count": 30,
+    "pdf_candidate_count": 35,
+    "before": {
+      "finding_count": 9,
+      "kinds": {
+        "missing_from_package": 5,
+        "text_correction": 4
+      },
+      "avg_confidence": 0.9454,
+      "min_confidence": 0.7038,
+      "elapsed_s": 1.0
+    },
+    "after": {
+      "finding_count": 9,
+      "kinds": {
+        "missing_from_package": 5,
+        "text_correction": 4
+      },
+      "avg_confidence": 0.9454,
+      "min_confidence": 0.7038,
+      "elapsed_s": 0.985,
+      "ocr_calls": 0
+    }
+  },
+  {
+    "name": "1.Aims of Education and the teacher_Dhankar_PhilPers (1).pdf",
+    "canonical_count": 1,
+    "pdf_candidate_count": 2,
+    "before": {
+      "finding_count": 3,
+      "kinds": {
+        "level_mismatch": 1,
+        "missing_from_package": 1,
+        "text_correction": 1
+      },
+      "avg_confidence": 0.7,
+      "min_confidence": 0.7,
+      "elapsed_s": 0.047
+    },
+    "after": {
+      "finding_count": 3,
+      "kinds": {
+        "level_mismatch": 1,
+        "missing_from_package": 1,
+        "text_correction": 1
+      },
+      "avg_confidence": 0.7,
+      "min_confidence": 0.7,
+      "elapsed_s": 0.047,
+      "ocr_calls": 0
+    }
+  },
+  {
+    "name": "2. Social research strategies Bryman.pdf",
+    "canonical_count": 53,
+    "pdf_candidate_count": 0,
+    "before": {
+      "finding_count": 53,
+      "kinds": {
+        "unconfirmed": 53
+      },
+      "avg_confidence": 0.9811,
+      "min_confidence": 0.75,
+      "elapsed_s": 4.047
+    },
+    "after": {
+      "finding_count": 53,
+      "kinds": {
+        "unconfirmed": 53
+      },
+      "avg_confidence": 0.9811,
+      "min_confidence": 0.75,
+      "elapsed_s": 4.078,
+      "ocr_calls": 0
+    }
+  },
+  {
+    "name": "2.FolkPedagogy_Bruner_PsychDimensions_New.pdf",
+    "canonical_count": 32,
+    "pdf_candidate_count": 3,
+    "before": {
+      "finding_count": 31,
+      "kinds": {
+        "likely_running_header": 16,
+        "unconfirmed": 15
+      },
+      "avg_confidence": 0.5054,
+      "min_confidence": 0.0,
+      "elapsed_s": 7.234
+    },
+    "after": {
+      "finding_count": 31,
+      "kinds": {
+        "likely_running_header": 16,
+        "unconfirmed": 15
+      },
+      "avg_confidence": 0.4947,
+      "min_confidence": 0.0,
+      "elapsed_s": 26160.64,
+      "ocr_calls": 5
+    }
+  },
+  {
+    "name": "3. sockett_profession.pdf",
+    "canonical_count": 14,
+    "pdf_candidate_count": 15,
+    "before": {
+      "finding_count": 4,
+      "kinds": {
+        "missing_from_package": 1,
+        "text_correction": 3
+      },
+      "avg_confidence": 0.6936,
+      "min_confidence": 0.43,
+      "elapsed_s": 0.343
+    },
+    "after": {
+      "finding_count": 4,
+      "kinds": {
+        "missing_from_package": 1,
+        "text_correction": 3
+      },
+      "avg_confidence": 0.6936,
+      "min_confidence": 0.43,
+      "elapsed_s": 0.328,
+      "ocr_calls": 0
+    }
+  },
+  {
+    "name": "4. O Leary_Developing the research questions.pdf",
+    "canonical_count": 34,
+    "pdf_candidate_count": 0,
+    "before": {
+      "finding_count": 34,
+      "kinds": {
+        "unconfirmed": 34
+      },
+      "avg_confidence": 1.0,
+      "min_confidence": 1.0,
+      "elapsed_s": 1.422
+    },
+    "after": {
+      "finding_count": 34,
+      "kinds": {
+        "unconfirmed": 34
+      },
+      "avg_confidence": 1.0,
+      "min_confidence": 1.0,
+      "elapsed_s": 1.375,
+      "ocr_calls": 0
+    }
+  },
+  {
+    "name": "4.Teaching as a professional discipline-Chapter 1.pdf",
+    "canonical_count": 10,
+    "pdf_candidate_count": 10,
+    "before": {
+      "finding_count": 1,
+      "kinds": {
+        "level_mismatch": 1
+      },
+      "avg_confidence": 1.0,
+      "min_confidence": 1.0,
+      "elapsed_s": 0.218
+    },
+    "after": {
+      "finding_count": 1,
+      "kinds": {
+        "level_mismatch": 1
+      },
+      "avg_confidence": 1.0,
+      "min_confidence": 1.0,
+      "elapsed_s": 0.203,
+      "ocr_calls": 0
+    }
+  },
+  {
+    "name": "5.Teachingas a profession_Calderhead.pdf",
+    "canonical_count": 3,
+    "pdf_candidate_count": 2,
+    "before": {
+      "finding_count": 2,
+      "kinds": {
+        "level_mismatch": 1,
+        "unconfirmed": 1
+      },
+      "avg_confidence": 0.9451,
+      "min_confidence": 0.8353,
+      "elapsed_s": 0.031
+    },
+    "after": {
+      "finding_count": 2,
+      "kinds": {
+        "level_mismatch": 1,
+        "unconfirmed": 1
+      },
+      "avg_confidence": 0.9451,
+      "min_confidence": 0.8353,
+      "elapsed_s": 0.047,
+      "ocr_calls": 0
+    }
+  },
+  {
+    "name": "6. Fullan&Hargreaves_teacherasaperson.pdf",
+    "canonical_count": 4,
+    "pdf_candidate_count": 2,
+    "before": {
+      "finding_count": 3,
+      "kinds": {
+        "level_mismatch": 1,
+        "unconfirmed": 2
+      },
+      "avg_confidence": 0.9588,
+      "min_confidence": 0.8353,
+      "elapsed_s": 0.031
+    },
+    "after": {
+      "finding_count": 3,
+      "kinds": {
+        "level_mismatch": 1,
+        "unconfirmed": 2
+      },
+      "avg_confidence": 0.9588,
+      "min_confidence": 0.8353,
+      "elapsed_s": 0.031,
+      "ocr_calls": 0
+    }
+  },
+  {
+    "name": "7.brinkman-learner-centred-education-reform-india-missing-beliefs.pdf",
+    "canonical_count": 18,
+    "pdf_candidate_count": 20,
+    "before": {
+      "finding_count": 4,
+      "kinds": {
+        "missing_from_package": 2,
+        "text_correction": 2
+      },
+      "avg_confidence": 0.9718,
+      "min_confidence": 0.7647,
+      "elapsed_s": 0.594
+    },
+    "after": {
+      "finding_count": 4,
+      "kinds": {
+        "missing_from_package": 2,
+        "text_correction": 2
+      },
+      "avg_confidence": 0.9718,
+      "min_confidence": 0.7647,
+      "elapsed_s": 0.453,
+      "ocr_calls": 0
+    }
+  }
+]

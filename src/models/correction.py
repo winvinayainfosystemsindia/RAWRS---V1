@@ -60,6 +60,40 @@ class CorrectionStatus(str, Enum):
     REVERTED = "reverted"
 
 
+class CorrectionTelemetryAction(str, Enum):
+    """M-4.4 — minimal telemetry vocabulary. Collection only: no
+    dashboards/analytics/reports read this yet; a future benchmark report
+    will. Deliberately narrower than CorrectionStatus/CorrectionAction —
+    "needs_review" is not itself a reviewer decision to measure, so it
+    produces no event here."""
+
+    DISPLAYED = "displayed"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+    EDITED = "edited"
+    IGNORED = "ignored"
+    UNDONE = "undone"
+
+
+class CorrectionTelemetryEvent(BaseModel):
+    """One reviewer-interaction event, appended to the CorrectionRecord it
+    describes — not a parallel telemetry model or table. `displayed`'s
+    timestamp is this correction's own `created_at` (the earliest point it
+    was available to a reviewer) — the deterministic proxy available
+    without new frontend instrumentation or request plumbing; not
+    literally "the moment a human's eyes reached it" (that would need
+    per-render UI wiring, out of scope for this milestone). `latency_seconds`
+    is `timestamp - created_at`, computed the same deterministic way.
+    """
+
+    correction_id: str
+    timestamp: datetime
+    action: CorrectionTelemetryAction
+    previous_status: Optional[str] = None
+    new_status: Optional[str] = None
+    latency_seconds: Optional[float] = None
+
+
 class CorrectionRecord(BaseModel):
     """One proposed or applied correction to an imported document object.
 
@@ -117,3 +151,6 @@ class CorrectionRecord(BaseModel):
     status: CorrectionStatus = CorrectionStatus.PROPOSED
     reviewed_at: Optional[datetime] = None
     reviewer_notes: Optional[str] = None
+    # M-4.4 (minimal telemetry) — appended by engine/routes on every
+    # reviewer action; collection only, see CorrectionTelemetryEvent.
+    telemetry_events: List[CorrectionTelemetryEvent] = Field(default_factory=list)

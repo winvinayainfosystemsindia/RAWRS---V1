@@ -87,6 +87,18 @@ class TestGetCorrections:
         assert data["corrections"][0]["suggested_value"] == "1"
         assert data["corrections"][0]["status"] == "proposed"
 
+    def test_derived_queue_fields_are_populated(self, client, synthetic_job):
+        """M-4.2 (Reviewer Queue Navigation): rule_id/severity looked up
+        from HeadingVerifier's own rule_table() (never duplicated onto
+        CorrectionRecord), page_number looked up from the affected
+        heading (CorrectionRecord itself carries no page)."""
+        job_id, _correction_id, heading = synthetic_job
+        resp = client.get(f"/api/documents/{job_id}/corrections")
+        correction = resp.json()["corrections"][0]
+        assert correction["rule_id"] == "HEADING_VERIFY_003"
+        assert correction["severity"] == "warning"
+        assert correction["page_number"] == heading.page_number
+
     def test_filters_by_object_type(self, client, synthetic_job):
         job_id, _correction_id, _heading = synthetic_job
         resp = client.get(f"/api/documents/{job_id}/corrections?object_type=figure")
@@ -96,6 +108,57 @@ class TestGetCorrections:
     def test_unknown_job_returns_404(self, client):
         resp = client.get("/api/documents/doesnotexist/corrections")
         assert resp.status_code == 404
+
+
+class TestCorrectionTelemetry:
+    """M-4.4 — minimal telemetry: collection only, not exposed via
+    CorrectionOut (no frontend/analytics consumer yet; a future benchmark
+    report reads document.corrections directly, same as benchmark_report.py
+    already does for every other field)."""
+
+    def _document(self, job_id):
+        from src.api.jobs import _jobs
+        return _jobs[job_id].result.document
+
+    def test_first_action_records_displayed_then_decision_event(self, client, synthetic_job):
+        job_id, correction_id, heading = synthetic_job
+        resp = client.patch(f"/api/documents/{job_id}/corrections/{correction_id}", json={"action": "accept"})
+        assert resp.status_code == 200
+
+        correction = next(c for c in self._document(job_id).corrections if c.correction_id == correction_id)
+        events = correction.telemetry_events
+        assert len(events) == 2
+        assert events[0].action.value == "displayed"
+        assert events[0].timestamp == correction.created_at
+        assert events[1].action.value == "accepted"
+        assert events[1].previous_status == "proposed"
+        assert events[1].new_status == "accepted"
+        assert events[1].latency_seconds is not None
+        assert events[1].latency_seconds >= 0
+
+    def test_displayed_event_recorded_only_once_across_multiple_actions(self, client, synthetic_job):
+        job_id, correction_id, _heading = synthetic_job
+        client.patch(f"/api/documents/{job_id}/corrections/{correction_id}", json={"action": "accept"})
+        client.patch(f"/api/documents/{job_id}/corrections/{correction_id}", json={"action": "undo"})
+
+        correction = next(c for c in self._document(job_id).corrections if c.correction_id == correction_id)
+        displayed_events = [e for e in correction.telemetry_events if e.action.value == "displayed"]
+        assert len(displayed_events) == 1
+        actions = [e.action.value for e in correction.telemetry_events]
+        assert actions == ["displayed", "accepted", "undone"]
+
+    def test_needs_review_records_no_decision_event(self, client, synthetic_job):
+        job_id, correction_id, _heading = synthetic_job
+        client.patch(f"/api/documents/{job_id}/corrections/{correction_id}", json={"action": "needs_review"})
+
+        correction = next(c for c in self._document(job_id).corrections if c.correction_id == correction_id)
+        actions = [e.action.value for e in correction.telemetry_events]
+        assert actions == ["displayed"]
+
+    def test_telemetry_not_exposed_via_correction_out(self, client, synthetic_job):
+        job_id, correction_id, _heading = synthetic_job
+        resp = client.patch(f"/api/documents/{job_id}/corrections/{correction_id}", json={"action": "accept"})
+        assert "telemetry_events" not in resp.json()
 
 
 class TestValidationIssuesApi:

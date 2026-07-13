@@ -183,14 +183,46 @@ def detect_footnotes(document: Document) -> Document:
         projected from it. Never raises.
     """
     logger.info("Detecting footnotes/endnotes for '{}'", document.source_pdf_path)
+    document.footnotes = _compute_footnotes(document)
+    _populate_page_reference_lists(document)
 
+    footnote_count = sum(1 for note in document.footnotes if note.note_type == NoteType.FOOTNOTE)
+    endnote_count = sum(1 for note in document.footnotes if note.note_type == NoteType.ENDNOTE)
+    logger.info(
+        "Footnote/endnote detection complete for '{}': {} footnote(s), {} endnote(s)",
+        document.source_pdf_path,
+        footnote_count,
+        endnote_count,
+    )
+    return document
+
+
+def detect_footnote_pdf_candidates(document: Document) -> List[Footnote]:
+    """Pure PDF-side candidate source for cross-source verification
+    (src/verification/footnotes.py::FootnoteVerifier).
+
+    Identical detection logic to detect_footnotes() (this module's only
+    other public entry point) - reuses document.blocks, which
+    detect_structure() always populates regardless of extraction source
+    (Mathpix or RAWRS-native), plus source_pdf_path for page heights.
+    Returned as a plain list instead of being assigned to
+    document.footnotes, so a Mathpix-imported document's own canonical
+    footnotes are never overwritten. Zero duplicated detection logic -
+    see _compute_footnotes().
+    """
+    return _compute_footnotes(document)
+
+
+def _compute_footnotes(document: Document) -> List[Footnote]:
+    """Shared detection body for detect_footnotes() and
+    detect_footnote_pdf_candidates() - see both docstrings above."""
     if not document.blocks:
         logger.info(
             "No structure blocks available for '{}'; skipping footnote detection "
             "(requires Phase H Structure Detection to have run with a native text layer)",
             document.source_pdf_path,
         )
-        return document
+        return []
 
     sorted_blocks = sorted(document.blocks, key=lambda block: (block.page_number, block.order))
     page_heights = _read_page_heights(document.source_pdf_path)
@@ -232,18 +264,7 @@ def detect_footnotes(document: Document) -> Document:
 
     for idx, note in enumerate(footnotes):
         note.footnote_id = f"fn-{idx}"
-    document.footnotes = footnotes
-    _populate_page_reference_lists(document)
-
-    footnote_count = sum(1 for note in footnotes if note.note_type == NoteType.FOOTNOTE)
-    endnote_count = sum(1 for note in footnotes if note.note_type == NoteType.ENDNOTE)
-    logger.info(
-        "Footnote/endnote detection complete for '{}': {} footnote(s), {} endnote(s)",
-        document.source_pdf_path,
-        footnote_count,
-        endnote_count,
-    )
-    return document
+    return footnotes
 
 
 def _link_and_collect(

@@ -67,13 +67,20 @@ def ocr_region(pdf_path: Union[str, Path], page_number: int, bbox: BoundingBox) 
 
     image = _render_region_to_image(pdf_path, page_number, bbox)
     predictor = build_recognition_predictor()
-    # full_page=False: this image is already a known, isolated text
-    # region (e.g. a margin strip or a single heading's own bbox), not a
-    # page Surya still needs to segment into blocks — the opposite of
-    # src/ocr/surya_engine.py's full_page=True whole-page call. The
-    # result shape (PageOCRResult.blocks[].html/.skipped/.reading_order)
-    # is identical either way, so the same parsing helper applies.
-    [result] = predictor([image], full_page=False)
+    # M-5.4: full_page=True, not False. In installed surya-ocr 0.20.0,
+    # full_page is the "treat this image as one region to recognize
+    # directly" mode (a single HIGH_ACCURACY_BBOX_PROMPT request, no
+    # layout_results needed) — exactly this function's case, since the
+    # image is already a known, isolated crop (one heading's own bbox) via
+    # PyMuPDF's own clip at raster time. full_page=False means the
+    # opposite of what the old comment here assumed: "this image contains
+    # MULTIPLE layout blocks that need per-block OCR requests," which
+    # requires a LayoutResult this function never had — the exact cause
+    # of the "layout_results required when full_page=False" error M-5.3's
+    # real-corpus benchmark surfaced. The result shape (PageOCRResult.
+    # blocks[].html/.skipped/.reading_order) is identical either way, so
+    # the same page_result_to_text() parsing helper still applies.
+    [result] = predictor([image], full_page=True)
     text = page_result_to_text(result)
     if not text:
         logger.debug(

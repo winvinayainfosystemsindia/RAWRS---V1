@@ -33,7 +33,20 @@ export function SelectionProvider({ children }: { children: ReactNode }) {
   const value = useMemo<SelectionContextValue>(
     () => ({
       selection,
-      select: (objectType, objectId) => setSelection({ objectType, objectId }),
+      // Bails out (returns the same `prev` reference) when the requested
+      // selection is already current — without this, a caller that
+      // re-selects the same object on every render (e.g. a queue synced
+      // to "whichever item is current") churns `selection`'s identity
+      // forever: new object -> new context `value` -> new `select`
+      // function identity -> any effect depending on `select` re-fires ->
+      // calls `select` again -> infinite render loop ("Maximum update
+      // depth exceeded"), caught via live browser verification of M-4.2.
+      select: (objectType, objectId) =>
+        setSelection((prev) =>
+          prev && prev.objectType === objectType && prev.objectId === objectId
+            ? prev
+            : { objectType, objectId }
+        ),
       clearSelection: () => setSelection(null),
     }),
     [selection]

@@ -1,4 +1,4 @@
-"""Tests for src/verification/benchmark_report.py (FEATURE_019)."""
+"""Tests for src/verification/benchmark_report.py (FEATURE_019, M-3.3)."""
 
 from src.models.contracts import (
     Callout,
@@ -10,7 +10,9 @@ from src.models.contracts import (
     Metadata,
     VerificationStatus,
 )
-from src.verification.benchmark_report import aggregate
+from src.models.validation_issue import Severity, ValidationIssue, ValidationIssueStatus
+from src.verification.benchmark_report import aggregate, compute_accessibility_score
+import src.verification.headings  # noqa: F401 - registers HeadingVerifier (rule_table() lookup)
 
 
 def _doc() -> Document:
@@ -126,3 +128,140 @@ class TestAggregateCorrections:
         ]
         report = aggregate(doc)
         assert report["per_asset_type"]["heading"]["recovery_rate"] is None
+
+
+class TestAggregateRepairAndRemaining:
+    def test_table_recovery_is_tallied_via_missing_from_mathpix(self):
+        """Regression test for the M-3.3 bug fix: TableVerifier's RECOVER
+        kind is 'missing_from_mathpix' (not 'missing_from_package'/
+        'recovered_from_pdf' like every other verifier) — must still
+        count as a recovery, not silently fall through uncounted."""
+        doc = _doc()
+        doc.corrections = [
+            CorrectionRecord(
+                object_type="table", field="missing_from_mathpix", original_value="",
+                proposed_value="x", status=CorrectionStatus.ACCEPTED,
+            ),
+        ]
+        report = aggregate(doc)
+        table = report["per_asset_type"]["table"]
+        assert table["recovered_proposed"] == 1
+        assert table["recovered_accepted"] == 1
+        assert table["recovery_rate"] == 1.0
+
+    def test_repair_kind_correction_counted_separately_from_recover(self):
+        doc = _doc()
+        doc.corrections = [
+            CorrectionRecord(
+                object_type="heading", field="level_mismatch", original_value="2",
+                proposed_value="1", status=CorrectionStatus.ACCEPTED,
+            ),
+        ]
+        report = aggregate(doc)
+        heading = report["per_asset_type"]["heading"]
+        assert heading["repair_proposed"] == 1
+        assert heading["repair_accepted"] == 1
+        assert heading["repair_rate"] == 1.0
+        assert heading["recovered_proposed"] == 0
+
+    def test_info_severity_finding_is_not_counted_as_a_repair(self):
+        """HEADING_VERIFY_001 (missing_from_pdf... actually 'unconfirmed_by_pdf')
+        is severity=info — informational only, not an actionable repair."""
+        doc = _doc()
+        doc.corrections = [
+            CorrectionRecord(
+                object_type="table", field="low_confidence", original_value="",
+                proposed_value="", status=CorrectionStatus.ACCEPTED,
+            ),
+        ]
+        report = aggregate(doc)
+        table = report["per_asset_type"]["table"]
+        assert table["repair_proposed"] == 0
+        assert table["repair_accepted"] == 0
+
+    def test_manual_corrections_remaining_counts_proposed_and_pending(self):
+        doc = _doc()
+        doc.corrections = [
+            CorrectionRecord(
+                object_type="heading", field="level_mismatch", original_value="2",
+                proposed_value="1", status=CorrectionStatus.PROPOSED,
+            ),
+            CorrectionRecord(
+                object_type="heading", field="text_correction", original_value="a",
+                proposed_value="b", status=CorrectionStatus.PENDING_REVIEW,
+            ),
+            CorrectionRecord(
+                object_type="heading", field="level_mismatch", original_value="2",
+                proposed_value="1", status=CorrectionStatus.ACCEPTED,
+            ),
+        ]
+        report = aggregate(doc)
+        assert report["manual_corrections_remaining"] == 2
+        assert report["per_asset_type"]["heading"]["manual_corrections_remaining"] == 2
+
+    def test_confidence_distribution_buckets_correction_confidences(self):
+        doc = _doc()
+        doc.corrections = [
+            CorrectionRecord(
+                object_type="heading", field="level_mismatch", original_value="2",
+                proposed_value="1", status=CorrectionStatus.PROPOSED, confidence=0.92,
+            ),
+            CorrectionRecord(
+                object_type="heading", field="level_mismatch", original_value="2",
+                proposed_value="1", status=CorrectionStatus.PROPOSED, confidence=0.3,
+            ),
+        ]
+        report = aggregate(doc)
+        assert report["confidence_distribution"]["0.85-1.0"] == 1
+        assert report["confidence_distribution"]["0.0-0.5"] == 1
+
+    def test_object_count_reflects_canonical_population_size(self):
+        """object_count is reported alongside checked/corrected stats —
+        per the pre-existing per_asset_type filter (see
+        test_unverified_objects_excluded_from_accuracy above), a type
+        with objects but zero verification activity still reports
+        nothing at all, so this uses a checked heading."""
+        doc = _doc()
+        h1 = Heading(level=HeadingLevel.H2, text="A", page_number=1, document_order=0)
+        h1.verification_status = VerificationStatus.VERIFIED
+        h2 = Heading(level=HeadingLevel.H2, text="B", page_number=2, document_order=1)
+        h2.verification_status = VerificationStatus.VERIFIED
+        doc.headings = [h1, h2]
+        report = aggregate(doc)
+        assert report["per_asset_type"]["heading"]["object_count"] == 2
+
+
+class TestComputeAccessibilityScore:
+    def test_no_issues_scores_100(self):
+        assert compute_accessibility_score([]) == 100.0
+
+    def test_errors_weighted_more_than_warnings_and_info(self):
+        error_score = compute_accessibility_score(
+            [ValidationIssue(severity=Severity.ERROR, rule_id="R1", message="m")]
+        )
+        warning_score = compute_accessibility_score(
+            [ValidationIssue(severity=Severity.WARNING, rule_id="R1", message="m")]
+        )
+        info_score = compute_accessibility_score(
+            [ValidationIssue(severity=Severity.INFO, rule_id="R1", message="m")]
+        )
+        assert error_score < warning_score < info_score < 100.0
+
+    def test_score_never_goes_below_zero(self):
+        issues = [ValidationIssue(severity=Severity.ERROR, rule_id="R1", message="m") for _ in range(50)]
+        assert compute_accessibility_score(issues) == 0.0
+
+    def test_ignored_and_deferred_issues_do_not_count_against_score(self):
+        issues = [
+            ValidationIssue(
+                severity=Severity.ERROR, rule_id="R1", message="m",
+                status=ValidationIssueStatus.IGNORED,
+            ),
+        ]
+        assert compute_accessibility_score(issues) == 100.0
+
+    def test_aggregate_includes_accessibility_score_from_document_validation_issues(self):
+        doc = _doc()
+        doc.validation_issues = [ValidationIssue(severity=Severity.WARNING, rule_id="R1", message="m")]
+        report = aggregate(doc)
+        assert report["accessibility_score"] == 97.0

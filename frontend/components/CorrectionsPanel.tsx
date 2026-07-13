@@ -2,26 +2,8 @@
 
 import { useState } from "react";
 import { type CorrectionItem } from "@/lib/api";
+import { type StatusTab, STATUS_TABS as TABS, statusTabMatches as tabMatches } from "@/lib/correctionFilters";
 import { CorrectionHistoryList } from "./CorrectionHistoryList";
-
-type StatusTab = "pending" | "accepted" | "rejected" | "ignored" | "all";
-
-const TABS: { id: StatusTab; label: string }[] = [
-  { id: "pending", label: "Pending" },
-  { id: "accepted", label: "Accepted" },
-  { id: "rejected", label: "Rejected" },
-  { id: "ignored", label: "Ignored" },
-  { id: "all", label: "All" },
-];
-
-function tabMatches(c: CorrectionItem, tab: StatusTab): boolean {
-  if (tab === "all") return true;
-  if (tab === "pending") return ["proposed", "pending_review"].includes(c.status);
-  if (tab === "accepted") return ["accepted", "auto_applied", "edited"].includes(c.status);
-  if (tab === "rejected") return c.status === "rejected";
-  if (tab === "ignored") return ["ignored", "reverted"].includes(c.status);
-  return false;
-}
 
 interface Props {
   corrections: CorrectionItem[];

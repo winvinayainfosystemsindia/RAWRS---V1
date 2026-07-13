@@ -40,14 +40,19 @@ import json
 from collections import Counter
 from typing import Any, Dict, List, Optional, Tuple
 
+from loguru import logger
+
 from src.headings.heading_detector import HeadingLayoutContext, build_heading_layout_context
+from src.models.contracts import BoundingBox
 from src.models.correction import CorrectionRecord
 from src.models.heading import Heading, HeadingLevel
 from src.models.verification import Finding, RuleSpec, VerificationStatus
+from src.ocr.targeted import TargetedOCRError, ocr_region
 from src.verification.base import SemanticVerifier
 from src.verification.evidence import EvidenceBundle, EvidenceSignal
 from src.verification.matching import MatchResult, MultiSignalMatcher, WeightedSignal
 from src.verification.merge import MergeAction, decide_from_evidence
+from src.verification.text_resolution import TextResolver
 
 # A heading whose exact normalized text recurs on this many or more
 # distinct pages is treated as a likely running header/footer, not a
@@ -75,6 +80,28 @@ _RUNNING_HEADER_REPAIR_THRESHOLD = 0.5
 # the text difference as a text_correction finding rather than treating
 # them as two unrelated headings.
 _TEXT_SIMILARITY_MATCH_MIN = 0.6
+
+# M-5.1 — targeted OCR is evidence of last resort: only called when the
+# bundle's confidence *before* it is added is already at or below this
+# boundary. Same value as _RUNNING_HEADER_REPAIR_THRESHOLD/
+# decide_from_evidence()'s own default confidence boundary — one shared
+# notion of "ambiguous" reused, not a second threshold invented. A
+# weighted-mean bundle where signals genuinely disagree already lands
+# near this boundary on its own, so a single confidence check covers both
+# "low confidence" and "competing evidence disagrees" without a separate
+# disagreement formula.
+_OCR_AMBIGUOUS_CONFIDENCE_THRESHOLD = 0.5
+
+# Horizontal crop padding, in PDF points, wide enough to cover any
+# realistic page width. HeadingLayoutContext.bbox_index only tracks
+# vertical extent (y0/y1) — it was built for the whitespace-gap signal,
+# which never needed x0/x1 — so this crops the full page width at that
+# y-range rather than a tight box. Surya's recognizer isolates one line
+# of text within a wider strip without issue; a tight x-crop would need
+# extending _build_layout_index (src/headings/heading_detector.py), out
+# of scope for a single-verifier evidence addition.
+_OCR_CROP_X1 = 3000.0
+_OCR_CROP_Y_PADDING = 2.0
 
 
 def _normalize(text: str) -> str:
@@ -182,17 +209,21 @@ def _pdf_match_signal(decision_confidence: Optional[float], is_mismatch: bool) -
     )
 
 
-def _typography_signal(heading: Heading, context: HeadingLayoutContext) -> Optional[EvidenceSignal]:
+def _typography_signal(
+    heading: Heading, context: HeadingLayoutContext, layout_resolver: Optional[TextResolver]
+) -> Optional[EvidenceSignal]:
     """Font size vs. the document's own body-text baseline. None when the
     PDF has no native text layer for this line (context.body_profile is
-    None) or this exact line wasn't found (e.g. Mathpix's OCR text
-    differs slightly from the PDF's own extraction)."""
-    if context.body_profile is None:
+    None) or no line on this page resolves to this heading's text via
+    layout_resolver's tiered matching (M-5.3) — Mathpix's text and
+    PyMuPDF's own line extraction rarely agree on the exact string, even
+    when they agree on content."""
+    if context.body_profile is None or layout_resolver is None:
         return None
-    layout = context.layout_index.get(heading.page_number, {}).get(heading.text)
-    if layout is None:
+    resolved = layout_resolver.resolve(heading.text)
+    if resolved is None:
         return None
-    size, is_bold = layout
+    (size, is_bold), _tier = resolved
     body_size, body_is_bold = context.body_profile
     if body_size <= 0:
         return None
@@ -208,17 +239,22 @@ def _typography_signal(heading: Heading, context: HeadingLayoutContext) -> Optio
     )
 
 
-def _whitespace_signal(heading: Heading, context: HeadingLayoutContext) -> Optional[EvidenceSignal]:
+def _whitespace_signal(
+    heading: Heading, context: HeadingLayoutContext, bbox_resolver: Optional[TextResolver]
+) -> Optional[EvidenceSignal]:
     """Vertical isolation: gap above/below this line vs. the page's own
     median line-to-line gap — self-calibrating per page, same pattern
     src/validation/validator.py's reading-order-anomaly check already
     uses, rather than a fixed point value. None when this page has fewer
-    than 3 lines of bbox data (nothing to calibrate against) or this
-    exact line wasn't found."""
+    than 3 lines of bbox data (nothing to calibrate against) or bbox_resolver
+    (M-5.3) can't resolve this heading's text to any line on the page."""
     page_bboxes = context.bbox_index.get(heading.page_number, {})
-    target = page_bboxes.get(heading.text)
-    if target is None or len(page_bboxes) < 3:
+    if bbox_resolver is None or len(page_bboxes) < 3:
         return None
+    resolved = bbox_resolver.resolve(heading.text)
+    if resolved is None:
+        return None
+    target, _tier = resolved
 
     ordered = sorted(page_bboxes.values(), key=lambda b: b[1])  # sort by y0
     gaps = [max(0.0, b[1] - a[2]) for a, b in zip(ordered, ordered[1:])]  # y0(next) - y1(prev)
@@ -265,6 +301,70 @@ def _running_header_signal(heading: Heading, all_canonical: List[Heading]) -> Ev
     )
 
 
+def _targeted_ocr_signal(
+    heading: Heading,
+    context: Optional[HeadingLayoutContext],
+    pdf_path: Any,
+    bbox_resolver: Optional[TextResolver],
+) -> Optional[EvidenceSignal]:
+    """M-5.1 — evidence of last resort: an independent OCR read of this
+    heading's own line, compared against Mathpix's text. Only ever called
+    by classify() when the bundle is already ambiguous (see
+    _OCR_AMBIGUOUS_CONFIDENCE_THRESHOLD) — never for an already-confident
+    candidate. None (no signal, not an error) whenever the inputs needed
+    to crop a region don't exist: no pdf_path, no layout context, or
+    bbox_resolver (M-5.3) can't resolve this heading's text to any line on
+    the page (context.bbox_index is only populated for pages with a
+    native PDF text layer — a pure scanned page has none, the one gap
+    this integration doesn't close, out of scope here).
+    """
+    if not pdf_path or context is None or bbox_resolver is None:
+        return None
+    resolved = bbox_resolver.resolve(heading.text)
+    if resolved is None:
+        return None
+    target, _tier = resolved
+    _, y0, y1 = target
+
+    bbox = BoundingBox(
+        x0=0.0,
+        y0=max(0.0, y0 - _OCR_CROP_Y_PADDING),
+        x1=_OCR_CROP_X1,
+        y1=y1 + _OCR_CROP_Y_PADDING,
+    )
+    try:
+        ocr_text = ocr_region(pdf_path, heading.page_number, bbox)
+    except TargetedOCRError as exc:
+        logger.debug("Targeted OCR unavailable for heading '{}': {}", heading.text, exc)
+        return None
+    except Exception as exc:  # noqa: BLE001 - defensive: evidence of last
+        # resort must never crash verification. ocr_region()'s own
+        # docstring promises "never raises... only for genuinely unusable
+        # input", but M-5.3's real-corpus validation run surfaced a raw
+        # Surya library ValueError escaping uncaught (an underlying
+        # dependency-version API mismatch, "layout_results required when
+        # full_page=False") the first time this code path was ever
+        # actually reached on a real document — this OCR-engine-internal
+        # failure is graceful-degradation territory, same as the
+        # documented TargetedOCRError case, not a fix for the underlying
+        # Surya incompatibility (out of scope here).
+        logger.warning("Targeted OCR failed unexpectedly for heading '{}': {}", heading.text, exc)
+        return None
+
+    if not ocr_text:
+        return EvidenceSignal(
+            name="targeted_ocr_confirmation", score=0.0, weight=1.0,
+            note="targeted OCR recognized no text at this heading's location",
+        )
+    ratio = difflib.SequenceMatcher(None, _normalize(ocr_text), _normalize(heading.text)).ratio()
+    return EvidenceSignal(
+        name="targeted_ocr_confirmation",
+        score=ratio,
+        weight=1.0,
+        note=f"OCR read '{ocr_text}' vs Mathpix '{heading.text}' (similarity {ratio:.2f})",
+    )
+
+
 class HeadingVerifier(SemanticVerifier):
     asset_type = "heading"
 
@@ -306,6 +406,27 @@ class HeadingVerifier(SemanticVerifier):
         if pdf_path:
             layout_context = build_heading_layout_context(pdf_path)
 
+        # M-5.3 — one TextResolver per page, built lazily and reused
+        # across every heading on that page (the "cached normalization"
+        # this milestone's performance requirement asks for) rather than
+        # re-normalizing the same page's lines once per heading.
+        layout_resolvers: Dict[int, TextResolver] = {}
+        bbox_resolvers: Dict[int, TextResolver] = {}
+
+        def _layout_resolver(page_number: int) -> Optional[TextResolver]:
+            if layout_context is None:
+                return None
+            if page_number not in layout_resolvers:
+                layout_resolvers[page_number] = TextResolver(layout_context.layout_index.get(page_number, {}))
+            return layout_resolvers[page_number]
+
+        def _bbox_resolver(page_number: int) -> Optional[TextResolver]:
+            if layout_context is None:
+                return None
+            if page_number not in bbox_resolvers:
+                bbox_resolvers[page_number] = TextResolver(layout_context.bbox_index.get(page_number, {}))
+            return bbox_resolvers[page_number]
+
         for decision in self.merge_decisions(match_result, self._is_mismatch):
             if decision.canonical is None:
                 # RECOVER: a real PDF heading Mathpix flattened to body text.
@@ -339,14 +460,29 @@ class HeadingVerifier(SemanticVerifier):
             if pdf_signal is not None:
                 bundle.add(pdf_signal)
             if layout_context is not None:
-                typography = _typography_signal(canonical, layout_context)
+                typography = _typography_signal(canonical, layout_context, _layout_resolver(canonical.page_number))
                 if typography is not None:
                     bundle.add(typography)
-                whitespace = _whitespace_signal(canonical, layout_context)
+                whitespace = _whitespace_signal(canonical, layout_context, _bbox_resolver(canonical.page_number))
                 if whitespace is not None:
                     bundle.add(whitespace)
             running_header = _running_header_signal(canonical, all_canonical)
             bundle.add(running_header)
+
+            # M-5.1 — targeted OCR as one more EvidenceSignal, evidence of
+            # last resort: only called when the bundle built from every
+            # other signal is still ambiguous. Never runs for an
+            # already-confident candidate, and never changes how
+            # confidence itself is calculated (EvidenceBundle's weighted
+            # mean is unchanged) — it only ever contributes one more
+            # signal into the same existing formula.
+            if bundle.confidence <= _OCR_AMBIGUOUS_CONFIDENCE_THRESHOLD:
+                ocr_signal = _targeted_ocr_signal(
+                    canonical, layout_context, pdf_path, _bbox_resolver(canonical.page_number)
+                )
+                if ocr_signal is not None:
+                    bundle.add(ocr_signal)
+
             canonical.confidence = bundle.confidence
 
             # Running-header recurrence answers a different question ("does

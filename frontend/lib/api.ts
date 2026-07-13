@@ -657,6 +657,9 @@ export interface CorrectionItem {
   status: string;
   created_at: string;
   reviewer_notes: string | null;
+  rule_id: string | null;
+  severity: string | null;
+  page_number: number | null;
 }
 
 export interface CorrectionsResponse {

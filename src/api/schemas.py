@@ -460,6 +460,15 @@ class CorrectionOut(BaseModel):
     status: str
     created_at: datetime
     reviewer_notes: Optional[str] = None
+    # M-4.2 (Reviewer Queue Navigation) — derived, not stored: rule_id/
+    # severity already exist on the owning verifier's own RuleSpec
+    # (looked up by `field` at read time, see routes.py::_correction_out);
+    # page_number is looked up from the affected canonical object, since
+    # CorrectionRecord itself carries no page. None for a RECOVER
+    # correction (object_id is None — no canonical object exists yet).
+    rule_id: Optional[str] = None
+    severity: Optional[str] = None
+    page_number: Optional[int] = None
 
 
 class CorrectionsResponse(BaseModel):

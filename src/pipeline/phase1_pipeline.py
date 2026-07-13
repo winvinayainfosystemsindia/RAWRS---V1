@@ -56,7 +56,7 @@ from loguru import logger
 
 from src.config.page_numbering import PageNumberingPolicy
 from src.docx.docx_generator import generate_docx
-from src.footnotes.footnote_detector import detect_footnotes
+from src.footnotes.footnote_detector import detect_footnote_pdf_candidates, detect_footnotes
 from src.frontmatter.front_matter_extractor import extract_front_matter
 from src.headings.heading_detector import detect_headings, detect_headings_from_pdf
 from src.lists.list_detector import detect_lists_from_pdf
@@ -264,6 +264,45 @@ def run_pipeline(
             document = detect_footnotes(document)
             document = extract_front_matter(document)
             document.tables = extract_tables(document, pdf_path)
+        else:
+            # Footnotes: document.footnotes was already populated in Stage 2
+            # from the imported package (authoritative). detect_footnote_pdf_candidates()
+            # independently re-derives footnotes from document.blocks (already
+            # populated above by detect_structure(), regardless of extraction
+            # source) purely as verification evidence — via the same generic
+            # cross-source verification engine figures/headings/lists/callouts
+            # use (src/verification/) — never to replace Mathpix's footnotes.
+            # This is FootnoteVerifier (src/verification/footnotes.py), the
+            # fifth registered asset type, and the mechanism that resolves
+            # _p2footnote_to_footnote()'s anchor_page_number=1 placeholder
+            # (src/mathpix/ingestor.py) into a real, PDF-confirmed page.
+            pdf_footnotes = detect_footnote_pdf_candidates(document)
+            from src.verification.engine import engine
+            import src.verification.footnotes  # noqa: F401 - registers FootnoteVerifier
+
+            footnote_findings = engine.run_pdf_verification("footnote", document.footnotes, pdf_footnotes)
+            document.verification_findings.extend(footnote_findings)
+            engine.findings_to_corrections(document, footnote_findings)
+
+            # Tables: document.tables was already populated in Stage 2 from
+            # the imported package (authoritative). extract_tables() is the
+            # existing, unmodified table-detection pipeline (4 evidence-fusion
+            # detectors) — already a pure function returning a list rather
+            # than mutating document.tables, so calling it here for
+            # verification evidence only requires no refactor (unlike
+            # footnotes/headings, which needed a pure "_from_pdf" split).
+            # Reuses the exact same fitz.open(pdf_path) call this stage
+            # already makes no other PDF scan; extract_tables() now accepts
+            # MATHPIX_IMPORT pages alongside DIRECT_TEXT_EXTRACTION (see
+            # table_extractor.py) since it never depends on which extraction
+            # method produced a page's text. This is TableVerifier
+            # (src/verification/tables.py), the sixth registered asset type.
+            pdf_tables = extract_tables(document, pdf_path)
+            import src.verification.tables  # noqa: F401 - registers TableVerifier
+
+            table_findings = engine.run_pdf_verification("table", document.tables, pdf_tables)
+            document.verification_findings.extend(table_findings)
+            engine.findings_to_corrections(document, table_findings)
         logger.info(
             "Stage 3/8 (Detect Structure) complete: {} block(s), {} footnote(s)/endnote(s), "
             "title {}, {} table(s)",

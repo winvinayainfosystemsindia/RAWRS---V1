@@ -378,3 +378,115 @@ class TestMultiSignalEvidenceWithRealPdf:
         findings = verifier.classify(result)  # no pdf_path kwarg
         assert findings == []
         assert canonical.verification_status == VerificationStatus.VERIFIED
+
+
+class TestTargetedOcrEvidence:
+    """M-5.1 — targeted OCR as one more EvidenceSignal, evidence of last
+    resort. The low-confidence PDF below deliberately has weak typography
+    (heading rendered at the same size as body text) and a weak PDF match
+    (dissimilar text, far-apart pages -> positional_fallback), so the
+    fused bundle lands below _OCR_AMBIGUOUS_CONFIDENCE_THRESHOLD on its
+    own — exercising the real gate, not a mocked confidence value."""
+
+    def _low_confidence_scenario(self, tmp_path: Path):
+        pdf_path = _build_pdf(
+            tmp_path,
+            [
+                ("Xyzzy Foo Bar", "helv", 10),
+                ("Some other filler body text on this page.", "helv", 10),
+            ],
+        )
+        verifier = HeadingVerifier()
+        canonical = _heading("Xyzzy Foo Bar", page=1)
+        pdf_heading = _heading("Something Totally Unrelated Text", page=5)
+        result = verifier.build_pdf_matcher().match([canonical], [pdf_heading])
+        return verifier, canonical, result, pdf_path
+
+    def test_high_confidence_candidate_never_invokes_ocr(self, tmp_path: Path, monkeypatch) -> None:
+        def _fail_if_called(*_args, **_kwargs):
+            raise AssertionError("ocr_region must not be called for an already-confident candidate")
+
+        monkeypatch.setattr("src.verification.headings.ocr_region", _fail_if_called)
+
+        pdf_path = _build_pdf(
+            tmp_path,
+            [
+                ("A Bold Section Heading", "hebo", 18),
+                ("Body text follows here, at normal size.", "helv", 10),
+                ("More ordinary body text on this page.", "helv", 10),
+            ],
+        )
+        verifier = HeadingVerifier()
+        canonical = _heading("A Bold Section Heading", page=1)
+        pdf_heading = _heading("A Bold Section Heading", page=1)
+        result = verifier.build_pdf_matcher().match([canonical], [pdf_heading])
+        verifier.classify(result, pdf_path=pdf_path)  # would raise if ocr_region were called
+        assert canonical.confidence is not None and canonical.confidence > 0.5
+
+    def test_low_confidence_candidate_invokes_ocr(self, tmp_path: Path, monkeypatch) -> None:
+        calls = []
+        monkeypatch.setattr(
+            "src.verification.headings.ocr_region",
+            lambda *args, **kwargs: (calls.append(args) or "Xyzzy Foo Bar"),
+        )
+        verifier, canonical, result, pdf_path = self._low_confidence_scenario(tmp_path)
+        verifier.classify(result, pdf_path=pdf_path)
+        assert len(calls) == 1
+
+    def test_ocr_agreement_raises_confidence_above_baseline(self, tmp_path: Path, monkeypatch) -> None:
+        monkeypatch.setattr(
+            "src.verification.headings.ocr_region",
+            lambda *args, **kwargs: "Xyzzy Foo Bar",  # exact match
+        )
+        verifier, canonical, result, pdf_path = self._low_confidence_scenario(tmp_path)
+        verifier.classify(result, pdf_path=pdf_path)
+        with_ocr = canonical.confidence
+
+        monkeypatch.setattr("src.verification.headings.ocr_region", lambda *a, **k: "")
+        verifier2, canonical2, result2, _ = self._low_confidence_scenario(tmp_path)
+        verifier2.classify(result2, pdf_path=pdf_path)
+        without_agreement = canonical2.confidence
+
+        assert with_ocr is not None and without_agreement is not None
+        assert with_ocr > without_agreement
+
+    def test_ocr_disagreement_lowers_confidence(self, tmp_path: Path, monkeypatch) -> None:
+        monkeypatch.setattr(
+            "src.verification.headings.ocr_region",
+            lambda *args, **kwargs: "Completely Different Recognized Text",
+        )
+        verifier, canonical, result, pdf_path = self._low_confidence_scenario(tmp_path)
+        verifier.classify(result, pdf_path=pdf_path)
+        assert canonical.confidence is not None and canonical.confidence < 0.5
+
+    def test_ocr_failure_handled_gracefully(self, tmp_path: Path, monkeypatch) -> None:
+        from src.ocr.targeted import TargetedOCRError
+
+        def _raise(*_args, **_kwargs):
+            raise TargetedOCRError("simulated OCR failure")
+
+        monkeypatch.setattr("src.verification.headings.ocr_region", _raise)
+        verifier, canonical, result, pdf_path = self._low_confidence_scenario(tmp_path)
+        findings = verifier.classify(result, pdf_path=pdf_path)  # must not raise
+        assert canonical.confidence is not None
+
+    def test_existing_behavior_unchanged_when_ocr_signal_unavailable(self, tmp_path: Path) -> None:
+        """No monkeypatch at all — real ocr_region import stays wired,
+        but classify() never reaches it unless the bundle is already
+        ambiguous, so a normal high-confidence match behaves exactly as
+        it did before M-5.1."""
+        pdf_path = _build_pdf(
+            tmp_path,
+            [
+                ("A Bold Section Heading", "hebo", 18),
+                ("Body text follows here, at normal size.", "helv", 10),
+                ("More ordinary body text on this page.", "helv", 10),
+            ],
+        )
+        verifier = HeadingVerifier()
+        canonical = _heading("A Bold Section Heading", page=1)
+        pdf_heading = _heading("A Bold Section Heading", page=1)
+        result = verifier.build_pdf_matcher().match([canonical], [pdf_heading])
+        findings = verifier.classify(result, pdf_path=pdf_path)
+        assert findings == []
+        assert canonical.verification_status == VerificationStatus.VERIFIED
