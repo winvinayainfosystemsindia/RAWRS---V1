@@ -190,6 +190,23 @@ Reliability-only follow-up: closes the timeout gap flagged at the end of Phase M
 
 **Phase M-5.4.1 complete.** Not proceeding to M-5.5 per the ticket — stopped for approval.
 
+## Phase F-1 — Frontend Completion Audit (see PHASE_STATUS.md, docs/FRONTEND_COMPLETION_AUDIT_2026-07-13.md)
+
+* [x] 39-area frontend audit, no code changed. Headline finding: zero automated accessibility testing, zero frontend test files of any kind existed before this phase.
+
+**Phase F-1 complete.** Recommendation approved — accessibility verification treated as a gate, leading into Phase F-2.1.
+
+## Phase F-2.1 — Frontend Accessibility Foundation (see PHASE_STATUS.md, docs/ACCESSIBILITY_TESTING.md)
+
+* [x] Accessibility testing infrastructure: `jest` + `jest-environment-jsdom` + `@testing-library/react`/`jest-dom` + `jest-axe`, wired via `next/jest` (`frontend/jest.config.js`, `jest.setup.ts`, `"test": "jest"` script).
+* [x] `next.config.ts` gained `transpilePackages: ["react-resizable-panels"]` — required for `next/jest` to transform this ESM-only dependency at all (there is no direct `transformIgnorePatterns` override under `next/jest`).
+* [x] 6 accessibility tests, one per Phase F-2.1's minimum scope (Landing/Upload, Document Workspace, Reviewer Workspace, Image Workspace, Validation Center, Corrections Center) — `frontend/__tests__/a11y/*.a11y.test.tsx`. **6/6 passing, 0 violations** (empty-state baseline).
+* [x] Verification: `npx jest` (6/6), `npx tsc --noEmit` (clean), `npx next build` (clean).
+* [ ] Manual keyboard-only + screen-reader pass on Reviewer Workspace / Document Workspace — not performed this session (deferred, documented as the explicit next step, not silently skipped).
+* [x] `docs/ACCESSIBILITY_TESTING.md` (new) — how to run, scope limits, how to add a new test, config gotchas.
+
+**Phase F-2.1 complete.** Not proceeding to keyboard parity, search unification, responsive layout, or workspace redesign per the ticket — stopped for approval.
+
 ---
 
 Not yet started (see `KNOWN_LIMITATIONS.md`): equation remediation, multi-column reconstruction, cross-page paragraph stitching, span-level text model (`feature_005_span_level_text_model` — design review complete, no code written).
