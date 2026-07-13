@@ -5,6 +5,7 @@ import { api, type JobSummary } from "@/lib/api";
 import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { DocxPreview } from "@/components/DocxPreview";
 import { ReviewerWorkspace } from "@/components/ReviewerWorkspace";
+import { useArrowKeyTabs } from "@/lib/hooks/useArrowKeyTabs";
 
 // ─── Tab definitions ──────────────────────────────────────────────────────────
 
@@ -17,6 +18,7 @@ const ACTIVE_TABS: { id: TabId; label: string }[] = [
   { id: "docx",     label: "Accessible DOCX Preview" },
   { id: "raw",      label: "Raw Mathpix Markdown" },
 ];
+const ACTIVE_TAB_IDS = ACTIVE_TABS.map((t) => t.id);
 
 const SOON_TABS: { id: SoonId; label: string }[] = [
   { id: "diff", label: "Accessibility Diff" },
@@ -32,10 +34,16 @@ function WorkspaceTabBar({
   active: TabId;
   onSelect: (id: TabId) => void;
 }) {
+  // Phase F-3.2 — this bar already had correct role/aria-selected/
+  // aria-controls; it was only missing the arrow-key/Home/End keyboard
+  // model and roving tabindex, which the shared hook now supplies.
+  const tabs = useArrowKeyTabs({ ids: ACTIVE_TAB_IDS, active, onChange: onSelect });
+
   return (
     <div
       role="tablist"
       aria-label="Output workspace"
+      ref={tabs.tablistRef as React.RefObject<HTMLDivElement>}
       className="flex items-center gap-0.5 border-b border-border overflow-x-auto"
     >
       {/* Active tabs */}
@@ -44,11 +52,9 @@ function WorkspaceTabBar({
         return (
           <button
             key={tab.id}
-            role="tab"
+            {...tabs.getTabProps(tab.id)}
             id={`ws-tab-${tab.id}`}
-            aria-selected={isActive}
             aria-controls={`ws-panel-${tab.id}`}
-            onClick={() => onSelect(tab.id)}
             className={`shrink-0 px-4 py-2.5 text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-accent transition-colors rounded-t-sm ${
               isActive
                 ? "border-b-2 border-accent text-accent bg-surface-canvas"

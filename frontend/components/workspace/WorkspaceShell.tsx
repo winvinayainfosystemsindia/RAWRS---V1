@@ -5,6 +5,7 @@ import { Panel, PanelGroup, PanelResizeHandle, type ImperativePanelHandle } from
 import type { JobStatus } from "@/lib/api";
 import { JobStatusBadge } from "@/components/Badge";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { useArrowKeyTabs } from "@/lib/hooks/useArrowKeyTabs";
 
 interface CenterViews {
   pdf: ReactNode;
@@ -49,6 +50,7 @@ const CENTER_MODES: { id: CenterMode; label: string }[] = [
   { id: "markdown", label: "Markdown" },
   { id: "docx", label: "DOCX Preview" },
 ];
+const CENTER_MODE_IDS = CENTER_MODES.map((m) => m.id);
 
 // ponytail: every split preset reuses the same nested-PanelGroup shape,
 // just with a different pair of centerViews keys — cheaper than a branch
@@ -79,6 +81,9 @@ export function WorkspaceShell({
   const navPanelRef = useRef<ImperativePanelHandle>(null);
   const railPanelRef = useRef<ImperativePanelHandle>(null);
   const splitPair = SPLIT_PAIRS[centerMode];
+  // Phase F-3.2 — shared ARIA-tabs keyboard model (arrow keys move focus
+  // + selection together, Home/End jump to first/last).
+  const centerTabs = useArrowKeyTabs({ ids: CENTER_MODE_IDS, active: centerMode, onChange: setCenterMode });
 
   function toggleFocusMode() {
     const next = !focusMode;
@@ -127,13 +132,18 @@ export function WorkspaceShell({
       {/* View switcher — only meaningful in document mode, but shown
           consistently so switching back from a special view is obvious. */}
       {mode === "document" && (
-        <div className="flex items-center gap-1 border-b border-border bg-surface-panel px-2 py-1.5">
+        <div
+          role="tablist"
+          aria-label="Center view"
+          ref={centerTabs.tablistRef as React.RefObject<HTMLDivElement>}
+          className="flex items-center gap-1 border-b border-border bg-surface-panel px-2 py-1.5"
+        >
           {CENTER_MODES.map((m) => (
             <button
               key={m.id}
               type="button"
-              onClick={() => setCenterMode(m.id)}
-              className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+              {...centerTabs.getTabProps(m.id)}
+              className={`rounded px-2.5 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
                 centerMode === m.id
                   ? "bg-accent text-accent-contrast"
                   : "text-text-secondary hover:bg-hover-row hover:text-text-primary"

@@ -17,6 +17,7 @@ import {
 import { useSelection, type SelectableObjectType } from "@/lib/store/SelectionContext";
 import { usePdfViewport } from "@/lib/store/PdfViewportContext";
 import { useMarkdownViewport } from "@/lib/store/MarkdownViewportContext";
+import { useArrowKeyTabs } from "@/lib/hooks/useArrowKeyTabs";
 import { HeadingCard } from "@/components/HeadingCard";
 import { TableCard } from "@/components/TableCard";
 import type { BoundingBox } from "@/lib/api";
@@ -47,6 +48,7 @@ const MODES: { id: NavMode; label: string }[] = [
   { id: "validation", label: "Issues" },
   { id: "search", label: "Search" },
 ];
+const MODE_IDS = MODES.map((m) => m.id);
 
 // Reserved for Feature 021+ — not implemented this phase. Kept visible but
 // disabled so later work slots into this nav without restructuring it.
@@ -106,6 +108,8 @@ function NavRow({
 
 export function SemanticNavTree({ specialViews, activeSpecialView, onSelectSpecialView }: SemanticNavTreeProps) {
   const [mode, setMode] = useState<NavMode>("outline");
+  // Phase F-3.2 — shared ARIA-tabs keyboard model.
+  const navTabs = useArrowKeyTabs({ ids: MODE_IDS, active: mode, onChange: setMode });
   const state = useDocumentData();
   const { selection, select } = useSelection();
   const { jumpToObject } = usePdfViewport();
@@ -139,13 +143,18 @@ export function SemanticNavTree({ specialViews, activeSpecialView, onSelectSpeci
 
   return (
     <nav aria-label="Document sections" className="flex flex-col py-2">
-      <div className="flex flex-wrap gap-1 border-b border-border px-2 pb-2">
+      <div
+        role="tablist"
+        aria-label="Navigation mode"
+        ref={navTabs.tablistRef as React.RefObject<HTMLDivElement>}
+        className="flex flex-wrap gap-1 border-b border-border px-2 pb-2"
+      >
         {MODES.map((m) => (
           <button
             key={m.id}
             type="button"
-            onClick={() => setMode(m.id)}
-            className={`rounded px-2 py-1 text-[11px] font-medium transition-colors ${
+            {...navTabs.getTabProps(m.id)}
+            className={`rounded px-2 py-1 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
               mode === m.id
                 ? "bg-accent text-accent-contrast"
                 : "text-text-secondary hover:bg-hover-row hover:text-text-primary"

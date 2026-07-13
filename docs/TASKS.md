@@ -230,6 +230,17 @@ Reliability-only follow-up: closes the timeout gap flagged at the end of Phase M
 
 **Phase F-3.1 complete.** Not proceeding to search unification, responsive layout, or workspace redesign per the ticket — stopped for approval.
 
+## Phase F-3.2 — Shared Tab Navigation Infrastructure (see PHASE_STATUS.md)
+
+* [x] Audited all tab-like widgets against a real test (content-switching vs. list-filtering); found 4 genuine tabs consumers (2 named in the ticket + 2 more found by auditing), correctly excluded 2 filter-style widgets that only look tab-like.
+* [x] `frontend/lib/hooks/useArrowKeyTabs.ts` (new) — WAI-ARIA APG Tabs pattern: roving tabindex, arrow-key + Home/End nav, real focus management.
+* [x] Retrofitted `WorkspaceShell` center-view switcher, `SemanticNavTree` mode selector, `ObjectInspectorFrame` tabs, `OutputWorkspace` tab bar.
+* [x] Found + fixed a real bug: `ObjectInspectorFrame` used `aria-current` (wrong attribute — that's for pagination/breadcrumbs) with no `role="tab"`/`"tablist"` at all.
+* [x] Verification: `npx jest` (6/6, unchanged), `npx tsc --noEmit` (clean), `npx next build` (clean).
+* [ ] Live keyboard-only walkthrough of the 4 migrated consumers — not performed this session (cumulative cost); disclosed honestly, not claimed. Standard WAI-ARIA pattern, not a novel design.
+
+**Phase F-3.2 complete.** Not proceeding to search, responsive work, or component redesign per the ticket — stopped for approval.
+
 ---
 
 Not yet started (see `KNOWN_LIMITATIONS.md`): equation remediation, multi-column reconstruction, cross-page paragraph stitching, span-level text model (`feature_005_span_level_text_model` — design review complete, no code written).
