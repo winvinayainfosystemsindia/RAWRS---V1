@@ -6,22 +6,22 @@
     "before": {
       "finding_count": 9,
       "kinds": {
-        "missing_from_package": 5,
-        "text_correction": 4
+        "text_correction": 4,
+        "missing_from_package": 5
       },
       "avg_confidence": 0.9454,
       "min_confidence": 0.7038,
-      "elapsed_s": 1.0
+      "elapsed_s": 0.938
     },
     "after": {
       "finding_count": 9,
       "kinds": {
-        "missing_from_package": 5,
-        "text_correction": 4
+        "text_correction": 4,
+        "missing_from_package": 5
       },
       "avg_confidence": 0.9454,
       "min_confidence": 0.7038,
-      "elapsed_s": 0.985,
+      "elapsed_s": 0.656,
       "ocr_calls": 0
     }
   },
@@ -32,24 +32,24 @@
     "before": {
       "finding_count": 3,
       "kinds": {
-        "level_mismatch": 1,
+        "text_correction": 1,
         "missing_from_package": 1,
-        "text_correction": 1
+        "level_mismatch": 1
       },
       "avg_confidence": 0.7,
       "min_confidence": 0.7,
-      "elapsed_s": 0.047
+      "elapsed_s": 0.015
     },
     "after": {
       "finding_count": 3,
       "kinds": {
-        "level_mismatch": 1,
+        "text_correction": 1,
         "missing_from_package": 1,
-        "text_correction": 1
+        "level_mismatch": 1
       },
       "avg_confidence": 0.7,
       "min_confidence": 0.7,
-      "elapsed_s": 0.047,
+      "elapsed_s": 0.032,
       "ocr_calls": 0
     }
   },
@@ -64,7 +64,7 @@
       },
       "avg_confidence": 0.9811,
       "min_confidence": 0.75,
-      "elapsed_s": 4.047
+      "elapsed_s": 4.359
     },
     "after": {
       "finding_count": 53,
@@ -73,7 +73,7 @@
       },
       "avg_confidence": 0.9811,
       "min_confidence": 0.75,
-      "elapsed_s": 4.078,
+      "elapsed_s": 3.937,
       "ocr_calls": 0
     }
   },
@@ -84,22 +84,22 @@
     "before": {
       "finding_count": 31,
       "kinds": {
-        "likely_running_header": 16,
-        "unconfirmed": 15
+        "unconfirmed": 15,
+        "likely_running_header": 16
       },
       "avg_confidence": 0.5054,
       "min_confidence": 0.0,
-      "elapsed_s": 7.234
+      "elapsed_s": 7.296
     },
     "after": {
       "finding_count": 31,
       "kinds": {
-        "likely_running_header": 16,
-        "unconfirmed": 15
+        "unconfirmed": 15,
+        "likely_running_header": 16
       },
-      "avg_confidence": 0.4947,
+      "avg_confidence": 0.5035,
       "min_confidence": 0.0,
-      "elapsed_s": 26160.64,
+      "elapsed_s": 507.625,
       "ocr_calls": 5
     }
   },
@@ -110,22 +110,22 @@
     "before": {
       "finding_count": 4,
       "kinds": {
-        "missing_from_package": 1,
-        "text_correction": 3
+        "text_correction": 3,
+        "missing_from_package": 1
       },
       "avg_confidence": 0.6936,
       "min_confidence": 0.43,
-      "elapsed_s": 0.343
+      "elapsed_s": 0.485
     },
     "after": {
       "finding_count": 4,
       "kinds": {
-        "missing_from_package": 1,
-        "text_correction": 3
+        "text_correction": 3,
+        "missing_from_package": 1
       },
       "avg_confidence": 0.6936,
       "min_confidence": 0.43,
-      "elapsed_s": 0.328,
+      "elapsed_s": 0.5,
       "ocr_calls": 0
     }
   },
@@ -140,7 +140,7 @@
       },
       "avg_confidence": 1.0,
       "min_confidence": 1.0,
-      "elapsed_s": 1.422
+      "elapsed_s": 1.813
     },
     "after": {
       "finding_count": 34,
@@ -149,7 +149,7 @@
       },
       "avg_confidence": 1.0,
       "min_confidence": 1.0,
-      "elapsed_s": 1.375,
+      "elapsed_s": 1.703,
       "ocr_calls": 0
     }
   },
@@ -164,7 +164,7 @@
       },
       "avg_confidence": 1.0,
       "min_confidence": 1.0,
-      "elapsed_s": 0.218
+      "elapsed_s": 0.297
     },
     "after": {
       "finding_count": 1,
@@ -173,7 +173,7 @@
       },
       "avg_confidence": 1.0,
       "min_confidence": 1.0,
-      "elapsed_s": 0.203,
+      "elapsed_s": 0.25,
       "ocr_calls": 0
     }
   },
@@ -184,18 +184,18 @@
     "before": {
       "finding_count": 2,
       "kinds": {
-        "level_mismatch": 1,
-        "unconfirmed": 1
+        "unconfirmed": 1,
+        "level_mismatch": 1
       },
       "avg_confidence": 0.9451,
       "min_confidence": 0.8353,
-      "elapsed_s": 0.031
+      "elapsed_s": 0.047
     },
     "after": {
       "finding_count": 2,
       "kinds": {
-        "level_mismatch": 1,
-        "unconfirmed": 1
+        "unconfirmed": 1,
+        "level_mismatch": 1
       },
       "avg_confidence": 0.9451,
       "min_confidence": 0.8353,
@@ -210,22 +210,22 @@
     "before": {
       "finding_count": 3,
       "kinds": {
-        "level_mismatch": 1,
-        "unconfirmed": 2
+        "unconfirmed": 2,
+        "level_mismatch": 1
       },
       "avg_confidence": 0.9588,
       "min_confidence": 0.8353,
-      "elapsed_s": 0.031
+      "elapsed_s": 0.062
     },
     "after": {
       "finding_count": 3,
       "kinds": {
-        "level_mismatch": 1,
-        "unconfirmed": 2
+        "unconfirmed": 2,
+        "level_mismatch": 1
       },
       "avg_confidence": 0.9588,
       "min_confidence": 0.8353,
-      "elapsed_s": 0.031,
+      "elapsed_s": 0.078,
       "ocr_calls": 0
     }
   },
@@ -236,22 +236,22 @@
     "before": {
       "finding_count": 4,
       "kinds": {
-        "missing_from_package": 2,
-        "text_correction": 2
+        "text_correction": 2,
+        "missing_from_package": 2
       },
       "avg_confidence": 0.9718,
       "min_confidence": 0.7647,
-      "elapsed_s": 0.594
+      "elapsed_s": 0.75
     },
     "after": {
       "finding_count": 4,
       "kinds": {
-        "missing_from_package": 2,
-        "text_correction": 2
+        "text_correction": 2,
+        "missing_from_package": 2
       },
       "avg_confidence": 0.9718,
       "min_confidence": 0.7647,
-      "elapsed_s": 0.453,
+      "elapsed_s": 0.687,
       "ocr_calls": 0
     }
   }

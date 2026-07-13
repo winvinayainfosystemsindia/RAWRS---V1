@@ -470,6 +470,35 @@ class TestTargetedOcrEvidence:
         findings = verifier.classify(result, pdf_path=pdf_path)  # must not raise
         assert canonical.confidence is not None
 
+    def test_hanging_ocr_call_does_not_block_classify(self, tmp_path: Path, monkeypatch) -> None:
+        """M-5.4.1 end-to-end: the REAL ocr_region()/timeout wrapper (not
+        a mocked ocr_region, unlike the other tests in this class) must
+        keep classify() responsive even when the underlying Surya call
+        hangs — the exact failure mode a real benchmark re-run hit."""
+        import time as time_module
+
+        from src.ocr.targeted import ocr_region as real_ocr_region
+
+        class _HangingPredictor:
+            def __call__(self, images, full_page: bool = True):
+                time_module.sleep(2.0)
+                raise AssertionError("should never return before the test's own assertions")
+
+        monkeypatch.setattr("src.ocr.targeted.build_recognition_predictor", lambda: _HangingPredictor())
+        # _targeted_ocr_signal() never passes timeout_seconds explicitly
+        # (it relies on ocr_region's own default), so the default itself
+        # is shortened for this test rather than the call site — mirrors
+        # what RAWRS_TARGETED_OCR_TIMEOUT_SECONDS does in production.
+        monkeypatch.setattr(real_ocr_region, "__defaults__", (0.1,))
+
+        verifier, canonical, result, pdf_path = self._low_confidence_scenario(tmp_path)
+        start = time_module.monotonic()
+        findings = verifier.classify(result, pdf_path=pdf_path)  # must not hang
+        elapsed = time_module.monotonic() - start
+
+        assert elapsed < 2.0, "classify() waited out the hang instead of timing out the OCR call"
+        assert canonical.confidence is not None  # verification still completed, evidence just omitted
+
     def test_existing_behavior_unchanged_when_ocr_signal_unavailable(self, tmp_path: Path) -> None:
         """No monkeypatch at all — real ocr_region import stays wired,
         but classify() never reaches it unless the bundle is already

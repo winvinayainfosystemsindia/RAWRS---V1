@@ -171,9 +171,24 @@ Wires the previously-unused `src/ocr/targeted.py::ocr_region()` (FEATURE_019) in
 * [x] M-5.4 — Targeted OCR compatibility fix: `ocr_region()`'s `full_page=False` → `True` (the old comment had the Surya 0.20.0 semantics backwards).
 * [x] Found + fixed while closing out this phase: `build_recognition_predictor()` (`src/ocr/surya_config.py`) had no caching, so `ocr_region()` rebuilt the entire Surya model once per ambiguous heading (measured 26,160s/5 calls for one document, post-M-5.4). Fixed with `@lru_cache(maxsize=1)` on the shared factory function — process-wide, no call-site changes needed. Confirmed via an uncontended re-run: the same call dropped from ~87min to ~64s.
 * [x] Found + fixed: `tests/test_targeted_ocr.py` still asserted the pre-M-5.4 `full_page=False` call shape; updated to `full_page=True`. Full suite: **1558 passed, 7 skipped, 0 failed**.
-* [ ] Known follow-up, not blocking: `ocr_region()` has no timeout around the Surya `predictor(...)` call. The 10-document corpus re-run hit a hang on this environment (1h23m elapsed, ~116s CPU — blocked, not computing) and had to be killed; every *other* OCR failure mode already degrades gracefully (see `_targeted_ocr_signal()`), a hang does not. Needs a bounded timeout wrapper around the call.
+* [x] Found + fixed: `ocr_region()` had no timeout around the Surya `predictor(...)` call (see M-5.4.1 below — closed the same session it was found).
 
-**Phase M-5 complete** (M-5.1, M-5.2, M-5.3, M-5.4, plus the predictor-caching fix and stale-test fix, all done). The timeout gap above is tracked as a follow-up.
+**Phase M-5 complete** (M-5.1, M-5.2, M-5.3, M-5.4, plus the predictor-caching fix and stale-test fix, all done).
+
+## Phase M-5.4.1 — OCR Reliability & Resilience (see PHASE_STATUS.md)
+
+Reliability-only follow-up: closes the timeout gap flagged at the end of Phase M-5. No verifier/evidence-signal changes.
+
+* [x] Root-caused: `ocr_region()`'s Surya-facing call (predictor construction + inference) had no bound; the observed hang (1h23m, force-killed) was on an already-warm predictor, isolating it to the inference call itself (though `lru_cache`'s internal lock means a cold-construction hang would carry the same risk — addressed by the same fix).
+* [x] Fixed: `_run_with_timeout()` (new, `src/ocr/targeted.py`) runs the Surya-facing call on a fresh `daemon=True` thread per invocation, bounded by `queue.Queue.get(timeout=...)`. Fresh thread per call (not a shared pool) so one real hang can't wedge every later call; `daemon=True` so an abandoned thread never blocks process exit (unlike `ThreadPoolExecutor`, which joins its workers at `atexit`).
+* [x] Configurable: `DEFAULT_OCR_TIMEOUT_SECONDS`, env var `RAWRS_TARGETED_OCR_TIMEOUT_SECONDS`, default 120s; also an explicit `ocr_region(..., timeout_seconds=...)` parameter.
+* [x] Raises `TargetedOCRTimeoutError(TargetedOCRError)` on expiry — zero changes needed in `src/verification/headings.py`, whose existing `except TargetedOCRError` already degrades to "no signal."
+* [x] 6 new tests (5 in `tests/test_targeted_ocr.py`, 1 end-to-end in `tests/test_heading_verifier.py` through the real `ocr_region()`, not a mock) — all passing. Critical regression test: repeated hangs don't compound (each costs only its own timeout).
+* [x] Benchmark re-run: full 10-document corpus **completed** (previously required a manual kill after 1h23m stuck). FolkPedagogy: 5 OCR calls, 0 timeouts triggered, ~101.5s avg latency (real CPU-bound inference cost, not a bug), findings unchanged.
+* [ ] Full-suite pytest re-run attempted twice post-fix, interrupted partway both times (68%, then 24%) by an apparent session/environment constraint on long background jobs — zero failures seen in either partial run; last clean full run (pre-this-phase) was 1558 passed/7 skipped/0 failed. Follow-up: re-run to completion when the environment allows it.
+* [ ] Remaining debt: abandoned timed-out threads aren't truly cancelled (Python can't force-stop a thread); real per-call OCR latency (~100s) is inherent CPU-bound inference cost, not addressed here (out of scope for a reliability-only ticket).
+
+**Phase M-5.4.1 complete.** Not proceeding to M-5.5 per the ticket — stopped for approval.
 
 ---
 
