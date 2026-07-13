@@ -217,6 +217,19 @@ Reliability-only follow-up: closes the timeout gap flagged at the end of Phase M
 
 **Phase F-2.2 complete.** Not proceeding to search unification, responsive design, or UI redesign per the ticket — stopped for approval.
 
+## Phase F-3.1 — Keyboard Workflow Parity (see PHASE_STATUS.md)
+
+* [x] `frontend/lib/hooks/useListReviewKeyboard.ts` (new) — shared keyboard-nav hook extracted from `ReviewerWorkspace`'s existing pattern.
+* [x] `ReviewerWorkspace.tsx` refactored to use the shared hook — same shortcuts, zero behavior change, proves the abstraction.
+* [x] Investigated all 9 named target workspaces; found Reading Order already has full keyboard-accessible reordering (assumption disproven before building anything redundant); found Validation/Image/Tables workspaces don't share the reference implementation's flat-list shape, so a concrete (not vague) per-workspace recommendation was written for each instead of a shallow retrofit.
+* [ ] Validation Center, Image Workspace, Tables Workspace keyboard parity — specific implementation plan documented in PHASE_STATUS.md, not yet built.
+* [ ] Outline Navigation / Inspector / Document Workspace view-switcher — needs a second, separate `useArrowKeyTabs`-style hook (a tabs pattern, not a list pattern); ties to the Phase F-2.2 ARIA-tabs backlog item. Not yet built.
+* [x] Deliberately not recommended: Corrections Center (redundant with ReviewerWorkspace's existing full keyboard coverage of the same data) and a standalone Focus Mode shortcut (already one click away, no evidence of need).
+* [x] Verification: `npx jest` (6/6, unchanged), `npx tsc --noEmit` (clean), `npx next build` (clean).
+* [ ] Live keyboard-only walkthrough of the refactored ReviewerWorkspace — not re-performed this session (cumulative cost); disclosed honestly, not claimed.
+
+**Phase F-3.1 complete.** Not proceeding to search unification, responsive layout, or workspace redesign per the ticket — stopped for approval.
+
 ---
 
 Not yet started (see `KNOWN_LIMITATIONS.md`): equation remediation, multi-column reconstruction, cross-page paragraph stitching, span-level text model (`feature_005_span_level_text_model` — design review complete, no code written).

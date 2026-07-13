@@ -7,6 +7,7 @@ import { useDocumentData, useDocumentDispatch, selectCorrections } from "@/lib/s
 import { useSelection } from "@/lib/store/SelectionContext";
 import { usePdfViewport } from "@/lib/store/PdfViewportContext";
 import { CorrectionHistoryList } from "@/components/CorrectionHistoryList";
+import { useListReviewKeyboard } from "@/lib/hooks/useListReviewKeyboard";
 
 type SortKey = "document_order" | "confidence" | "page_number";
 
@@ -137,65 +138,36 @@ export function ReviewerWorkspace({ jobId }: { jobId: string }) {
     [current, jobId, dispatch]
   );
 
-  // M-4.3 (Proposal Review Experience) — keyboard-first review. Ignored
-  // while focus is inside a text input/textarea/select (search box, the
-  // Proposal Card's edit-value/reviewer-notes fields) so shortcut letters
-  // don't fight with normal typing. See the on-screen legend below for the
-  // full, documented list.
-  useEffect(() => {
-    function isTypingTarget(el: EventTarget | null): boolean {
-      const tag = (el as HTMLElement | null)?.tagName;
-      return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
-    }
+  // M-4.3 (Proposal Review Experience) — keyboard-first review, now built
+  // on the shared useListReviewKeyboard hook (Phase F-3.1) so any future
+  // workspace extends this exact reference implementation instead of a
+  // second, parallel shortcut scheme. Ignored while focus is inside a text
+  // input/textarea/select (search box, the Proposal Card's edit-value/
+  // reviewer-notes fields) so shortcut letters don't fight with normal
+  // typing — see the on-screen legend below for the full, documented list.
+  const keyActions = useMemo(
+    () => ({
+      a: () => runAction("accept"),
+      r: () => runAction("reject"),
+      i: () => runAction("ignore"),
+      u: () => runAction("undo"),
+      // Open Inspector: re-affirms the sync to the right-rail Inspector —
+      // meaningful if the reviewer navigated it away.
+      e: () => current && select("correction", current.correction_id),
+      // Jump to PDF: jumpToObject's nonce always bumps (see
+      // PdfViewportContext.tsx), so re-jumping to the same page still
+      // re-triggers the PDF pane's scroll/highlight.
+      j: () => current?.page_number !== null && current && jumpToObject(current.page_number, null),
+    }),
+    [runAction, current, select, jumpToObject]
+  );
 
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "/" && !isTypingTarget(e.target)) {
-        e.preventDefault();
-        searchInputRef.current?.focus();
-        return;
-      }
-      if (isTypingTarget(e.target)) return;
-
-      switch (e.key) {
-        case "ArrowRight":
-        case "n":
-          setIndex(Math.min(filtered.length - 1, clampedIndex + 1));
-          break;
-        case "ArrowLeft":
-        case "p":
-          setIndex(Math.max(0, clampedIndex - 1));
-          break;
-        case "a":
-          runAction("accept");
-          break;
-        case "r":
-          runAction("reject");
-          break;
-        case "i":
-          runAction("ignore");
-          break;
-        case "u":
-          runAction("undo");
-          break;
-        case "e":
-          // Open Inspector: re-affirms the sync to the right-rail
-          // Inspector — meaningful if the reviewer navigated it away.
-          if (current) select("correction", current.correction_id);
-          break;
-        case "j":
-          // Jump to PDF: jumpToObject's nonce always bumps (see
-          // PdfViewportContext.tsx), so re-jumping to the same page still
-          // re-triggers the PDF pane's scroll/highlight.
-          if (current?.page_number !== null && current) jumpToObject(current.page_number, null);
-          break;
-        default:
-          break;
-      }
-    }
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [current, clampedIndex, filtered.length, select, jumpToObject, runAction]);
+  useListReviewKeyboard({
+    onNext: () => setIndex(Math.min(filtered.length - 1, clampedIndex + 1)),
+    onPrev: () => setIndex(Math.max(0, clampedIndex - 1)),
+    onSearch: () => searchInputRef.current?.focus(),
+    keyActions,
+  });
 
   if (corrections.length === 0) {
     return (
