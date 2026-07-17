@@ -421,6 +421,67 @@ class ReadinessReportOut(BaseModel):
     categories: List[ReadinessCategoryDetailOut]
 
 
+class AccessibilityEvidenceSignalOut(BaseModel):
+    """See docs/ACCESSIBILITY_INTELLIGENCE_ENGINE_DESIGN.md Section 12/27.
+    Distinct from EvidenceSignalOut above (which is table-detection-specific)
+    - this engine's rules produce their own EvidenceBundle."""
+
+    name: str
+    score: float
+    weight: float
+    note: str
+    source_module: Optional[str] = None
+
+
+class AccessibilityRuleEvaluationOut(BaseModel):
+    rule_id: str
+    category: str
+    outcome: str
+    message: str
+    object_id: Optional[str] = None
+    page_number: Optional[int] = None
+    confidence: float
+    confidence_tier: str
+    evidence: List[AccessibilityEvidenceSignalOut]
+
+
+class AccessibilityCategoryScoreOut(BaseModel):
+    category: str
+    max_points: int
+    points_lost: int
+    manual_review_count: int
+    score: float
+
+
+class AccessibilityPointLedgerEntryOut(BaseModel):
+    label: str
+    points_lost: int
+
+
+class AccessibilityDebtReportOut(BaseModel):
+    critical_debt_points: int
+    moderate_debt_points: int
+    minor_debt_points: int
+    resolved_debt_points: int
+    remaining_debt_points: int
+
+
+class AccessibilityReportOut(BaseModel):
+    """Section 8/9/22. The full, additive report - GET /readiness's response
+    shape (above) is unchanged and unaffected by this endpoint's existence."""
+
+    overall_score: float
+    max_points: int
+    points_lost: int
+    export_ready: bool
+    manual_review_count: int
+    blocking_failures: List[str]
+    categories: List[AccessibilityCategoryScoreOut]
+    point_ledger: List[AccessibilityPointLedgerEntryOut]
+    evaluations: List[AccessibilityRuleEvaluationOut]
+    debt: AccessibilityDebtReportOut
+
+
 class AIStatusResponse(BaseModel):
     """Current AI provider status — polled by the frontend to decide whether
     to enable AI-triggering buttons (Generate AI Alt Text, Analyze with AI)

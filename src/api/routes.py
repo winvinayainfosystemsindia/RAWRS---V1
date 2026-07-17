@@ -23,6 +23,12 @@ from loguru import logger
 from src.api.jobs import Job, JobStatus, create_job, get_job, list_jobs, start_job, _lock
 from src.api.schemas import (
     AIStatusResponse,
+    AccessibilityCategoryScoreOut,
+    AccessibilityDebtReportOut,
+    AccessibilityEvidenceSignalOut,
+    AccessibilityPointLedgerEntryOut,
+    AccessibilityReportOut,
+    AccessibilityRuleEvaluationOut,
     BlockOut,
     BoundingBoxOut,
     BulkActionRequest,
@@ -89,6 +95,10 @@ from src.models.validation_issue import ValidationIssue, ValidationIssueStatus
 from src.models.figure import AltTextStatus
 from src.validation.readiness import compute_readiness
 from src.verification.engine import UnknownAssetTypeError, engine
+import src.accessibility.rules  # noqa: F401 - side effect: registers Phase 1 rules
+from src.accessibility.debt import compute_debt_report
+from src.accessibility.pipeline import evaluate_document
+from src.accessibility.registry import registry as accessibility_registry
 
 router = APIRouter(prefix="/api")
 
@@ -1345,6 +1355,71 @@ def get_readiness(job_id: str) -> ReadinessReportOut:
             )
             for c in report.categories
         ],
+    )
+
+
+@router.get("/documents/{job_id}/accessibility-report", response_model=AccessibilityReportOut)
+def get_accessibility_report(job_id: str) -> AccessibilityReportOut:
+    """Accessibility Intelligence Engine (Phase 1) - see
+    docs/ACCESSIBILITY_INTELLIGENCE_ENGINE_DESIGN.md. Fully additive: does
+    not change GET /readiness's response shape or the data it reads, and
+    is not yet consumed by the frontend (Section 22 roadmap Phase 4).
+    """
+    document = _require_document(job_id)
+    if document is None:
+        raise HTTPException(status_code=404, detail="No document for this job.")
+
+    report = evaluate_document(document)
+    debt = compute_debt_report(document, report)
+    registry_lookup = {rule.rule_id: rule for rule in accessibility_registry.all()}
+
+    return AccessibilityReportOut(
+        overall_score=round(report.overall_score, 4),
+        max_points=report.max_points,
+        points_lost=report.points_lost,
+        export_ready=report.export_ready,
+        manual_review_count=report.manual_review_count,
+        blocking_failures=report.blocking_failures,
+        categories=[
+            AccessibilityCategoryScoreOut(
+                category=c.category,
+                max_points=c.max_points,
+                points_lost=c.points_lost,
+                manual_review_count=c.manual_review_count,
+                score=round(c.score, 4),
+            )
+            for c in report.categories
+        ],
+        point_ledger=[
+            AccessibilityPointLedgerEntryOut(label=label, points_lost=points)
+            for label, points in report.point_ledger
+        ],
+        evaluations=[
+            AccessibilityRuleEvaluationOut(
+                rule_id=ev.rule_id,
+                category=registry_lookup[ev.rule_id].category if ev.rule_id in registry_lookup else "",
+                outcome=ev.outcome.value,
+                message=ev.message,
+                object_id=ev.object_id,
+                page_number=ev.page_number,
+                confidence=round(ev.confidence, 4),
+                confidence_tier=ev.confidence_tier.value,
+                evidence=[
+                    AccessibilityEvidenceSignalOut(
+                        name=s.name, score=s.score, weight=s.weight, note=s.note, source_module=s.source_module
+                    )
+                    for s in ev.evidence.signals
+                ],
+            )
+            for ev in report.evaluations
+        ],
+        debt=AccessibilityDebtReportOut(
+            critical_debt_points=debt.critical_debt_points,
+            moderate_debt_points=debt.moderate_debt_points,
+            minor_debt_points=debt.minor_debt_points,
+            resolved_debt_points=debt.resolved_debt_points,
+            remaining_debt_points=debt.remaining_debt_points,
+        ),
     )
 
 

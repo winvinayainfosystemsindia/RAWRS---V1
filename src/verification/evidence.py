@@ -28,7 +28,7 @@ detectors' existing imports keep working without modification.
 """
 
 from dataclasses import dataclass, field
-from typing import List
+from typing import List, Optional
 
 
 @dataclass
@@ -49,12 +49,22 @@ class EvidenceSignal:
 
     note:   One-sentence human-readable explanation shown in the
             workspace so reviewers understand each confidence factor.
+
+    source_module: Optional dotted path naming the detector/rule that
+            produced this signal (e.g. "src.tables.detectors.
+            VectorBorderDetector"), for full audit traceability - see
+            docs/ACCESSIBILITY_INTELLIGENCE_ENGINE_DESIGN.md Section 27
+            (Rule Provenance). Defaults to None so every existing
+            EvidenceSignal(...) construction site keeps behaving
+            identically; only new/updated call sites where audit
+            traceability is the point need to start populating it.
     """
 
     name: str
     score: float    # 0.0-1.0
     weight: float   # > 0; larger = more important
     note: str
+    source_module: Optional[str] = None
 
 
 @dataclass
@@ -99,13 +109,16 @@ class EvidenceBundle:
                 "score": round(s.score, 4),
                 "weight": round(s.weight, 4),
                 "note": s.note,
+                "source_module": s.source_module,
             }
             for s in self.signals
         ]
 
     @staticmethod
     def from_dict_list(data: List[dict]) -> "EvidenceBundle":
-        """Reconstruct from serialised form (e.g. loaded from JSON)."""
+        """Reconstruct from serialised form (e.g. loaded from JSON).
+        source_module defaults to None via .get() so data serialized before
+        this field existed still round-trips."""
         bundle = EvidenceBundle()
         for d in data:
             bundle.add(EvidenceSignal(
@@ -113,5 +126,6 @@ class EvidenceBundle:
                 score=d["score"],
                 weight=d["weight"],
                 note=d["note"],
+                source_module=d.get("source_module"),
             ))
         return bundle
