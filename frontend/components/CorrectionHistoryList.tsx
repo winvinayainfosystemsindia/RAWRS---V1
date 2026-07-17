@@ -4,6 +4,7 @@ import { useState } from "react";
 import { api, type CorrectionItem } from "@/lib/api";
 import { Badge } from "./Badge";
 import { EvidenceBreakdown } from "./EvidenceBreakdown";
+import { parseCorrectionPayload, type CorrectionPreview } from "@/lib/correctionPreview";
 
 interface Props {
   corrections: CorrectionItem[];
@@ -68,6 +69,19 @@ function CorrectionRow({ correction, jobId, onUpdated, onCorrectionClick }: { co
 
   const isDecided = !["proposed", "pending_review"].includes(correction.status);
 
+  // Phase RW-1: some verifiers (footnotes/headings/lists/tables) encode a
+  // structured payload as a JSON string in current_value/suggested_value
+  // rather than a plain string — rendered as-is, that was raw JSON shown
+  // as "the suggestion" to a reviewer. Prefer the suggested shape (what
+  // RAWRS wants to insert) as the card's headline; the current shape
+  // (e.g. a footnote's old anchor page) supplies "what was there before"
+  // context when both parse. Neither parsing (the common case — image
+  // alt text, page-label text, plain corrected strings) falls back to
+  // the plain Detected/Suggested fix pair below, unchanged in shape.
+  const suggestedPreview: CorrectionPreview | null = parseCorrectionPayload(correction.suggested_value);
+  const currentPreview: CorrectionPreview | null = parseCorrectionPayload(correction.current_value);
+  const preview = suggestedPreview ?? currentPreview;
+
   return (
     <div className="rounded-lg border border-border bg-surface-panel p-3 space-y-3">
       <div className="flex items-center justify-between gap-2">
@@ -91,18 +105,35 @@ function CorrectionRow({ correction, jobId, onUpdated, onCorrectionClick }: { co
         )}
       </div>
 
-      <p className="text-sm text-text-primary">{correction.problem}</p>
-
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-1">Current</p>
-          <p className="text-sm font-mono text-text-primary break-words">{correction.current_value || "—"}</p>
-        </div>
-        <div>
-          <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-1">Suggested</p>
-          <p className="text-sm font-mono text-success break-words">{correction.suggested_value || "—"}</p>
-        </div>
+      <div>
+        {preview && <p className="text-sm font-semibold text-text-primary">{preview.kind}</p>}
+        <p className="text-sm text-text-primary">{correction.problem}</p>
+        {correction.page_number !== null && (
+          <p className="text-xs text-text-secondary">Detected on page {correction.page_number}</p>
+        )}
       </div>
+
+      {preview ? (
+        <dl className="space-y-1.5 rounded-lg border border-border bg-surface-canvas p-3">
+          {preview.fields.map((f) => (
+            <div key={f.label}>
+              <dt className="text-xs font-semibold text-text-secondary uppercase tracking-wider">{f.label}</dt>
+              <dd className="text-sm text-text-primary break-words">{f.value}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : (
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-1">Detected</p>
+            <p className="text-sm text-text-primary break-words">{correction.current_value || "—"}</p>
+          </div>
+          <div>
+            <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-1">Suggested fix</p>
+            <p className="text-sm text-success break-words">{correction.suggested_value || "—"}</p>
+          </div>
+        </div>
+      )}
 
       {correction.reason && <p className="text-sm text-text-secondary">Reason: {correction.reason}</p>}
 
@@ -153,7 +184,7 @@ function CorrectionRow({ correction, jobId, onUpdated, onCorrectionClick }: { co
               disabled={saving || editValue === correction.suggested_value}
               className="rounded bg-accent px-3 py-1.5 text-sm font-medium text-accent-contrast hover:opacity-90 disabled:opacity-50"
             >
-              Accept with edit
+              Accept &amp; Edit
             </button>
             <button
               onClick={() => act("reject")}
@@ -190,6 +221,48 @@ function CorrectionRow({ correction, jobId, onUpdated, onCorrectionClick }: { co
           </button>
         )}
       </div>
+
+      {/* Phase RW-1 issue #2: raw/technical fields (rule id, internal
+          field name, ids, and the raw current/suggested strings this
+          card already parsed into the friendly view above) live behind
+          a collapsed-by-default disclosure, placed after the action
+          buttons so expanding it never pushes Accept/Reject out of
+          reach (issue #6 — long-content ergonomics). Same native
+          <details> pattern already used elsewhere (Export menu,
+          Overview, Processing Log). */}
+      <details className="rounded border border-border">
+        <summary className="cursor-pointer select-none px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-text-secondary hover:text-text-primary">
+          Developer Details
+        </summary>
+        <dl className="space-y-2 border-t border-border p-3 text-xs">
+          <div>
+            <dt className="font-semibold text-text-secondary uppercase tracking-wider">Rule</dt>
+            <dd className="font-mono text-text-primary">{correction.rule_id ?? "—"}</dd>
+          </div>
+          <div>
+            <dt className="font-semibold text-text-secondary uppercase tracking-wider">Field</dt>
+            <dd className="font-mono text-text-primary">{correction.field}</dd>
+          </div>
+          <div>
+            <dt className="font-semibold text-text-secondary uppercase tracking-wider">Detected value (raw)</dt>
+            <dd className="whitespace-pre-wrap break-words font-mono text-text-primary">
+              {correction.current_value || "—"}
+            </dd>
+          </div>
+          <div>
+            <dt className="font-semibold text-text-secondary uppercase tracking-wider">Suggested value (raw)</dt>
+            <dd className="whitespace-pre-wrap break-words font-mono text-text-primary">
+              {correction.suggested_value || "—"}
+            </dd>
+          </div>
+          <div>
+            <dt className="font-semibold text-text-secondary uppercase tracking-wider">IDs</dt>
+            <dd className="font-mono text-text-primary">
+              correction: {correction.correction_id} · object: {correction.object_id ?? "—"}
+            </dd>
+          </div>
+        </dl>
+      </details>
     </div>
   );
 }

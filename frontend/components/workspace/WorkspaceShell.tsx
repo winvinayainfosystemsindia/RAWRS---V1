@@ -1,11 +1,19 @@
 "use client";
 
-import { useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Panel, PanelGroup, PanelResizeHandle, type ImperativePanelHandle } from "react-resizable-panels";
-import type { JobStatus } from "@/lib/api";
+import { api, type JobStatus } from "@/lib/api";
 import { JobStatusBadge } from "@/components/Badge";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useArrowKeyTabs } from "@/lib/hooks/useArrowKeyTabs";
+import {
+  IconSearch,
+  IconExport,
+  IconFocus,
+  IconCheckCircle,
+  IconWarningTriangle,
+  ChevronDownIcon,
+} from "@/components/icons";
 
 interface CenterViews {
   pdf: ReactNode;
@@ -30,6 +38,29 @@ interface WorkspaceShellProps {
   rightRail: ReactNode;
   specialView: ReactNode;
   bottomPanel: ReactNode;
+  // Global Reviewer Toolbar additions (Phase R-1.1) — all optional, all
+  // caller-supplied data/callbacks so this component stays a pure
+  // presentational shell (no context hooks here — see the a11y test,
+  // which renders this with no PdfViewportContext/DocumentDataContext).
+  currentPage?: number | null;
+  readinessScore?: number | null;
+  // Optional, primitive (not the full ReadinessReport type) — keeps this
+  // component decoupled from DocumentDataContext's data shape, same
+  // reasoning as every other prop here.
+  readinessReady?: boolean;
+  onOpenSearch?: () => void;
+  jobId?: string;
+  docxAvailable?: boolean;
+  markdownAvailable?: boolean;
+  reportAvailable?: boolean;
+  docxStale?: boolean;
+  markdownStale?: boolean;
+  // Phase R-2 M2 — rendered after the toolbar row, before the center-view
+  // tabs. Exists so a caller's quick-jump chips sit after the toolbar in
+  // DOM/tab order (keyboard users reach Search/Export/Focus Mode without
+  // tabbing through every chip first) while staying visually adjacent to
+  // it. Optional, plain ReactNode slot — same pattern as `nav`/`rightRail`.
+  quickNav?: ReactNode;
 }
 
 // ponytail: estimate of surrounding chrome (site header, footer, page
@@ -61,6 +92,81 @@ const SPLIT_PAIRS: Partial<Record<CenterMode, [keyof CenterViews, keyof CenterVi
   "split-md-docx": ["markdown", "docx"],
 };
 
+// Layout-preference persistence (Phase F-4.3) — same lazy-init-read +
+// effect-write localStorage pattern as ThemeProvider.tsx. A reviewer's
+// preferred split/focus/bottom-panel state is a screen-setup preference,
+// not document data, so one global key set (not per-document) is correct.
+const CENTER_MODE_KEY = "rawrs-workspace-center-mode";
+const FOCUS_MODE_KEY = "rawrs-workspace-focus-mode";
+const BOTTOM_OPEN_KEY = "rawrs-workspace-bottom-open";
+
+function getInitialCenterMode(): CenterMode {
+  if (typeof window === "undefined") return "split-pdf-md";
+  const stored = window.localStorage.getItem(CENTER_MODE_KEY);
+  return (CENTER_MODE_IDS as string[]).includes(stored ?? "") ? (stored as CenterMode) : "split-pdf-md";
+}
+
+function getInitialFlag(key: string): boolean {
+  if (typeof window === "undefined") return false;
+  return window.localStorage.getItem(key) === "true";
+}
+
+// ponytail: native <details>/<summary> instead of a hand-rolled dropdown —
+// no portal, no click-outside handler, no z-index management to get wrong.
+function ExportMenu({
+  jobId,
+  docxAvailable,
+  markdownAvailable,
+  reportAvailable,
+  docxStale,
+  markdownStale,
+}: {
+  jobId: string;
+  docxAvailable: boolean;
+  markdownAvailable: boolean;
+  reportAvailable: boolean;
+  docxStale: boolean;
+  markdownStale: boolean;
+}) {
+  return (
+    <details className="relative">
+      <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium text-text-secondary transition-colors hover:bg-hover-row hover:text-text-primary">
+        <IconExport className="h-3.5 w-3.5" />
+        Export
+      </summary>
+      <div className="absolute right-0 z-10 mt-1 w-56 rounded border border-border bg-surface-panel py-1 shadow-lg">
+        {docxAvailable && (
+          <a
+            href={api.downloadUrl(jobId, "docx")}
+            download
+            className="block px-3 py-1.5 text-xs text-text-primary hover:bg-hover-row"
+          >
+            Accessible DOCX{docxStale ? " (stale)" : ""}
+          </a>
+        )}
+        {markdownAvailable && (
+          <a
+            href={api.downloadUrl(jobId, "markdown")}
+            download
+            className="block px-3 py-1.5 text-xs text-text-primary hover:bg-hover-row"
+          >
+            Accessible Markdown{markdownStale ? " (stale)" : ""}
+          </a>
+        )}
+        {reportAvailable && (
+          <a
+            href={api.downloadUrl(jobId, "report")}
+            download
+            className="block px-3 py-1.5 text-xs text-text-primary hover:bg-hover-row"
+          >
+            Validation Report
+          </a>
+        )}
+      </div>
+    </details>
+  );
+}
+
 export function WorkspaceShell({
   filename,
   status,
@@ -73,17 +179,44 @@ export function WorkspaceShell({
   rightRail,
   specialView,
   bottomPanel,
+  currentPage,
+  readinessScore,
+  readinessReady,
+  onOpenSearch,
+  jobId,
+  docxAvailable,
+  markdownAvailable,
+  reportAvailable,
+  docxStale,
+  markdownStale,
+  quickNav,
 }: WorkspaceShellProps) {
   const isActive = status === "queued" || status === "processing";
-  const [centerMode, setCenterMode] = useState<CenterMode>("split-pdf-md");
-  const [bottomOpen, setBottomOpen] = useState(false);
-  const [focusMode, setFocusMode] = useState(false);
+  const [centerMode, setCenterMode] = useState<CenterMode>(getInitialCenterMode);
+  const [bottomOpen, setBottomOpen] = useState(() => getInitialFlag(BOTTOM_OPEN_KEY));
+  const [focusMode, setFocusMode] = useState(() => getInitialFlag(FOCUS_MODE_KEY));
   const navPanelRef = useRef<ImperativePanelHandle>(null);
   const railPanelRef = useRef<ImperativePanelHandle>(null);
   const splitPair = SPLIT_PAIRS[centerMode];
   // Phase F-3.2 — shared ARIA-tabs keyboard model (arrow keys move focus
   // + selection together, Home/End jump to first/last).
   const centerTabs = useArrowKeyTabs({ ids: CENTER_MODE_IDS, active: centerMode, onChange: setCenterMode });
+
+  useEffect(() => window.localStorage.setItem(CENTER_MODE_KEY, centerMode), [centerMode]);
+  useEffect(() => window.localStorage.setItem(FOCUS_MODE_KEY, String(focusMode)), [focusMode]);
+  useEffect(() => window.localStorage.setItem(BOTTOM_OPEN_KEY, String(bottomOpen)), [bottomOpen]);
+
+  // Re-apply a persisted Focus Mode on mount — react-resizable-panels'
+  // autoSaveId already restores each panel's last saved size (including a
+  // collapsed 0%), but calling collapse() here too is a harmless no-op if
+  // it already restored collapsed, and a correct fix if it didn't.
+  useEffect(() => {
+    if (focusMode) {
+      navPanelRef.current?.collapse();
+      railPanelRef.current?.collapse();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function toggleFocusMode() {
     const next = !focusMode;
@@ -99,35 +232,97 @@ export function WorkspaceShell({
 
   return (
     <div className="flex flex-col rounded border border-border bg-surface-canvas overflow-hidden">
-      {/* Top bar */}
+      {/* Top bar — Phase R-2 M3: primary orientation info (filename,
+          status, readiness score) grouped on the left with the filename,
+          since these three answer "what is this document / how healthy is
+          it" (Journey Stage 1). Everything on the right is secondary
+          action/metadata (page position, export, view options) and keeps
+          its original small/muted styling unchanged. */}
       <div className="flex items-center justify-between gap-4 border-b border-border bg-surface-panel px-4 py-2.5">
-        <div className="flex min-w-0 items-center gap-3">
+        <div className="flex min-w-0 flex-wrap items-center gap-3">
           <span className="break-all text-sm font-semibold text-text-primary">{filename}</span>
           <JobStatusBadge status={status} />
-        </div>
-        <div className="flex shrink-0 items-center gap-3">
-          {documentVersion !== null && (
-            <span className="rounded border border-border px-2 py-0.5 font-mono text-xs text-text-secondary">
-              Document v{documentVersion}
-            </span>
-          )}
-          {mode === "document" && (
-            <button
-              type="button"
-              onClick={toggleFocusMode}
-              aria-pressed={focusMode}
-              className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
-                focusMode
-                  ? "bg-accent text-accent-contrast"
-                  : "text-text-secondary hover:bg-hover-row hover:text-text-primary"
+          {readinessScore !== null && readinessScore !== undefined && (
+            <span
+              title="Accessibility readiness score"
+              className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-sm font-semibold ${
+                readinessReady ? "bg-success/10 text-success" : "bg-warning/10 text-warning"
               }`}
             >
-              Focus Mode
-            </button>
+              {readinessReady ? (
+                <IconCheckCircle className="h-4 w-4 shrink-0" />
+              ) : (
+                <IconWarningTriangle className="h-4 w-4 shrink-0" />
+              )}
+              Score {Math.round(readinessScore * 100)}%
+            </span>
           )}
-          <ThemeToggle />
+        </div>
+        <div className="flex shrink-0 items-center gap-4">
+          {/* Position/version readout — grouped tightly since both are
+              passive status, not actions. */}
+          {(mode === "document" && currentPage != null) || documentVersion !== null ? (
+            <div className="flex items-center gap-2">
+              {mode === "document" && currentPage != null && (
+                <span className="font-mono text-xs text-text-secondary">Page {currentPage}</span>
+              )}
+              {documentVersion !== null && (
+                <span className="rounded border border-border px-2 py-0.5 font-mono text-xs text-text-secondary">
+                  Document v{documentVersion}
+                </span>
+              )}
+            </div>
+          ) : null}
+          {/* Action cluster — grouped tightly since these are the toolbar's
+              actual controls, distinct from the passive readout above. */}
+          <div className="flex items-center gap-1.5">
+            {onOpenSearch && (
+              <button
+                type="button"
+                onClick={onOpenSearch}
+                className="inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium text-text-secondary transition-colors hover:bg-hover-row hover:text-text-primary"
+              >
+                <IconSearch className="h-3.5 w-3.5" />
+                Search
+              </button>
+            )}
+            {jobId && (docxAvailable || markdownAvailable || reportAvailable) && (
+              <ExportMenu
+                jobId={jobId}
+                docxAvailable={!!docxAvailable}
+                markdownAvailable={!!markdownAvailable}
+                reportAvailable={!!reportAvailable}
+                docxStale={!!docxStale}
+                markdownStale={!!markdownStale}
+              />
+            )}
+            {mode === "document" && (
+              <button
+                type="button"
+                onClick={toggleFocusMode}
+                aria-pressed={focusMode}
+                className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                  focusMode
+                    ? "bg-accent text-accent-contrast"
+                    : "text-text-secondary hover:bg-hover-row hover:text-text-primary"
+                }`}
+              >
+                <IconFocus className="h-3.5 w-3.5" />
+                Focus Mode
+              </button>
+            )}
+            <ThemeToggle />
+          </div>
         </div>
       </div>
+
+      {/* Phase R-2 M2 — quick-jump chips render here, after the toolbar row
+          above, so they come after Search/Export/Focus Mode/Theme in
+          DOM/tab order. A keyboard user reaches the toolbar's action
+          controls without tabbing through every chip first. */}
+      {quickNav && (
+        <div className="border-b border-border bg-surface-panel px-2 py-1.5">{quickNav}</div>
+      )}
 
       {/* View switcher — only meaningful in document mode, but shown
           consistently so switching back from a special view is obvious. */}
@@ -161,11 +356,29 @@ export function WorkspaceShell({
           Outline≈PDF≈Markdown 22/39/39 split with the Context Inspector
           rail folded in as a fourth, narrower pane. */}
       <div className={`flex ${PANE_HEIGHT} min-h-0`}>
-        <PanelGroup direction="horizontal" className="flex-1">
+        {/* Phase R-4 M2 — every Panel below carries a stable id/order.
+            react-resizable-panels' own README: "id and order props ...
+            aren't necessary for static layouts. When panels are
+            conditionally rendered though, it's best to supply these
+            values" — real guidance, not a stylistic nit. The rail Panel
+            is genuinely conditional (mode === "document" only), and the
+            center slot mounts one of three different Panel elements
+            depending on mode/centerMode. Without ids, this autoSaveId
+            group's persisted layout has no stable key to reconcile
+            against when the panel set changes across a mode switch,
+            which is exactly the "layout/sizing problems" scenario the
+            README names. */}
+        <PanelGroup autoSaveId="rawrs-workspace-shell" direction="horizontal" className="flex-1">
           <Panel
+            id="nav"
+            order={1}
             ref={navPanelRef}
             defaultSize={18}
             minSize={12}
+            // Nav is an outline tree, not primary work surface — cap so a
+            // drag can't let it swallow the center/rail panes. Exempt from
+            // this while collapsed (collapsedSize={0} is a distinct state).
+            maxSize={40}
             collapsible
             collapsedSize={0}
             className="overflow-y-auto border-r border-border bg-surface-panel"
@@ -175,15 +388,25 @@ export function WorkspaceShell({
           <PanelResizeHandle className={RESIZE_HANDLE} />
 
           {mode === "special" ? (
-            <Panel minSize={30} className="overflow-auto bg-surface-canvas p-4">
+            // Sole content pane besides nav in this mode — no sibling to
+            // protect from being swallowed, so no maxSize needed. Same
+            // id/order as the other two center-slot branches below: exactly
+            // one of the three is ever mounted, occupying the same logical
+            // slot, so it needs the same stable identity, not three.
+            <Panel id="center" order={2} minSize={30} className="overflow-auto bg-surface-canvas p-4">
               {specialView}
             </Panel>
           ) : splitPair ? (
-            <Panel minSize={40} className="flex overflow-hidden">
-              <PanelGroup direction="horizontal">
+            <Panel id="center" order={2} minSize={40} className="flex overflow-hidden">
+              <PanelGroup autoSaveId="rawrs-workspace-center-split" direction="horizontal">
                 <Panel
+                  id="center-a"
+                  order={1}
                   defaultSize={50}
                   minSize={20}
+                  // Complement of the sibling's minSize=20, so neither side
+                  // can be dragged past the other's usability floor.
+                  maxSize={80}
                   className={`overflow-auto border-r border-border bg-surface-canvas ${
                     splitPair[0] === "docx" ? "p-4" : ""
                   }`}
@@ -192,8 +415,11 @@ export function WorkspaceShell({
                 </Panel>
                 <PanelResizeHandle className={RESIZE_HANDLE} />
                 <Panel
+                  id="center-b"
+                  order={2}
                   defaultSize={50}
                   minSize={20}
+                  maxSize={80}
                   className={`overflow-auto bg-surface-canvas ${splitPair[1] === "docx" ? "p-4" : ""}`}
                 >
                   {centerViews[splitPair[1]]}
@@ -201,7 +427,12 @@ export function WorkspaceShell({
               </PanelGroup>
             </Panel>
           ) : (
+            // No maxSize here deliberately: Focus Mode's whole point is
+            // letting this pane approach 100% once nav/rail collapse to 0 —
+            // a cap here would fight that, not just resize dragging.
             <Panel
+              id="center"
+              order={2}
               defaultSize={68}
               minSize={30}
               className={`overflow-auto bg-surface-canvas ${centerMode === "docx" ? "p-4" : ""}`}
@@ -214,9 +445,14 @@ export function WorkspaceShell({
             <>
               <PanelResizeHandle className={RESIZE_HANDLE} />
               <Panel
+                id="rail"
+                order={3}
                 ref={railPanelRef}
                 defaultSize={14}
                 minSize={10}
+                // Inspector tabs/detail panels don't need more than this to
+                // stay usable; caps the same accidental-swallow risk as nav.
+                maxSize={40}
                 collapsible
                 collapsedSize={0}
                 className="overflow-auto border-l border-border bg-surface-canvas"
@@ -233,21 +469,11 @@ export function WorkspaceShell({
         <button
           type="button"
           onClick={() => setBottomOpen((v) => !v)}
+          aria-expanded={bottomOpen}
           className="flex items-center justify-between px-4 py-1 text-xs text-text-secondary hover:text-text-primary"
         >
           <span className="flex items-center gap-2">
-            <svg
-              className={`h-3 w-3 transition-transform ${bottomOpen ? "rotate-180" : ""}`}
-              viewBox="0 0 12 12"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M2.5 4.5 6 8l3.5-3.5" />
-            </svg>
+            <ChevronDownIcon open={bottomOpen} />
             <span aria-live="polite">
               {isActive
                 ? `Elapsed: ${elapsedSeconds}s`

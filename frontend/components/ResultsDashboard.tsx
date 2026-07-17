@@ -413,13 +413,19 @@ export interface ResultsDashboardProps {
   tables: TableItem[];
 }
 
+// Phase R-2 M4: Manual Review leads — it directly answers "what should the
+// reviewer do first," the question the Overview panel exists to answer.
+// Automatic Repairs follows (useful context: what's already handled).
+// Verified/Verification Summary — pipeline-detection counts, half of
+// Verification Summary literally reads "TODO — Phase 2" — are demoted
+// below as detail a reviewer consults, not content that leads the panel.
 export function ResultsDashboard({ job, issues, images, footnotes, pages, tables }: ResultsDashboardProps) {
   return (
     <div className="space-y-8">
-      <VerificationSummarySection job={job} />
-      <VerifiedSection job={job} pages={pages} tables={tables} />
-      <AutomaticRepairsSection job={job} footnotes={footnotes} images={images} pages={pages} />
       <ManualReviewSection issues={issues} images={images} />
+      <AutomaticRepairsSection job={job} footnotes={footnotes} images={images} pages={pages} />
+      <VerifiedSection job={job} pages={pages} tables={tables} />
+      <VerificationSummarySection job={job} />
       <ChecklistPanel job={job} issues={issues} images={images} footnotes={footnotes} pages={pages} tables={tables} />
     </div>
   );

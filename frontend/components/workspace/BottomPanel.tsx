@@ -2,11 +2,12 @@
 
 import { useState } from "react";
 import type { JobSummary, ValidationIssue } from "@/lib/api";
+import { ReviewerWorkspace } from "@/components/ReviewerWorkspace";
 
-type BottomTab = "validation" | "export" | "console";
+type BottomTab = "review" | "validation" | "export" | "console";
 
-export function BottomPanel({ job, issues }: { job: JobSummary; issues: ValidationIssue[] }) {
-  const [tab, setTab] = useState<BottomTab>("validation");
+export function BottomPanel({ job, issues, jobId }: { job: JobSummary; issues: ValidationIssue[]; jobId: string }) {
+  const [tab, setTab] = useState<BottomTab>("review");
   const errorCount = issues.filter((i) => i.severity === "error").length;
   const warningCount = issues.filter((i) => i.severity === "warning").length;
 
@@ -16,9 +17,10 @@ export function BottomPanel({ job, issues }: { job: JobSummary; issues: Validati
     job.docx_generated_at_version !== null && job.docx_generated_at_version !== job.document_version;
 
   return (
-    <div className="flex h-40 flex-col">
+    <div className={`flex flex-col ${tab === "review" ? "h-96" : "h-40"}`}>
       <div className="flex items-center gap-1 border-b border-border px-2 py-1">
         {([
+          ["review", "Review Queue"],
           ["validation", "Validation"],
           ["export", "Export"],
           ["console", "Console"],
@@ -35,7 +37,8 @@ export function BottomPanel({ job, issues }: { job: JobSummary; issues: Validati
           </button>
         ))}
       </div>
-      <div className="flex-1 overflow-auto p-3 font-mono text-xs text-text-secondary">
+      <div className={`flex-1 overflow-auto ${tab === "review" ? "" : "p-3 font-mono text-xs text-text-secondary"}`}>
+        {tab === "review" && <ReviewerWorkspace jobId={jobId} />}
         {tab === "validation" && (
           <p>
             {issues.length === 0

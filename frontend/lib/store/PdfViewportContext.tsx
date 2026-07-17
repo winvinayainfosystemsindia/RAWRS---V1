@@ -15,7 +15,15 @@ interface PdfViewportContextValue {
   zoom: number;
   jumpTarget: JumpTarget | null;
   setPageNumber: (page: number) => void;
-  setZoom: (zoom: number) => void;
+  // Accepts a plain value or a functional updater, same overload shape as
+  // React's own setState setter — needed because PdfViewer's zoom
+  // buttons compute the next value from the current one
+  // (`zoom + ZOOM_STEP`); a plain-value-only setter reads `zoom` from
+  // each click handler's render closure, so back-to-back clicks that
+  // land before React commits the first update all read the same stale
+  // value and only one increment survives (reproduced live: 5 rapid
+  // clicks advanced 100% -> 110%, not 150%).
+  setZoom: (zoom: number | ((prev: number) => number)) => void;
   jumpToObject: (pageNumber: number, bbox: BoundingBox | null) => void;
 }
 
@@ -37,10 +45,12 @@ export function PdfViewportProvider({ children }: { children: ReactNode }) {
   // logical call; the function *reference* itself must not, or any
   // consumer syncing "whichever object is current" into an effect loops
   // forever (caught via live browser verification of M-4.2).
-  const setZoom = useCallback(
-    (next: number) => setZoomState(Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, next))),
-    []
-  );
+  const setZoom = useCallback((next: number | ((prev: number) => number)) => {
+    setZoomState((prev) => {
+      const raw = typeof next === "function" ? next(prev) : next;
+      return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, raw));
+    });
+  }, []);
   const jumpToObject = useCallback((page: number, bbox: BoundingBox | null) => {
     setPageNumber(page);
     setJumpTarget((prev) => ({ pageNumber: page, bbox, nonce: (prev?.nonce ?? 0) + 1 }));

@@ -4,7 +4,7 @@ import type { AiStatus } from "@/lib/api";
 import { useDocumentData, useDocumentDispatch, footnoteKey, listKey, calloutKey } from "@/lib/store/DocumentDataContext";
 import { useSelection } from "@/lib/store/SelectionContext";
 import { usePdfViewport } from "@/lib/store/PdfViewportContext";
-import { ValidationIssueTable } from "@/components/ValidationIssueTable";
+import { SeverityBadge } from "@/components/Badge";
 import { HeadingDetailPanel } from "@/components/HeadingDetailPanel";
 import { TableDetailPanel } from "@/components/TableDetailPanel";
 import { ImageDetailPanel } from "@/components/ImageDetailPanel";
@@ -18,24 +18,65 @@ import { CorrectionHistoryList } from "@/components/CorrectionHistoryList";
 // Whatever is selected (nav tree click, PDF overlay click, correction card,
 // search result) renders here via the single normalized store, replacing
 // the old nav-category-driven detail pane.
-export function ContextInspectorRail({ jobId, aiStatus }: { jobId: string; aiStatus: AiStatus | null }) {
+export function ContextInspectorRail({
+  jobId,
+  aiStatus,
+  onOpenValidation,
+}: {
+  jobId: string;
+  aiStatus: AiStatus | null;
+  // Phase R-2 M5 — navigates to the canonical Validation special view
+  // (DocumentWorkspace's setActiveSpecialView("validation")) instead of
+  // this rail rendering its own copy of ValidationIssueTable. Optional so
+  // this component still works standalone (e.g. in isolation/tests).
+  onOpenValidation?: () => void;
+}) {
   const { selection, clearSelection } = useSelection();
   const state = useDocumentData();
   const dispatch = useDocumentDispatch();
   const { jumpToObject } = usePdfViewport();
 
   if (!selection) {
+    const issues = state.validationIssues;
+    const errorCount = issues.filter((i) => i.severity === "error").length;
+    const warningCount = issues.filter((i) => i.severity === "warning").length;
+    const infoCount = issues.filter((i) => i.severity === "info").length;
+    const firstJumpable = issues.find((i) => i.page_number !== null);
     return (
       <div className="p-4">
         <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-text-secondary">
-          Validation Issues
+          Validation
         </p>
-        <ValidationIssueTable
-          issues={state.validationIssues}
-          onJump={(page) => jumpToObject(page, null)}
-          jobId={jobId}
-          onIssueUpdated={(issue) => dispatch({ type: "UPDATE_VALIDATION_ISSUE", issue })}
-        />
+        {issues.length === 0 ? (
+          <p className="text-sm text-text-secondary">No validation issues were found for this document.</p>
+        ) : (
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            {errorCount > 0 && <SeverityBadge severity="error" />}
+            {warningCount > 0 && <SeverityBadge severity="warning" />}
+            {infoCount > 0 && <SeverityBadge severity="info" />}
+            <span className="text-sm text-text-secondary">
+              {issues.length} issue{issues.length === 1 ? "" : "s"}
+            </span>
+          </div>
+        )}
+        {onOpenValidation && (
+          <button
+            type="button"
+            onClick={onOpenValidation}
+            className="rounded border border-border px-2.5 py-1 text-xs font-medium text-accent hover:bg-hover-row"
+          >
+            Open Validation Center &rarr;
+          </button>
+        )}
+        {firstJumpable && (
+          <button
+            type="button"
+            onClick={() => jumpToObject(firstJumpable.page_number!, null)}
+            className="ml-2 rounded border border-border px-2.5 py-1 text-xs font-medium text-text-secondary hover:bg-hover-row"
+          >
+            Jump to first issue
+          </button>
+        )}
       </div>
     );
   }

@@ -1,63 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { api, type Severity, type ValidationIssue } from "@/lib/api";
+import { api, type ReadinessReport, type Severity, type ValidationIssue } from "@/lib/api";
 import { SeverityBadge } from "./Badge";
-
-const RULE_CATEGORY_LABELS: Record<string, string> = {
-  DOC: "Document",
-  HEADING: "Heading",
-  PAGE: "Page",
-  META: "Metadata",
-  IMAGE: "Image",
-  NOTE: "Footnote/Endnote",
-  OCR: "OCR",
-  TABLE: "Table",
-  LIST: "List",
-  CALLOUT: "Callout",
-};
-
-// PAGE_003 (reading-order anomalies) is split out from the generic
-// "Page" category (page markers/sequencing, PAGE_001/002) since
-// reading-order review is its own required workflow. Any *_VERIFY_*
-// rule id (HEADING_VERIFY_004, LIST_VERIFY_002, ...) is cross-source
-// Mathpix-vs-PDF verification output, grouped separately from the
-// same object type's Phase-1 structural findings per the stitch
-// validation-report reference.
-function categoryOf(ruleId: string): string {
-  if (ruleId === "PAGE_003") return "Reading order";
-  if (ruleId.includes("_VERIFY_")) return "Cross-Source Verification";
-  const prefix = ruleId.split("_")[0];
-  return RULE_CATEGORY_LABELS[prefix] ?? prefix;
-}
-
-// Canonical display order — cross-source verification and structural
-// document-level issues surface first, per-object categories follow.
-const CATEGORY_ORDER = [
-  "Cross-Source Verification",
-  "Document",
-  "Metadata",
-  "Reading order",
-  "Page",
-  "Heading",
-  "Image",
-  "Table",
-  "List",
-  "Callout",
-  "Footnote/Endnote",
-  "OCR",
-];
-
-function sortCategories(categories: string[]): string[] {
-  return [...categories].sort((a, b) => {
-    const ai = CATEGORY_ORDER.indexOf(a);
-    const bi = CATEGORY_ORDER.indexOf(b);
-    if (ai !== -1 && bi !== -1) return ai - bi;
-    if (ai !== -1) return -1;
-    if (bi !== -1) return 1;
-    return a.localeCompare(b);
-  });
-}
+import { useArrowKeyTabs } from "@/lib/hooks/useArrowKeyTabs";
+import { IconCheckCircle, IconWarningTriangle } from "@/components/icons";
+import { categoryOf, sortCategories } from "@/lib/validationCategories";
 
 interface Props {
   issues: ValidationIssue[];
@@ -66,9 +14,22 @@ interface Props {
   // summary embed) wherever a caller doesn't wire up persistence.
   jobId?: string;
   onIssueUpdated?: (issue: ValidationIssue) => void;
+  // Optional — when supplied, renders a one-line running score so a
+  // reviewer can gauge document health without opening a separate
+  // dashboard (Design Bible §10; reuses GET /readiness, already fetched
+  // into DocumentDataContext — no new backend capability).
+  readiness?: ReadinessReport | null;
 }
 
-export function ValidationIssueTable({ issues, onJump, jobId, onIssueUpdated }: Props) {
+const SEVERITY_TABS: { id: Severity | "all"; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "error", label: "Errors" },
+  { id: "warning", label: "Warnings" },
+  { id: "info", label: "Info" },
+];
+const SEVERITY_TAB_IDS = SEVERITY_TABS.map((t) => t.id);
+
+export function ValidationIssueTable({ issues, onJump, jobId, onIssueUpdated, readiness }: Props) {
   const [severityFilter, setSeverityFilter] = useState<Severity | "all">("all");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [showIgnored, setShowIgnored] = useState(false);
@@ -104,6 +65,21 @@ export function ValidationIssueTable({ issues, onJump, jobId, onIssueUpdated }: 
 
   const ignoredCount = issues.filter((i) => i.status === "ignored").length;
 
+  const severityCounts = useMemo(() => {
+    const counts: Record<Severity, number> = { error: 0, warning: 0, info: 0 };
+    for (const issue of issues) counts[issue.severity]++;
+    return counts;
+  }, [issues]);
+
+  // Phase R-1.1 — a genuine tabs case (swaps which issues are visible),
+  // not a filter-checkbox case, so this reuses the shared ARIA-tabs hook
+  // (F-3.2) instead of the plain <select> it replaces.
+  const severityTabs = useArrowKeyTabs({
+    ids: SEVERITY_TAB_IDS,
+    active: severityFilter,
+    onChange: setSeverityFilter,
+  });
+
   const filtered = issues.filter((issue) => {
     if (!showIgnored && issue.status === "ignored") return false;
     if (severityFilter !== "all" && issue.severity !== severityFilter) return false;
@@ -125,24 +101,62 @@ export function ValidationIssueTable({ issues, onJump, jobId, onIssueUpdated }: 
     }));
   }, [filtered]);
 
+  const readinessBanner = readiness && (
+    <div className="mb-3 flex items-center gap-3">
+      <span
+        className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-sm font-semibold ${
+          readiness.ready ? "bg-success/10 text-success" : "bg-warning/10 text-warning"
+        }`}
+      >
+        {readiness.ready ? (
+          <IconCheckCircle className="h-4 w-4 shrink-0" />
+        ) : (
+          <IconWarningTriangle className="h-4 w-4 shrink-0" />
+        )}
+        {readiness.ready ? "Export Ready" : "Not Yet Ready"}
+      </span>
+      <span className="text-sm text-text-secondary">Score {Math.round(readiness.overall_score * 100)}%</span>
+    </div>
+  );
+
   if (issues.length === 0) {
-    return <p className="text-sm text-text-secondary">No validation issues were found for this document.</p>;
+    return (
+      <div>
+        {readinessBanner}
+        <p className="text-sm text-text-secondary">No validation issues were found for this document.</p>
+      </div>
+    );
   }
 
   return (
     <div>
+      {readinessBanner}
+
+      <div
+        role="tablist"
+        aria-label="Filter by severity"
+        ref={severityTabs.tablistRef as React.RefObject<HTMLDivElement>}
+        className="mb-3 flex items-center gap-1"
+      >
+        {SEVERITY_TABS.map((tab) => (
+          <button
+            key={tab.id}
+            {...severityTabs.getTabProps(tab.id)}
+            className={`rounded px-2.5 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+              severityFilter === tab.id
+                ? "bg-accent text-accent-contrast"
+                : "text-text-secondary hover:bg-hover-row hover:text-text-primary"
+            }`}
+          >
+            {tab.label}
+            {tab.id !== "all" && (
+              <span className="ml-1.5 font-mono text-[10px] opacity-80">{severityCounts[tab.id]}</span>
+            )}
+          </button>
+        ))}
+      </div>
+
       <div className="mb-4 flex flex-wrap items-center gap-3">
-        <FilterSelect
-          label="Severity"
-          value={severityFilter}
-          onChange={(v) => setSeverityFilter(v as Severity | "all")}
-          options={[
-            { value: "all", label: "All severities" },
-            { value: "error", label: "Error" },
-            { value: "warning", label: "Warning" },
-            { value: "info", label: "Info" },
-          ]}
-        />
         <FilterSelect
           label="Category"
           value={categoryFilter}
@@ -279,7 +293,7 @@ function FilterSelect({
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="rounded-md border border-border bg-surface-canvas px-2 py-1 text-sm text-text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        className="rounded border border-border bg-surface-canvas px-2 py-1 text-sm text-text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
       >
         {options.map((opt) => (
           <option key={opt.value} value={opt.value}>

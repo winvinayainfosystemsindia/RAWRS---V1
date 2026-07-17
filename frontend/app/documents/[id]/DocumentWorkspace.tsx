@@ -31,18 +31,23 @@ import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { DocxPreview } from "@/components/DocxPreview";
 import { WorkspaceShell } from "@/components/workspace/WorkspaceShell";
 import { SemanticNavTree, type NavSection } from "@/components/workspace/SemanticNavTree";
+import { NavChips } from "@/components/workspace/NavChips";
 import { ContextInspectorRail } from "@/components/workspace/ContextInspectorRail";
 import { BottomPanel } from "@/components/workspace/BottomPanel";
 import { ValidationIssueTable } from "@/components/ValidationIssueTable";
 import { ImageGrid } from "@/components/ImageGrid";
 import { TableGrid } from "@/components/TableGrid";
 import { HeadingGrid } from "@/components/HeadingGrid";
+import { FootnoteTable } from "@/components/FootnoteTable";
+import { ListPanel } from "@/components/ListPanel";
+import { CalloutPanel } from "@/components/CalloutPanel";
 import { MetadataPanel } from "@/components/MetadataPanel";
 import { OcrPageTable } from "@/components/OcrPageTable";
 import { ReadingOrderPanel } from "@/components/ReadingOrderPanel";
 import { PageLabelManagerPanel } from "@/components/PageLabelManagerPanel";
 import { CorrectionsPanel } from "@/components/CorrectionsPanel";
 import { ReadinessPanel } from "@/components/ReadinessPanel";
+import { ChevronDownIcon } from "@/components/icons";
 
 // Naive positional line diff for the "flash changed lines" signal after a
 // live document_version regen — not a real LCS diff (would misreport a
@@ -83,8 +88,12 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
   const dispatch = useDocumentDispatch();
   const { jumpTarget: mdJumpTarget, jumpToLine } = useMarkdownViewport();
   const { selection, select } = useSelection();
+  const { pageNumber } = usePdfViewport();
   const [activeSpecialView, setActiveSpecialView] = useState("");
   const [overviewOpen, setOverviewOpen] = useState(false);
+  // Bumped by WorkspaceShell's toolbar Search button; SemanticNavTree
+  // watches this to switch itself into Search mode (see focusSignal).
+  const [searchNonce, setSearchNonce] = useState(0);
   const elapsed = useElapsedSeconds(state.job);
 
   // Diff against the markdown from before this render's update, so a live
@@ -157,6 +166,8 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
   const headings = selectHeadings(state);
   const images = selectImages(state);
   const footnotes = selectFootnotes(state);
+  const lists = selectLists(state);
+  const callouts = selectCallouts(state);
   const corrections = selectCorrections(state);
   const pageLabels = selectPageLabels(state);
   const readingOrder = selectReadingOrder(state);
@@ -185,6 +196,9 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
     { id: "images", label: "Images", count: images.length },
     { id: "tables", label: "Tables", count: tables.length },
     { id: "headings", label: "Headings", count: headings.length },
+    { id: "footnotes", label: "Footnotes", count: footnotes.length },
+    { id: "lists", label: "Lists", count: lists.length },
+    { id: "callouts", label: "Callouts", count: callouts.length },
     { id: "metadata", label: "Metadata" },
     { id: "ocr", label: "OCR Pages" },
     {
@@ -206,6 +220,7 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
             issues={state.validationIssues}
             jobId={jobId}
             onIssueUpdated={(issue) => dispatch({ type: "UPDATE_VALIDATION_ISSUE", issue })}
+            readiness={state.readiness}
           />
         );
       case "images":
@@ -234,6 +249,18 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
             onHeadingsUpdated={(updated) => dispatch({ type: "REPLACE_HEADINGS", headings: updated })}
           />
         );
+      case "footnotes":
+        return (
+          <FootnoteTable
+            footnotes={footnotes}
+            jobId={jobId}
+            onFootnotesUpdated={(updated) => dispatch({ type: "REPLACE_FOOTNOTES", footnotes: updated })}
+          />
+        );
+      case "lists":
+        return <ListPanel lists={lists} jobId={jobId} />;
+      case "callouts":
+        return <CalloutPanel callouts={callouts} jobId={jobId} />;
       case "metadata":
         return state.metadata ? (
           <MetadataPanel
@@ -275,7 +302,7 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
           />
         );
       case "readiness":
-        return <ReadinessPanel readiness={state.readiness} />;
+        return <ReadinessPanel readiness={state.readiness} onSelectCategory={setActiveSpecialView} />;
       default:
         return null;
     }
@@ -322,25 +349,14 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
           <button
             type="button"
             onClick={() => setOverviewOpen((v) => !v)}
+            aria-expanded={overviewOpen}
             className="flex w-full items-center justify-between px-4 py-2 text-xs font-semibold uppercase tracking-wider text-text-secondary hover:text-text-primary"
           >
             <span>Overview</span>
-            <svg
-              className={`h-3 w-3 transition-transform ${overviewOpen ? "rotate-180" : ""}`}
-              viewBox="0 0 12 12"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M2.5 4.5 6 8l3.5-3.5" />
-            </svg>
+            <ChevronDownIcon open={overviewOpen} />
           </button>
           {overviewOpen && (
             <div className="space-y-6 border-t border-border p-4">
-              <PipelineView status={job.status} elapsed={elapsed} />
               <ResultsDashboard
                 job={job}
                 issues={state.validationIssues}
@@ -350,6 +366,20 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
                 tables={tables}
               />
               <OutputWorkspace job={job} generatedMarkdown={state.markdown} />
+              {/* Phase R-2 M4: internal pipeline-stage detail demoted below
+                  the reviewer-relevant sections above and behind its own
+                  disclosure — it answers "did the pipeline run", not "what
+                  should I do first", so it no longer leads the panel.
+                  Same native <details> pattern already used elsewhere
+                  (Export menu, validation category accordions). */}
+              <details className="rounded-lg border border-border">
+                <summary className="cursor-pointer select-none px-4 py-2 text-xs font-semibold uppercase tracking-wider text-text-secondary hover:text-text-primary">
+                  Processing Log
+                </summary>
+                <div className="border-t border-border p-4">
+                  <PipelineView status={job.status} elapsed={elapsed} />
+                </div>
+              </details>
             </div>
           )}
         </div>
@@ -368,11 +398,34 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
           elapsedSeconds={elapsed}
           durationSeconds={job.duration_seconds}
           mode={activeSpecialView ? "special" : "document"}
+          currentPage={pageNumber}
+          readinessScore={state.readiness?.overall_score ?? null}
+          readinessReady={state.readiness?.ready}
+          onOpenSearch={() => {
+            setActiveSpecialView("");
+            setSearchNonce((n) => n + 1);
+          }}
+          jobId={jobId}
+          docxAvailable={job.docx_available}
+          markdownAvailable={job.markdown_available}
+          reportAvailable={job.report_available}
+          docxStale={job.docx_generated_at_version !== null && job.docx_generated_at_version !== job.document_version}
+          markdownStale={
+            job.markdown_generated_at_version !== null && job.markdown_generated_at_version !== job.document_version
+          }
+          quickNav={
+            <NavChips
+              sections={specialViews}
+              activeSpecialView={activeSpecialView || null}
+              onSelect={setActiveSpecialView}
+            />
+          }
           nav={
             <SemanticNavTree
               specialViews={specialViews}
               activeSpecialView={activeSpecialView || null}
               onSelectSpecialView={setActiveSpecialView}
+              focusSignal={searchNonce}
             />
           }
           centerViews={{
@@ -405,9 +458,15 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
               />
             ),
           }}
-          rightRail={<ContextInspectorRail jobId={jobId} aiStatus={state.aiStatus} />}
+          rightRail={
+            <ContextInspectorRail
+              jobId={jobId}
+              aiStatus={state.aiStatus}
+              onOpenValidation={() => setActiveSpecialView("validation")}
+            />
+          }
           specialView={renderSpecialView()}
-          bottomPanel={<BottomPanel job={job} issues={state.validationIssues} />}
+          bottomPanel={<BottomPanel job={job} issues={state.validationIssues} jobId={jobId} />}
         />
       )}
     </div>

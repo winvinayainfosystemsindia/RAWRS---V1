@@ -114,7 +114,14 @@ export function ObjectInspectorFrame({
         </div>
       )}
 
-      {version && <p className="border-t border-border pt-2 text-xs text-text-secondary">{version}</p>}
+      {/* Phase V-1: div, not p — every one of the 6 detail-panel callers
+          passes its own <p>...</p> as `version` (documentVersion notice),
+          and a <p> cannot legally contain a nested <p>. Found live via a
+          real React DOM-nesting/hydration console error the first time
+          this session a heading was actually selected with real data;
+          fires on every object type, every real document, not an edge
+          case. Same classes, so no visual change. */}
+      {version && <div className="border-t border-border pt-2 text-xs text-text-secondary">{version}</div>}
     </div>
   );
 }

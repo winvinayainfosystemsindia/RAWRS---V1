@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Document, Page, pdfjs } from "react-pdf";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
@@ -48,9 +48,18 @@ export function PdfViewer({
   const { pageNumber, zoom, jumpTarget, setPageNumber, setZoom } = usePdfViewport();
   const [numPages, setNumPages] = useState<number | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const highlightRef = useRef<HTMLDivElement>(null);
 
   const highlight =
     jumpTarget && jumpTarget.pageNumber === pageNumber && jumpTarget.bbox ? jumpTarget.bbox : null;
+
+  // Same scroll-into-view intent as MarkdownEditor's jump-to-line effect;
+  // keyed on jumpTarget's nonce (bumped on every jumpToObject call, even a
+  // re-jump to the same target) so it fires every time, not just on change.
+  useEffect(() => {
+    highlightRef.current?.scrollIntoView({ block: "center", inline: "center" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jumpTarget?.nonce]);
 
   const pageOverlays = overlays?.filter((o) => o.pageNumber === pageNumber) ?? [];
   const pageOrderBlocks = [...(readingOrderBlocks?.filter((b) => b.page_number === pageNumber) ?? [])].sort(
@@ -64,7 +73,7 @@ export function PdfViewer({
         <div className="flex items-center gap-1">
           <button
             type="button"
-            onClick={() => setZoom(zoom - ZOOM_STEP)}
+            onClick={() => setZoom((z) => z - ZOOM_STEP)}
             className="rounded border border-border px-2 py-0.5 text-sm text-text-secondary hover:text-text-primary hover:border-border-strong"
             aria-label="Zoom out"
           >
@@ -75,7 +84,7 @@ export function PdfViewer({
           </span>
           <button
             type="button"
-            onClick={() => setZoom(zoom + ZOOM_STEP)}
+            onClick={() => setZoom((z) => z + ZOOM_STEP)}
             className="rounded border border-border px-2 py-0.5 text-sm text-text-secondary hover:text-text-primary hover:border-border-strong"
             aria-label="Zoom in"
           >
@@ -117,7 +126,14 @@ export function PdfViewer({
           <Document
             file={api.sourcePdfUrl(jobId)}
             onLoadSuccess={({ numPages: n }) => setNumPages(n)}
-            onLoadError={(err) => setLoadError(err.message)}
+            onLoadError={(err) => {
+              // Phase R-2 M7: react-pdf/pdfjs errors are developer-facing
+              // (raw status text, internal API URLs) — keep the full detail
+              // in the console for diagnostics, show reviewers a plain,
+              // actionable message instead.
+              console.error("PDF load failed:", err);
+              setLoadError("The source PDF isn't available right now. Try re-uploading the document, or continue with the Markdown/DOCX view.");
+            }}
             loading={<p className="text-sm text-text-secondary">Loading PDF…</p>}
           >
             <div className="relative inline-block">
@@ -166,6 +182,7 @@ export function PdfViewer({
               {/* Jump-to highlight — rendered on top, pointer-events-none */}
               {highlight && (
                 <div
+                  ref={highlightRef}
                   className="pointer-events-none absolute border-2 border-accent bg-accent/20"
                   style={{
                     left: highlight.x0 * zoom,

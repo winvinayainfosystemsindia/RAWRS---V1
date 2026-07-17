@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   useDocumentData,
   selectHeadings,
@@ -37,6 +37,10 @@ interface SemanticNavTreeProps {
   specialViews: NavSection[];
   activeSpecialView: string | null;
   onSelectSpecialView: (id: string) => void;
+  // Bumped by the toolbar's Search button (same nonce idiom as
+  // PdfViewportContext's jumpTarget) so it can switch this nav to Search
+  // mode without lifting `mode` state out of this component.
+  focusSignal?: number;
 }
 
 type NavMode = "outline" | "by-type" | "corrections" | "validation" | "search";
@@ -106,8 +110,17 @@ function NavRow({
   );
 }
 
-export function SemanticNavTree({ specialViews, activeSpecialView, onSelectSpecialView }: SemanticNavTreeProps) {
+export function SemanticNavTree({
+  specialViews,
+  activeSpecialView,
+  onSelectSpecialView,
+  focusSignal,
+}: SemanticNavTreeProps) {
   const [mode, setMode] = useState<NavMode>("outline");
+  useEffect(() => {
+    if (focusSignal) setMode("search");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusSignal]);
   // Phase F-3.2 — shared ARIA-tabs keyboard model.
   const navTabs = useArrowKeyTabs({ ids: MODE_IDS, active: mode, onChange: setMode });
   const state = useDocumentData();
