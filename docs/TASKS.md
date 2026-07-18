@@ -267,6 +267,24 @@ Not yet started (see `KNOWN_LIMITATIONS.md`): equation remediation, multi-column
 
 **Roadmap produced by the Design Bible (§41/§46), ranked highest ROI first:**
 
+## Phase UX-A2 — Accessibility Intelligence Engine Frontend Integration (2026-07-19)
+
+* [x] Task 1 — Connect Accessibility Center to `GET /documents/{job_id}/accessibility-report` (API types, state, fetching, workspace wiring)
+* [x] Task 2 — Traceable point ledger (Lost Points table in EngineReadinessPanel)
+* [x] Task 3 — Fix Next CTA (button with remaining count, navigates to first failing category)
+* [x] Task 4 — Predicted Score display (client-side "Score if fixed" column in Lost Points table)
+* [x] Task 5 — Accessibility Debt tiles (Critical/Moderate/Minor/Manual Review grid)
+* [x] Task 6 — Review Coverage (per-category `X/Y rules covered` derived from evaluations)
+* [x] Task 7 — Enhanced issue detail cards (evidence signals, confidence %, expanded failing evals)
+* [x] Task 8 — Bulk review foundation (checkboxes, shift-click, Select All, Bulk Ignore/Defer in ValidationIssueTable)
+* [x] Task 9 — Reviewer notes (already existed in CorrectionHistoryList)
+* [x] Task 10 — Export Readiness with blocking failures (blocking failures panel in EngineReadinessPanel)
+* [x] Task 11 — Cognitive load reduction (engine view replaces stale placeholder, predicted score, Fix Next, coverage)
+
+**Phase UX-A2 complete.** TypeScript clean, Next build clean, 9/9 Jest tests pass.
+
+---
+
 * [ ] **Milestone 1**: `app/error.tsx` route-level error boundary (Bible §34) — trivial, zero design ambiguity, most overdue item in the project (flagged since F-1, six milestones ago). Still not started.
 * [ ] **Milestone 2**: Context-preserving editing — source-strip/Peek affordance in Special-View grids (Bible §9), resolving the F-4.2/F-4.4 OPEN item.
 * [ ] **Milestone 3**: Keyboard-coverage completion — `currentIndex`/roving-focus prerequisite for Validation Center + Image/Table/Heading grids (Bible §21), closing the F-3.1-disclosed gap.

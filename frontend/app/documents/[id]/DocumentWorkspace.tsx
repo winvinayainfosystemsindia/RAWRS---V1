@@ -302,7 +302,28 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
           />
         );
       case "readiness":
-        return <ReadinessPanel readiness={state.readiness} onSelectCategory={setActiveSpecialView} />;
+        return (
+          <ReadinessPanel
+            readiness={state.readiness}
+            accessibilityReport={state.accessibilityReport}
+            onSelectCategory={setActiveSpecialView}
+            onFixNext={() => {
+              const report = state.accessibilityReport;
+              if (!report) return;
+              const firstFail = report.evaluations.find(
+                (ev) => ev.outcome === "FAIL" || ev.outcome === "MANUAL_REVIEW_REQUIRED"
+              );
+              if (!firstFail) return;
+              const catMap: Record<string, string> = {
+                headings: "headings", images: "images", tables: "tables",
+                metadata: "metadata", reading_order: "reading-order",
+              };
+              const view = catMap[firstFail.category.toLowerCase().replace(/\s+/g, "_")];
+              if (view) setActiveSpecialView(view);
+              else setActiveSpecialView("validation");
+            }}
+          />
+        );
       default:
         return null;
     }
@@ -399,8 +420,8 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
           durationSeconds={job.duration_seconds}
           mode={activeSpecialView ? "special" : "document"}
           currentPage={pageNumber}
-          readinessScore={state.readiness?.overall_score ?? null}
-          readinessReady={state.readiness?.ready}
+          readinessScore={state.accessibilityReport?.overall_score ?? state.readiness?.overall_score ?? null}
+          readinessReady={state.accessibilityReport?.export_ready ?? state.readiness?.ready}
           onOpenSearch={() => {
             setActiveSpecialView("");
             setSearchNonce((n) => n + 1);

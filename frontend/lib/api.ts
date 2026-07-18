@@ -590,6 +590,10 @@ export const api = {
     return request<ReadinessReport>(`/api/documents/${jobId}/readiness`);
   },
 
+  getAccessibilityReport(jobId: string): Promise<AccessibilityReport> {
+    return request<AccessibilityReport>(`/api/documents/${jobId}/accessibility-report`);
+  },
+
   getAiStatus(): Promise<AiStatus> {
     return request<AiStatus>("/api/ai/status");
   },
@@ -754,6 +758,62 @@ export type PageLabelSectionRequest = PageLabelSection;
 export interface PageLabelsResponse {
   pages: PageLabel[];
   sections: PageLabelSection[];
+}
+
+// --- Accessibility Intelligence Engine (Phase A-2) -------------------------
+
+export interface AccessibilityEvidenceSignal {
+  name: string;
+  score: number;
+  weight: number;
+  note: string;
+  source_module: string | null;
+}
+
+export interface AccessibilityRuleEvaluation {
+  rule_id: string;
+  category: string;
+  outcome: "PASS" | "FAIL" | "MANUAL_REVIEW_REQUIRED" | "NOT_APPLICABLE";
+  message: string;
+  object_id: string | null;
+  page_number: number | null;
+  confidence: number;
+  confidence_tier: "HIGH" | "MEDIUM" | "LOW";
+  evidence: AccessibilityEvidenceSignal[];
+}
+
+export interface AccessibilityCategoryScore {
+  category: string;
+  max_points: number;
+  points_lost: number;
+  manual_review_count: number;
+  score: number;
+}
+
+export interface AccessibilityPointLedgerEntry {
+  label: string;
+  points_lost: number;
+}
+
+export interface AccessibilityDebtReport {
+  critical_debt_points: number;
+  moderate_debt_points: number;
+  minor_debt_points: number;
+  resolved_debt_points: number;
+  remaining_debt_points: number;
+}
+
+export interface AccessibilityReport {
+  overall_score: number;
+  max_points: number;
+  points_lost: number;
+  export_ready: boolean;
+  manual_review_count: number;
+  blocking_failures: string[];
+  categories: AccessibilityCategoryScore[];
+  point_ledger: AccessibilityPointLedgerEntry[];
+  evaluations: AccessibilityRuleEvaluation[];
+  debt: AccessibilityDebtReport;
 }
 
 export { ApiError };

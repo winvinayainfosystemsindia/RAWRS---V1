@@ -50,8 +50,10 @@ function DocumentPoller({ jobId }: { jobId: string }) {
       const markdown = summary.markdown_available
         ? await api.getMarkdown(jobId).then((r) => r.content).catch(() => "")
         : "";
+      const accessibilityReport = await api.getAccessibilityReport(jobId).catch(() => null);
       if (cancelled) return;
       knownVersionRef.current = summary.document_version;
+      dispatch({ type: "SET_ACCESSIBILITY_REPORT", report: accessibilityReport });
       dispatch({
         type: "LOAD_RESULTS",
         payload: {

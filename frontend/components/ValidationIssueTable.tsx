@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { api, type ReadinessReport, type Severity, type ValidationIssue } from "@/lib/api";
 import { SeverityBadge } from "./Badge";
 import { useArrowKeyTabs } from "@/lib/hooks/useArrowKeyTabs";
@@ -34,6 +34,8 @@ export function ValidationIssueTable({ issues, onJump, jobId, onIssueUpdated, re
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [showIgnored, setShowIgnored] = useState(false);
   const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const lastClickedRef = useRef<number>(-1);
 
   async function setStatus(issue: ValidationIssue, action: "ignore" | "defer" | "reopen") {
     if (!jobId) return;
@@ -56,6 +58,50 @@ export function ValidationIssueTable({ issues, onJump, jobId, onIssueUpdated, re
 
   function toggleDefer(issue: ValidationIssue) {
     setStatus(issue, issue.status === "deferred" ? "reopen" : "defer");
+  }
+
+  function handleCheckbox(issueId: string, filteredIndex: number, shiftKey: boolean) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (shiftKey && lastClickedRef.current >= 0) {
+        const lo = Math.min(lastClickedRef.current, filteredIndex);
+        const hi = Math.max(lastClickedRef.current, filteredIndex);
+        for (let i = lo; i <= hi; i++) {
+          if (filtered[i]) next.add(filtered[i].issue_id);
+        }
+      } else if (next.has(issueId)) {
+        next.delete(issueId);
+      } else {
+        next.add(issueId);
+      }
+      lastClickedRef.current = filteredIndex;
+      return next;
+    });
+  }
+
+  async function bulkAction(action: "ignore" | "defer") {
+    if (!jobId || selected.size === 0) return;
+    const ids = Array.from(selected);
+    setPendingIds((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) next.add(id);
+      return next;
+    });
+    try {
+      const results = await Promise.allSettled(
+        ids.map((id) => api.reviewValidationIssue(jobId, id, { action }))
+      );
+      for (const r of results) {
+        if (r.status === "fulfilled") onIssueUpdated?.(r.value);
+      }
+    } finally {
+      setPendingIds((prev) => {
+        const next = new Set(prev);
+        for (const id of ids) next.delete(id);
+        return next;
+      });
+      setSelected(new Set());
+    }
   }
 
   const categories = useMemo(() => {
@@ -86,6 +132,16 @@ export function ValidationIssueTable({ issues, onJump, jobId, onIssueUpdated, re
     if (categoryFilter !== "all" && categoryOf(issue.rule_id) !== categoryFilter) return false;
     return true;
   });
+
+  function toggleSelectAll() {
+    setSelected((prev) => {
+      const filteredIds = filtered.map((i) => i.issue_id);
+      if (filteredIds.every((id) => prev.has(id))) return new Set();
+      return new Set(filteredIds);
+    });
+  }
+
+  const allSelected = filtered.length > 0 && filtered.every((i) => selected.has(i.issue_id));
 
   const grouped = useMemo(() => {
     const byCategory = new Map<string, ValidationIssue[]>();
@@ -171,6 +227,39 @@ export function ValidationIssueTable({ issues, onJump, jobId, onIssueUpdated, re
         </span>
       </div>
 
+      {jobId && filtered.length > 0 && (
+        <div className="mb-3 flex items-center gap-3 rounded-lg border border-border bg-surface-panel px-4 py-2">
+          <label className="flex items-center gap-2 text-xs text-text-secondary">
+            <input
+              type="checkbox"
+              checked={allSelected}
+              onChange={toggleSelectAll}
+              className="accent-accent"
+            />
+            Select all ({filtered.length})
+          </label>
+          {selected.size > 0 && (
+            <>
+              <span className="text-xs font-medium text-text-primary">{selected.size} selected</span>
+              <button
+                type="button"
+                onClick={() => bulkAction("ignore")}
+                className="rounded border border-border px-2 py-0.5 text-xs font-medium text-text-secondary hover:bg-hover-row"
+              >
+                Bulk Ignore
+              </button>
+              <button
+                type="button"
+                onClick={() => bulkAction("defer")}
+                className="rounded border border-border px-2 py-0.5 text-xs font-medium text-text-secondary hover:bg-hover-row"
+              >
+                Bulk Defer
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
       {filtered.length === 0 && (
         <p className="rounded-lg border border-border p-4 text-sm text-text-secondary">
           No issues match the current filters.
@@ -191,12 +280,22 @@ export function ValidationIssueTable({ issues, onJump, jobId, onIssueUpdated, re
                 const isIgnored = issue.status === "ignored";
                 const isDeferredIssue = issue.status === "deferred";
                 const isPending = pendingIds.has(issue.issue_id);
+                const flatIndex = filtered.indexOf(issue);
                 return (
                   <li
                     key={issue.issue_id || `${issue.rule_id}-${issue.page_number}-${index}`}
                     className={`p-4 ${isIgnored ? "opacity-50" : ""}`}
                   >
                     <div className="flex flex-wrap items-center gap-2">
+                      {jobId && (
+                        <input
+                          type="checkbox"
+                          checked={selected.has(issue.issue_id)}
+                          onChange={(e) => handleCheckbox(issue.issue_id, flatIndex, e.nativeEvent instanceof MouseEvent && e.nativeEvent.shiftKey)}
+                          className="shrink-0 accent-accent"
+                          aria-label={`Select issue ${issue.rule_id}`}
+                        />
+                      )}
                       <SeverityBadge severity={issue.severity} />
                       <span className="font-mono text-xs text-text-secondary">{issue.rule_id}</span>
                       {issue.page_number !== null && (

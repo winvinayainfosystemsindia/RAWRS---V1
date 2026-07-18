@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useMemo, useReducer, type ReactNode } from "react";
 import type {
+  AccessibilityReport,
   AiStatus,
   CalloutItem,
   CorrectionItem,
@@ -49,6 +50,7 @@ export interface DocumentEntities {
   metadata: MetadataItem | null;
   pages: PageOcrInfo[];
   readiness: ReadinessReport | null;
+  accessibilityReport: AccessibilityReport | null;
   markdown: string;
 }
 
@@ -70,6 +72,7 @@ const initialState: DocumentEntities = {
   metadata: null,
   pages: [],
   readiness: null,
+  accessibilityReport: null,
   markdown: "",
 };
 
@@ -113,7 +116,8 @@ export type DocumentAction =
   | { type: "REPLACE_READING_ORDER"; pages: PageReadingOrder[] }
   | { type: "UPDATE_PAGE_LABELS"; pages: PageLabel[]; sections: PageLabelSection[] }
   | { type: "UPDATE_MARKDOWN"; markdown: string }
-  | { type: "UPDATE_VALIDATION_ISSUE"; issue: ValidationIssue };
+  | { type: "UPDATE_VALIDATION_ISSUE"; issue: ValidationIssue }
+  | { type: "SET_ACCESSIBILITY_REPORT"; report: AccessibilityReport | null };
 
 function keyBy<T>(items: T[], keyFn: (item: T) => string | number): Record<string | number, T> {
   const result: Record<string | number, T> = {};
@@ -214,6 +218,8 @@ function reducer(state: DocumentEntities, action: DocumentAction): DocumentEntit
           i.issue_id === action.issue.issue_id ? action.issue : i
         ),
       };
+    case "SET_ACCESSIBILITY_REPORT":
+      return { ...state, accessibilityReport: action.report };
     default:
       return state;
   }

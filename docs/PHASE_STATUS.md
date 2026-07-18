@@ -1015,4 +1015,43 @@ Reconciled against `docs/RAWRS_DESIGN_BIBLE_v1.0.md` §17, which rejects a separ
 
 **Code-reviewer pass caught and fixed 2 real HIGH-severity bugs before this was called done** (not found by the tests originally written, which is exactly why a review pass mattered): (1) `IMAGE_A11Y_001` treated `AltTextStatus.AI_GENERATED` as a human-confirmed PASS — an AI-only, never-reviewed alt text would have silently satisfied a `BARRIER`-class, export-blocking rule, directly contradicting the rule's own name and the Design Bible's "Human Review, Always" principle; fixed to reuse `src/api/routes.py`'s existing `_IMG_COMPLETE` status set. (2) `TABLE_A11Y_005` (an `OBSERVATION`-class confidence gate) had no `required_for_export = False` override, so any low-confidence auto-detected table — a common, low-severity case — incorrectly blocked `export_ready` exactly like a true `BARRIER` failure. Also closed a MEDIUM completeness gap the same pass found: `TABLE_A11Y_005` now genuinely folds in the `TABLE_007` borderless-single-column condition it claimed to cover but didn't. All 3 fixes covered by new regression tests; full suite re-confirmed green after.
 
-**Not yet built** (Section 22 roadmap phases 2-4, unchanged from the design doc): generic `ManualAttestation` store, `READING_ORDER_002`/`NAV_001`/`LANG_002` rules, AI-assisted rules (`IMAGE_QUALITY_001`/`TABLE_QUALITY_001`), the `readiness.py`/`get_export_readiness` adapters, and any frontend consumption of the new endpoint.
+**Not yet built** (Section 22 roadmap phases 2-4, unchanged from the design doc): generic `ManualAttestation` store, `READING_ORDER_002`/`NAV_001`/`LANG_002` rules, AI-assisted rules (`IMAGE_QUALITY_001`/`TABLE_QUALITY_001`), the `readiness.py`/`get_export_readiness` adapters.
+
+---
+
+## Phase UX-A2 — Accessibility Intelligence Engine Frontend Integration
+
+**Verdict: VERIFIED COMPLETE (2026-07-19)** — TypeScript clean, Next build clean, 9/9 Jest tests pass.
+
+Integrates the Phase A-2 backend (`GET /documents/{job_id}/accessibility-report`) into the reviewer workstation. 11 tasks from the UX milestone mission, all complete.
+
+### Data Plumbing (Tasks 1, 5, 10)
+
+* **API types:** `AccessibilityEvidenceSignal`, `AccessibilityRuleEvaluation`, `AccessibilityCategoryScore`, `AccessibilityPointLedgerEntry`, `AccessibilityDebtReport`, `AccessibilityReport` in `frontend/lib/api.ts`; `api.getAccessibilityReport()` method.
+* **State:** `accessibilityReport: AccessibilityReport | null` in `DocumentDataContext.tsx` with `SET_ACCESSIBILITY_REPORT` action.
+* **Fetching:** `DocumentProvider.tsx` fetches the report after `loadResults()`, dispatches into state.
+* **Workspace wiring:** `DocumentWorkspace.tsx` passes `accessibilityReport` to `ReadinessPanel` and `WorkspaceShell`, prefers engine score/ready over legacy when available.
+
+### EngineReadinessPanel (Tasks 2, 3, 4, 5, 6, 7, 10)
+
+`ReadinessPanel.tsx` now delegates to `EngineReadinessPanel` when `accessibilityReport` is non-null, falling back to `LegacyReadinessPanel` for backward compatibility. Engine view provides:
+
+* **Score header:** percentage + Export Ready/Blocked badge.
+* **Blocking failures:** red panel listing export blockers when `export_ready === false`.
+* **Fix Next CTA (Task 3):** button showing remaining failing evaluation count, navigates to the first failing rule's category view.
+* **Lost Points table with Predicted Score (Tasks 2, 4):** three-column table (Rule / Lost / Score if fixed). Predicted score = `(max_points - (points_lost - entry.points_lost)) / max_points * 100`, computed client-side from `point_ledger` — no new endpoint.
+* **Debt tiles (Task 5):** Critical / Moderate / Minor / Manual Review in a 4-column responsive grid.
+* **Category breakdown with Review Coverage (Task 6):** per-category score bar, points lost, `X/Y rules covered` (derived from evaluations: covered = outcome !== MANUAL_REVIEW_REQUIRED), and Review button navigating to the category's special view.
+* **Enhanced failing evaluations (Task 7):** collapsible detail showing outcome badge, rule_id, page, confidence percentage + tier, message, category, and evidence signals (name + note per signal).
+
+### Bulk Review Foundation (Task 8)
+
+`ValidationIssueTable.tsx` gains per-issue checkboxes with shift-click range selection, Select All control, and a bulk action bar (Bulk Ignore / Bulk Defer) using `Promise.allSettled` against `api.reviewValidationIssue()`.
+
+### Reviewer Notes (Task 9)
+
+Already existed in `CorrectionHistoryList.tsx` — each `CorrectionRow` has a `reviewer_notes` input field persisted via `api.reviewCorrection()`.
+
+### Cognitive Load Reduction (Task 11)
+
+Engine view replaces the "Awaiting Accessibility Rules Engine" stale placeholder with live data. Predicted score answers "is this worth fixing?" per rule. Fix Next CTA answers "what should I do next?" globally. Coverage metrics answer "how much is left?" per category.
