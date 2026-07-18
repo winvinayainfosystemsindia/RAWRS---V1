@@ -361,11 +361,13 @@ export function SemanticNavTree({
       {mode === "validation" && (
         <ul className="mt-2">
           {state.validationIssues.length === 0 && <EmptyRow text="No validation issues." />}
-          {state.validationIssues.map((issue, idx) => (
-            <li key={idx}>
+          {state.validationIssues.map((issue) => (
+            <li key={issue.issue_id}>
               <NavRow
                 label={`${issue.rule_id}: ${issue.message}`}
+                isActive={isSelected("validation-issue", issue.issue_id)}
                 onClick={() => {
+                  select("validation-issue", issue.issue_id);
                   onSelectSpecialView("");
                   if (issue.page_number !== null) jumpToObject(issue.page_number, null);
                 }}

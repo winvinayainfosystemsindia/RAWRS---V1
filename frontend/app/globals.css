@@ -158,3 +158,17 @@ body {
 .docx-preview table th { background: #f9fafb; font-weight: 600; }
 .docx-preview sup { vertical-align: super; font-size: 0.7em; }
 .docx-preview a { color: #1d4ed8; text-decoration: underline; }
+
+/* Phase 1 — PDF jump-to highlight animation */
+@keyframes highlight-reveal {
+  0% { opacity: 0; transform: scale(1.06); }
+  40% { opacity: 1; transform: scale(1); }
+  70% { opacity: 0.7; }
+  100% { opacity: 1; }
+}
+.pdf-highlight-enter {
+  animation: highlight-reveal 350ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pdf-highlight-enter { animation: none; }
+}

@@ -10,6 +10,7 @@ import { categoryOf, sortCategories } from "@/lib/validationCategories";
 interface Props {
   issues: ValidationIssue[];
   onJump?: (pageNumber: number) => void;
+  onIssueSelect?: (issue: ValidationIssue) => void;
   // Both optional so ValidationIssueTable still works read-only (e.g. a
   // summary embed) wherever a caller doesn't wire up persistence.
   jobId?: string;
@@ -29,7 +30,7 @@ const SEVERITY_TABS: { id: Severity | "all"; label: string }[] = [
 ];
 const SEVERITY_TAB_IDS = SEVERITY_TABS.map((t) => t.id);
 
-export function ValidationIssueTable({ issues, onJump, jobId, onIssueUpdated, readiness }: Props) {
+export function ValidationIssueTable({ issues, onJump, onIssueSelect, jobId, onIssueUpdated, readiness }: Props) {
   const [severityFilter, setSeverityFilter] = useState<Severity | "all">("all");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [showIgnored, setShowIgnored] = useState(false);
@@ -315,7 +316,10 @@ export function ValidationIssueTable({ issues, onJump, jobId, onIssueUpdated, re
                         {onJump && issue.page_number !== null && !isIgnored && (
                           <button
                             type="button"
-                            onClick={() => onJump(issue.page_number!)}
+                            onClick={() => {
+                              onIssueSelect?.(issue);
+                              onJump(issue.page_number!);
+                            }}
                             className="rounded border border-border px-2 py-0.5 text-xs font-medium text-accent hover:bg-hover-row"
                           >
                             Fix
@@ -347,7 +351,13 @@ export function ValidationIssueTable({ issues, onJump, jobId, onIssueUpdated, re
                         )}
                       </div>
                     </div>
-                    <p className="mt-2 text-sm text-text-primary">{issue.message}</p>
+                    <button
+                      type="button"
+                      onClick={() => onIssueSelect?.(issue)}
+                      className="mt-2 text-left text-sm text-text-primary hover:text-accent"
+                    >
+                      {issue.message}
+                    </button>
                     {issue.suggested_action && (
                       <p className="mt-1 text-sm text-text-secondary">
                         <span className="font-medium">Suggested action: </span>

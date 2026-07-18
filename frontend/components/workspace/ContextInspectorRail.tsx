@@ -172,6 +172,47 @@ export function ContextInspectorRail({
         </div>
       );
     }
+    case "validation-issue": {
+      const issue = state.validationIssues.find((i) => i.issue_id === objectId);
+      if (!issue) break;
+      return (
+        <div className="p-4">
+          <div className="mb-3 flex items-center gap-2">
+            <SeverityBadge severity={issue.severity} />
+            <span className="font-mono text-xs text-text-secondary">{issue.rule_id}</span>
+            {issue.page_number !== null && (
+              <button
+                type="button"
+                onClick={() => jumpToObject(issue.page_number!, null)}
+                className="ml-auto text-xs text-accent hover:underline"
+              >
+                Page {issue.page_number}
+              </button>
+            )}
+          </div>
+          <p className="text-sm text-text-primary">{issue.message}</p>
+          {issue.suggested_action && (
+            <div className="mt-3 rounded border border-border bg-surface-canvas p-3">
+              <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-text-secondary">
+                Suggested action
+              </p>
+              <p className="text-sm text-text-primary">{issue.suggested_action}</p>
+            </div>
+          )}
+          <div className="mt-3 flex items-center gap-2">
+            <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+              issue.status === "ignored"
+                ? "bg-surface-elevated text-text-secondary"
+                : issue.status === "deferred"
+                  ? "bg-warning/15 text-warning"
+                  : "bg-accent/10 text-accent"
+            }`}>
+              {issue.status === "open" ? "Open" : issue.status === "ignored" ? "Ignored" : "Deferred"}
+            </span>
+          </div>
+        </div>
+      );
+    }
     default:
       break;
   }

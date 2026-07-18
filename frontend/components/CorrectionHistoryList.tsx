@@ -5,6 +5,7 @@ import { api, type CorrectionItem } from "@/lib/api";
 import { Badge } from "./Badge";
 import { EvidenceBreakdown } from "./EvidenceBreakdown";
 import { parseCorrectionPayload, type CorrectionPreview } from "@/lib/correctionPreview";
+import { useToast } from "./Toast";
 
 interface Props {
   corrections: CorrectionItem[];
@@ -49,6 +50,7 @@ function CorrectionRow({ correction, jobId, onUpdated, onCorrectionClick }: { co
   const [reviewerNotes, setReviewerNotes] = useState(correction.reviewer_notes ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { toast } = useToast();
 
   async function act(action: Parameters<typeof api.reviewCorrection>[2]["action"], proposedValue?: string) {
     setSaving(true);
@@ -60,6 +62,17 @@ function CorrectionRow({ correction, jobId, onUpdated, onCorrectionClick }: { co
         reviewer_notes: reviewerNotes || undefined,
       });
       onUpdated(updated);
+      if (action === "accept" || action === "reject") {
+        const label = action === "accept" ? "Accepted" : "Rejected";
+        toast(`${label}: ${correction.problem}`, {
+          label: "Undo",
+          onClick: () => {
+            api.reviewCorrection(jobId, correction.correction_id, { action: "undo" })
+              .then((reverted) => onUpdated(reverted))
+              .catch(() => {});
+          },
+        });
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Action failed");
     } finally {

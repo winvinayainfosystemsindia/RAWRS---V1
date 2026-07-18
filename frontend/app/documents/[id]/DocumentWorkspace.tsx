@@ -88,7 +88,7 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
   const dispatch = useDocumentDispatch();
   const { jumpTarget: mdJumpTarget, jumpToLine } = useMarkdownViewport();
   const { selection, select } = useSelection();
-  const { pageNumber } = usePdfViewport();
+  const { pageNumber, jumpToObject } = usePdfViewport();
   const [activeSpecialView, setActiveSpecialView] = useState("");
   const [overviewOpen, setOverviewOpen] = useState(false);
   // Bumped by WorkspaceShell's toolbar Search button; SemanticNavTree
@@ -220,6 +220,10 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
             issues={state.validationIssues}
             jobId={jobId}
             onIssueUpdated={(issue) => dispatch({ type: "UPDATE_VALIDATION_ISSUE", issue })}
+            onIssueSelect={(issue) => {
+              select("validation-issue", issue.issue_id);
+              if (issue.page_number !== null) jumpToObject(issue.page_number, null);
+            }}
             readiness={state.readiness}
           />
         );

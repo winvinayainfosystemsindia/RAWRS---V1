@@ -182,8 +182,9 @@ export function PdfViewer({
               {/* Jump-to highlight — rendered on top, pointer-events-none */}
               {highlight && (
                 <div
+                  key={jumpTarget?.nonce}
                   ref={highlightRef}
-                  className="pointer-events-none absolute border-2 border-accent bg-accent/20"
+                  className="pdf-highlight-enter pointer-events-none absolute rounded-sm border-2 border-amber-500/70 bg-amber-400/12 shadow-[0_0_8px_2px_rgba(245,158,11,0.15)]"
                   style={{
                     left: highlight.x0 * zoom,
                     top: highlight.y0 * zoom,

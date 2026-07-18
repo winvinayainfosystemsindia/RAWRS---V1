@@ -6,6 +6,7 @@ import { DocumentDataProvider, useDocumentDispatch } from "./DocumentDataContext
 import { SelectionProvider } from "./SelectionContext";
 import { PdfViewportProvider } from "./PdfViewportContext";
 import { MarkdownViewportProvider } from "./MarkdownViewportContext";
+import { ToastProvider } from "@/components/Toast";
 
 const POLL_INTERVAL_MS = 3000;
 // ponytail: plain polling, not a websocket/SSE push. Fine at today's
@@ -140,8 +141,10 @@ export function DocumentProvider({ jobId, children }: { jobId: string; children:
       <SelectionProvider>
         <PdfViewportProvider>
           <MarkdownViewportProvider>
-            <DocumentPoller jobId={jobId} />
-            {children}
+            <ToastProvider>
+              <DocumentPoller jobId={jobId} />
+              {children}
+            </ToastProvider>
           </MarkdownViewportProvider>
         </PdfViewportProvider>
       </SelectionProvider>
