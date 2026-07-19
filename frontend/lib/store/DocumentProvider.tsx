@@ -2,10 +2,11 @@
 
 import { useEffect, useRef, type ReactNode } from "react";
 import { api, ApiError } from "@/lib/api";
-import { DocumentDataProvider, useDocumentDispatch } from "./DocumentDataContext";
+import { DocumentDataProvider, useDocumentData, useDocumentDispatch } from "./DocumentDataContext";
 import { SelectionProvider } from "./SelectionContext";
 import { PdfViewportProvider } from "./PdfViewportContext";
 import { MarkdownViewportProvider } from "./MarkdownViewportContext";
+import { ReviewQueueProvider } from "./ReviewQueueContext";
 import { ToastProvider } from "@/components/Toast";
 
 const POLL_INTERVAL_MS = 3000;
@@ -14,7 +15,21 @@ const POLL_INTERVAL_MS = 3000;
 // workspace ever needs many concurrent viewers watching one job.
 const VERSION_POLL_INTERVAL_MS = 4000;
 
-function DocumentPoller({ jobId }: { jobId: string }) {
+// Wraps one labeled result fetch so a failure is recorded (into `errors`)
+// instead of silently collapsing to an empty result — a compliance tool must
+// never render "backend errored" as "nothing to fix". The fallback still lets
+// the rest of the workspace load; the recorded label drives a retryable
+// banner (see DocumentWorkspace).
+async function tryLoad<T>(label: string, errors: string[], fn: () => Promise<T>, fallback: T): Promise<T> {
+  try {
+    return await fn();
+  } catch {
+    errors.push(label);
+    return fallback;
+  }
+}
+
+function DocumentPoller({ jobId, reloadNonce }: { jobId: string; reloadNonce: number }) {
   const dispatch = useDocumentDispatch();
   // Tracks the last document_version this tab has loaded outputs for, so
   // the post-completion watcher below only refetches Markdown when the
@@ -32,26 +47,27 @@ function DocumentPoller({ jobId }: { jobId: string }) {
     let timer: ReturnType<typeof setTimeout>;
 
     async function loadResults(summary: Awaited<ReturnType<typeof api.getDocument>>) {
+      const errors: string[] = [];
       const [validation, images, tables, footnotes, headings, lists, callouts, metadata, pages, readingOrder, pageLabels, corrections, readiness] =
         await Promise.all([
-          api.getValidation(jobId).catch(() => ({ issues: [], error_count: 0, warning_count: 0, info_count: 0 })),
-          api.getImages(jobId).catch(() => ({ images: [] })),
-          api.getTables(jobId).catch(() => ({ tables: [] })),
-          api.getFootnotes(jobId).catch(() => ({ footnotes: [] })),
-          api.getHeadings(jobId).catch(() => ({ headings: [] })),
-          api.getLists(jobId).catch(() => ({ lists: [] })),
-          api.getCallouts(jobId).catch(() => ({ callouts: [] })),
-          api.getMetadata(jobId).catch(() => null),
-          api.getPages(jobId).catch(() => ({ pages: [] })),
-          api.getReadingOrder(jobId).catch(() => ({ pages: [] })),
-          api.getPageLabels(jobId).catch(() => ({ pages: [], sections: [] })),
-          api.getCorrections(jobId).catch(() => ({ corrections: [] })),
-          api.getReadiness(jobId).catch(() => null),
+          tryLoad("validation", errors, () => api.getValidation(jobId), { issues: [], error_count: 0, warning_count: 0, info_count: 0 }),
+          tryLoad("images", errors, () => api.getImages(jobId), { images: [] }),
+          tryLoad("tables", errors, () => api.getTables(jobId), { tables: [] }),
+          tryLoad("footnotes", errors, () => api.getFootnotes(jobId), { footnotes: [] }),
+          tryLoad("headings", errors, () => api.getHeadings(jobId), { headings: [] }),
+          tryLoad("lists", errors, () => api.getLists(jobId), { lists: [] }),
+          tryLoad("callouts", errors, () => api.getCallouts(jobId), { callouts: [] }),
+          tryLoad("metadata", errors, () => api.getMetadata(jobId), null),
+          tryLoad("OCR pages", errors, () => api.getPages(jobId), { pages: [] }),
+          tryLoad("reading order", errors, () => api.getReadingOrder(jobId), { pages: [] }),
+          tryLoad("page labels", errors, () => api.getPageLabels(jobId), { pages: [], sections: [] }),
+          tryLoad("corrections", errors, () => api.getCorrections(jobId), { corrections: [] }),
+          tryLoad("readiness", errors, () => api.getReadiness(jobId), null),
         ]);
       const markdown = summary.markdown_available
-        ? await api.getMarkdown(jobId).then((r) => r.content).catch(() => "")
+        ? await tryLoad("markdown", errors, () => api.getMarkdown(jobId).then((r) => r.content), "")
         : "";
-      const accessibilityReport = await api.getAccessibilityReport(jobId).catch(() => null);
+      const accessibilityReport = await tryLoad("accessibility report", errors, () => api.getAccessibilityReport(jobId), null);
       if (cancelled) return;
       knownVersionRef.current = summary.document_version;
       dispatch({ type: "SET_ACCESSIBILITY_REPORT", report: accessibilityReport });
@@ -73,6 +89,7 @@ function DocumentPoller({ jobId }: { jobId: string }) {
           pages: pages.pages,
           readiness,
           markdown,
+          loadErrors: errors,
         },
       });
     }
@@ -90,12 +107,22 @@ function DocumentPoller({ jobId }: { jobId: string }) {
 
         if (summary.document_version !== knownVersionRef.current) {
           knownVersionRef.current = summary.document_version;
-          if (summary.markdown_available) {
-            const content = await api.getMarkdown(jobId).then((r) => r.content).catch(() => null);
-            if (!cancelled && content !== null) {
-              dispatch({ type: "UPDATE_MARKDOWN", markdown: content });
-            }
-          }
+          // The canonical document changed — refresh both the Markdown
+          // preview AND the intelligence (score/report), so a reviewer
+          // action taken in another tab moves the numbers here too, without
+          // a manual refresh. useReviewAction already refreshes the acting
+          // tab immediately; this covers cross-tab / out-of-band changes.
+          const [content, readiness, report] = await Promise.all([
+            summary.markdown_available
+              ? api.getMarkdown(jobId).then((r) => r.content).catch(() => null)
+              : Promise.resolve(null),
+            api.getReadiness(jobId).catch(() => undefined),
+            api.getAccessibilityReport(jobId).catch(() => undefined),
+          ]);
+          if (cancelled) return;
+          if (content !== null) dispatch({ type: "UPDATE_MARKDOWN", markdown: content });
+          if (readiness !== undefined) dispatch({ type: "SET_READINESS", readiness });
+          if (report !== undefined) dispatch({ type: "SET_ACCESSIBILITY_REPORT", report });
         }
       } catch {
         // transient errors just get retried on the next tick
@@ -130,9 +157,20 @@ function DocumentPoller({ jobId }: { jobId: string }) {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [jobId, dispatch]);
+    // reloadNonce in deps: a REQUEST_RELOAD (the error banner's Retry) tears
+    // down and restarts the whole poll loop, re-running loadResults from
+    // scratch — so retry needs no page refresh.
+  }, [jobId, dispatch, reloadNonce]);
 
   return null;
+}
+
+// Reads reloadNonce off the data context so REQUEST_RELOAD re-triggers the
+// poller effect. Split from DocumentProvider so it sits inside
+// DocumentDataProvider (where the hook is valid).
+function DocumentPollerHost({ jobId }: { jobId: string }) {
+  const { reloadNonce } = useDocumentData();
+  return <DocumentPoller jobId={jobId} reloadNonce={reloadNonce} />;
 }
 
 export function DocumentProvider({ jobId, children }: { jobId: string; children: ReactNode }) {
@@ -141,10 +179,12 @@ export function DocumentProvider({ jobId, children }: { jobId: string; children:
       <SelectionProvider>
         <PdfViewportProvider>
           <MarkdownViewportProvider>
-            <ToastProvider>
-              <DocumentPoller jobId={jobId} />
-              {children}
-            </ToastProvider>
+            <ReviewQueueProvider>
+              <ToastProvider>
+                <DocumentPollerHost jobId={jobId} />
+                {children}
+              </ToastProvider>
+            </ReviewQueueProvider>
           </MarkdownViewportProvider>
         </PdfViewportProvider>
       </SelectionProvider>

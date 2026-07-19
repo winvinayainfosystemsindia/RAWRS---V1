@@ -1,11 +1,11 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { api, type CorrectionItem } from "@/lib/api";
+import { type CorrectionItem, type CorrectionAction } from "@/lib/api";
 import { Badge } from "./Badge";
 import { EvidenceBreakdown } from "./EvidenceBreakdown";
 import { parseCorrectionPayload, type CorrectionPreview } from "@/lib/correctionPreview";
-import { useToast } from "./Toast";
+import { useReviewAction } from "@/lib/hooks/useReviewAction";
 
 interface Props {
   corrections: CorrectionItem[];
@@ -69,7 +69,18 @@ const ACCESSIBILITY_IMPACT: Record<string, string> = {
   footnote: "Footnote references must be navigable for non-visual readers.",
   reading_order: "Content delivered out of order confuses assistive technology users.",
   metadata: "Document metadata helps assistive technology orient users within the document.",
+  list: "List structure lets assistive technology announce item count and position; without it, items read as loose prose.",
+  callout: "Callouts and asides need semantic grouping so assistive technology can convey their distinct role.",
+  paragraph: "Correct text structure keeps reading order and flow intelligible to non-visual readers.",
+  caption: "Captions must be programmatically tied to their figure or table to be reachable by assistive technology.",
+  front_matter: "Front-matter structure orients assistive-technology users at the start of the document.",
 };
+
+// Every object type explains why it matters — no silent fallback (P2-8). A
+// type without a specific line still gets an honest generic one rather than
+// rendering nothing.
+const GENERIC_IMPACT =
+  "Correcting this improves how assistive technology interprets the document's structure and content.";
 
 function editFieldWarning(value: string, objectType: string): string | null {
   if (!value.trim()) return "Empty value — this will not resolve the accessibility issue.";
@@ -84,29 +95,17 @@ function CorrectionRow({ correction, jobId, onUpdated, onCorrectionClick }: { co
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const editRef = useRef<HTMLInputElement>(null);
-  const { toast } = useToast();
+  const { review } = useReviewAction(jobId);
 
-  async function act(action: Parameters<typeof api.reviewCorrection>[2]["action"], proposedValue?: string) {
+  // Thin wrapper over the shared review pipeline: the hook owns the API call,
+  // toast + undo, error toast, and the post-action score refresh — this only
+  // adds the card's local saving/inline-error UI. Keyboard path
+  // (ReviewerWorkspace) uses the same hook, so the two can't drift (P1-5).
+  async function act(action: CorrectionAction, proposedValue?: string) {
     setSaving(true);
     setError(null);
     try {
-      const updated = await api.reviewCorrection(jobId, correction.correction_id, {
-        action,
-        proposed_value: proposedValue,
-        reviewer_notes: reviewerNotes || undefined,
-      });
-      onUpdated(updated);
-      if (action === "accept" || action === "reject") {
-        const label = action === "accept" ? "Accepted" : "Rejected";
-        toast(`${label}: ${correction.problem}`, {
-          label: "Undo",
-          onClick: () => {
-            api.reviewCorrection(jobId, correction.correction_id, { action: "undo" })
-              .then((reverted) => onUpdated(reverted))
-              .catch(() => {});
-          },
-        });
-      }
+      await review(correction, action, { proposedValue, reviewerNotes, onUpdated });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Action failed");
     } finally {
@@ -119,7 +118,7 @@ function CorrectionRow({ correction, jobId, onUpdated, onCorrectionClick }: { co
   const currentPreview: CorrectionPreview | null = parseCorrectionPayload(correction.current_value);
   const preview = suggestedPreview ?? currentPreview;
   const conf = correction.confidence !== null ? confidenceLabel(correction.confidence) : null;
-  const impact = ACCESSIBILITY_IMPACT[correction.object_type];
+  const impact = ACCESSIBILITY_IMPACT[correction.object_type] ?? GENERIC_IMPACT;
   const warning = editFieldWarning(editValue, correction.object_type);
 
   return (

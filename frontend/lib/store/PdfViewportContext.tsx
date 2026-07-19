@@ -14,6 +14,12 @@ interface PdfViewportContextValue {
   pageNumber: number;
   zoom: number;
   jumpTarget: JumpTarget | null;
+  // Every page the reviewer's viewport has landed on this session (manual
+  // paging or a jump). This is the honest basis for "review coverage" =
+  // reviewer *attention*, distinct from issue resolution (P2-10): a page can
+  // be visited with nothing to fix, or have auto-applied fixes yet never be
+  // looked at. Session-scoped; not persisted.
+  visitedPages: ReadonlySet<number>;
   setPageNumber: (page: number) => void;
   // Accepts a plain value or a functional updater, same overload shape as
   // React's own setState setter — needed because PdfViewer's zoom
@@ -33,9 +39,16 @@ const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 3;
 
 export function PdfViewportProvider({ children }: { children: ReactNode }) {
-  const [pageNumber, setPageNumber] = useState(1);
+  const [pageNumber, setPageNumberState] = useState(1);
   const [zoom, setZoomState] = useState(1);
   const [jumpTarget, setJumpTarget] = useState<JumpTarget | null>(null);
+  // Seeded with page 1 — that's what the viewer shows on mount.
+  const [visitedPages, setVisitedPages] = useState<ReadonlySet<number>>(() => new Set([1]));
+
+  const setPageNumber = useCallback((page: number) => {
+    setPageNumberState(page);
+    setVisitedPages((prev) => (prev.has(page) ? prev : new Set(prev).add(page)));
+  }, []);
 
   // Stable across renders (empty deps — each only calls a setState setter,
   // which React itself guarantees is stable) so an effect that calls one
@@ -54,11 +67,11 @@ export function PdfViewportProvider({ children }: { children: ReactNode }) {
   const jumpToObject = useCallback((page: number, bbox: BoundingBox | null) => {
     setPageNumber(page);
     setJumpTarget((prev) => ({ pageNumber: page, bbox, nonce: (prev?.nonce ?? 0) + 1 }));
-  }, []);
+  }, [setPageNumber]);
 
   const value = useMemo<PdfViewportContextValue>(
-    () => ({ pageNumber, zoom, jumpTarget, setPageNumber, setZoom, jumpToObject }),
-    [pageNumber, zoom, jumpTarget, setZoom, jumpToObject]
+    () => ({ pageNumber, zoom, jumpTarget, visitedPages, setPageNumber, setZoom, jumpToObject }),
+    [pageNumber, zoom, jumpTarget, visitedPages, setPageNumber, setZoom, jumpToObject]
   );
 
   return <PdfViewportContext.Provider value={value}>{children}</PdfViewportContext.Provider>;

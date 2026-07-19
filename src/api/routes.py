@@ -1488,6 +1488,7 @@ def _correction_out(document: Any, correction: CorrectionRecord) -> CorrectionOu
         ],
         status=correction.status.value,
         created_at=correction.created_at,
+        reviewed_at=correction.reviewed_at,
         reviewer_notes=correction.reviewer_notes,
         rule_id=spec.rule_id if spec else None,
         severity=spec.severity if spec else None,

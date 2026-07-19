@@ -61,6 +61,18 @@ interface WorkspaceShellProps {
   // tabbing through every chip first) while staying visually adjacent to
   // it. Optional, plain ReactNode slot — same pattern as `nav`/`rightRail`.
   quickNav?: ReactNode;
+  // Stabilization P0-2 — the Review Queue lives in the bottom panel, so the
+  // bottom panel must not default closed while there's work to do. When the
+  // reviewer has never set an explicit preference, this decides the default:
+  // open when there are pending corrections. Once they toggle it, their
+  // stored choice wins.
+  hasPendingWork?: boolean;
+  // Count shown on the collapsed bar so the bar reads as the Review Queue
+  // (was just an elapsed-time chevron — undiscoverable, audit W5).
+  queuePendingCount?: number;
+  // Bumped by a caller (a category card's "Review →") to force the bottom
+  // panel open and bring the queue forward (P1-6).
+  openBottomSignal?: number;
 }
 
 // ponytail: estimate of surrounding chrome (site header, footer, page
@@ -190,10 +202,21 @@ export function WorkspaceShell({
   docxStale,
   markdownStale,
   quickNav,
+  hasPendingWork,
+  queuePendingCount,
+  openBottomSignal,
 }: WorkspaceShellProps) {
   const isActive = status === "queued" || status === "processing";
   const [centerMode, setCenterMode] = useState<CenterMode>(getInitialCenterMode);
-  const [bottomOpen, setBottomOpen] = useState(() => getInitialFlag(BOTTOM_OPEN_KEY));
+  // P0-2: default open when there's pending work AND the reviewer hasn't set
+  // an explicit preference. A stored "true"/"false" always wins.
+  const [bottomOpen, setBottomOpen] = useState(() => {
+    if (typeof window === "undefined") return !!hasPendingWork;
+    const stored = window.localStorage.getItem(BOTTOM_OPEN_KEY);
+    if (stored === "true") return true;
+    if (stored === "false") return false;
+    return !!hasPendingWork;
+  });
   const [focusMode, setFocusMode] = useState(() => getInitialFlag(FOCUS_MODE_KEY));
   const navPanelRef = useRef<ImperativePanelHandle>(null);
   const railPanelRef = useRef<ImperativePanelHandle>(null);
@@ -205,6 +228,13 @@ export function WorkspaceShell({
   useEffect(() => window.localStorage.setItem(CENTER_MODE_KEY, centerMode), [centerMode]);
   useEffect(() => window.localStorage.setItem(FOCUS_MODE_KEY, String(focusMode)), [focusMode]);
   useEffect(() => window.localStorage.setItem(BOTTOM_OPEN_KEY, String(bottomOpen)), [bottomOpen]);
+
+  // A category card requested the queue (P1-6): open the bottom panel. Guarded
+  // by the falsy initial value so it doesn't fire on mount, only on a real bump.
+  useEffect(() => {
+    if (!openBottomSignal) return;
+    setBottomOpen(true);
+  }, [openBottomSignal]);
 
   // Re-apply a persisted Focus Mode on mount — react-resizable-panels'
   // autoSaveId already restores each panel's last saved size (including a
@@ -470,19 +500,31 @@ export function WorkspaceShell({
           type="button"
           onClick={() => setBottomOpen((v) => !v)}
           aria-expanded={bottomOpen}
-          className="flex items-center justify-between px-4 py-1 text-xs text-text-secondary hover:text-text-primary"
+          aria-label={bottomOpen ? "Collapse Review Queue panel" : "Expand Review Queue panel"}
+          className="flex items-center justify-between px-4 py-1.5 text-xs text-text-secondary hover:text-text-primary"
         >
           <span className="flex items-center gap-2">
             <ChevronDownIcon open={bottomOpen} />
-            <span aria-live="polite">
+            {/* The bottom panel's primary tab is the Review Queue, so the
+                collapsed bar names it (audit W5: it previously showed only
+                elapsed time, so reviewers never found their work surface). */}
+            <span className="font-medium text-text-primary">Review Queue</span>
+            {queuePendingCount !== undefined && queuePendingCount > 0 && (
+              <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-warning/15 px-1.5 font-mono text-[10px] font-semibold text-warning">
+                {queuePendingCount} pending
+              </span>
+            )}
+          </span>
+          <span aria-live="polite" className="flex items-center gap-3">
+            <span>
               {isActive
                 ? `Elapsed: ${elapsedSeconds}s`
                 : durationSeconds !== null
                   ? `Completed in ${durationSeconds.toFixed(1)}s`
                   : ""}
             </span>
+            {documentVersion !== null && <span>v{documentVersion}</span>}
           </span>
-          {documentVersion !== null && <span>v{documentVersion}</span>}
         </button>
         {bottomOpen && <div className="border-t border-border">{bottomPanel}</div>}
       </div>

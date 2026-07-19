@@ -52,6 +52,15 @@ export interface DocumentEntities {
   readiness: ReadinessReport | null;
   accessibilityReport: AccessibilityReport | null;
   markdown: string;
+  // Names of result slices whose last fetch failed (e.g. "validation",
+  // "corrections"). Non-empty means the workspace is showing PARTIAL data —
+  // an errored slice must never be presented as a genuinely empty one (a
+  // compliance tool failing open is the worst failure mode). Surfaced as a
+  // retryable banner, not swallowed. Empty on a fully successful load.
+  loadErrors: string[];
+  // Bumped by REQUEST_RELOAD; the poller re-runs its full load when this
+  // changes, so the error banner's Retry needs no page refresh.
+  reloadNonce: number;
 }
 
 const initialState: DocumentEntities = {
@@ -74,6 +83,8 @@ const initialState: DocumentEntities = {
   readiness: null,
   accessibilityReport: null,
   markdown: "",
+  loadErrors: [],
+  reloadNonce: 0,
 };
 
 export type DocumentAction =
@@ -98,6 +109,7 @@ export type DocumentAction =
         pages: PageOcrInfo[];
         readiness: ReadinessReport | null;
         markdown: string;
+        loadErrors: string[];
       };
     }
   | { type: "UPDATE_HEADING"; heading: HeadingItem }
@@ -117,7 +129,9 @@ export type DocumentAction =
   | { type: "UPDATE_PAGE_LABELS"; pages: PageLabel[]; sections: PageLabelSection[] }
   | { type: "UPDATE_MARKDOWN"; markdown: string }
   | { type: "UPDATE_VALIDATION_ISSUE"; issue: ValidationIssue }
-  | { type: "SET_ACCESSIBILITY_REPORT"; report: AccessibilityReport | null };
+  | { type: "SET_ACCESSIBILITY_REPORT"; report: AccessibilityReport | null }
+  | { type: "SET_READINESS"; readiness: ReadinessReport | null }
+  | { type: "REQUEST_RELOAD" };
 
 function keyBy<T>(items: T[], keyFn: (item: T) => string | number): Record<string | number, T> {
   const result: Record<string | number, T> = {};
@@ -151,6 +165,7 @@ function reducer(state: DocumentEntities, action: DocumentAction): DocumentEntit
         pages: action.payload.pages,
         readiness: action.payload.readiness,
         markdown: action.payload.markdown,
+        loadErrors: action.payload.loadErrors,
       };
     case "UPDATE_HEADING":
       return {
@@ -220,6 +235,10 @@ function reducer(state: DocumentEntities, action: DocumentAction): DocumentEntit
       };
     case "SET_ACCESSIBILITY_REPORT":
       return { ...state, accessibilityReport: action.report };
+    case "SET_READINESS":
+      return { ...state, readiness: action.readiness };
+    case "REQUEST_RELOAD":
+      return { ...state, reloadNonce: state.reloadNonce + 1 };
     default:
       return state;
   }

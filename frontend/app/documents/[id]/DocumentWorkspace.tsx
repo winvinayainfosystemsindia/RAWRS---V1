@@ -21,6 +21,7 @@ import {
 } from "@/lib/store/DocumentDataContext";
 import { useMarkdownViewport } from "@/lib/store/MarkdownViewportContext";
 import { useSelection } from "@/lib/store/SelectionContext";
+import { useReviewQueue, ANY_OBJECT_TYPE } from "@/lib/store/ReviewQueueContext";
 import type { PdfObjectOverlay } from "@/components/PdfViewer";
 import { usePdfViewport } from "@/lib/store/PdfViewportContext";
 import { useElapsedSeconds } from "@/lib/store/useElapsedSeconds";
@@ -89,12 +90,14 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
   const { jumpTarget: mdJumpTarget, jumpToLine } = useMarkdownViewport();
   const { selection, select } = useSelection();
   const { pageNumber, jumpToObject } = usePdfViewport();
+  const { focusQueue, focusNonce } = useReviewQueue();
   const [activeSpecialView, setActiveSpecialView] = useState("");
   const [overviewOpen, setOverviewOpen] = useState(false);
   // Bumped by WorkspaceShell's toolbar Search button; SemanticNavTree
   // watches this to switch itself into Search mode (see focusSignal).
   const [searchNonce, setSearchNonce] = useState(0);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const shortcutsDialogRef = useRef<HTMLDialogElement>(null);
   const elapsed = useElapsedSeconds(state.job);
 
   useEffect(() => {
@@ -106,6 +109,15 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  // Drive the native <dialog> from React state: showModal() (not the open
+  // attribute) is what engages the top-layer focus trap + Escape handling.
+  useEffect(() => {
+    const d = shortcutsDialogRef.current;
+    if (!d) return;
+    if (shortcutsOpen && !d.open) d.showModal();
+    else if (!shortcutsOpen && d.open) d.close();
+  }, [shortcutsOpen]);
 
   // Diff against the markdown from before this render's update, so a live
   // document_version regen can flash exactly what changed. The ref updates
@@ -200,6 +212,32 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
   function handleCorrectionJump(correction: { correction_id: string }) {
     select("correction", correction.correction_id);
     setActiveSpecialView("");
+  }
+
+  // The correction object_type each Accessibility-Center special view maps to,
+  // for those views whose findings live in the Review Queue. Views not listed
+  // here (metadata, reading-order, page-labels, ocr) aren't correction-queue
+  // surfaces, so their category cards still open their dedicated workspace.
+  const QUEUE_OBJECT_TYPE: Record<string, string> = {
+    images: "image",
+    tables: "table",
+    headings: "heading",
+    footnotes: "footnote",
+    lists: "list",
+    callouts: "callout",
+  };
+
+  // Category drill-down (P1-6): if the category's findings are in the Review
+  // Queue and there actually are some, filter the queue to that object type
+  // and bring it forward — instead of throwing the reviewer into a different
+  // full-screen view. Otherwise fall back to the dedicated workspace.
+  function handleSelectCategory(specialViewId: string) {
+    const objectType = QUEUE_OBJECT_TYPE[specialViewId];
+    if (objectType && corrections.some((c) => c.object_type === objectType)) {
+      focusQueue(objectType);
+    } else {
+      setActiveSpecialView(specialViewId);
+    }
   }
 
   const specialViews: NavSection[] = [
@@ -321,21 +359,14 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
           <ReadinessPanel
             readiness={state.readiness}
             accessibilityReport={state.accessibilityReport}
-            onSelectCategory={setActiveSpecialView}
+            onSelectCategory={handleSelectCategory}
             onFixNext={() => {
-              const report = state.accessibilityReport;
-              if (!report) return;
-              const firstFail = report.evaluations.find(
-                (ev) => ev.outcome === "FAIL" || ev.outcome === "MANUAL_REVIEW_REQUIRED"
-              );
-              if (!firstFail) return;
-              const catMap: Record<string, string> = {
-                headings: "headings", images: "images", tables: "tables",
-                metadata: "metadata", reading_order: "reading-order",
-              };
-              const view = catMap[firstFail.category.toLowerCase().replace(/\s+/g, "_")];
-              if (view) setActiveSpecialView(view);
-              else setActiveSpecialView("validation");
+              // "Fix Next" opens the prioritized Review Queue itself (its
+              // default priority sort already surfaces the highest-value item)
+              // rather than routing into a category view. Clear the object-type
+              // filter so nothing is hidden. (P1-6 — replaces the old
+              // hardcoded catMap that dumped unknown categories into Validation.)
+              focusQueue(ANY_OBJECT_TYPE);
             }}
           />
         );
@@ -360,6 +391,30 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
             Processing failed{job.failed_stage ? ` at stage "${job.failed_stage}"` : ""}.
           </p>
           {job.error_message && <p className="mt-1 text-sm text-danger/90">{job.error_message}</p>}
+        </div>
+      )}
+
+      {/* Partial-load banner (P0-4) — an errored result slice must never be
+          silently rendered as an empty one. A compliance reviewer certifying
+          "no image issues" needs to know the image check failed to load, not
+          that it passed. Retry re-runs the load with no page refresh. */}
+      {state.loadErrors.length > 0 && (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-warning/40 bg-warning/10 p-3"
+        >
+          <p className="text-sm text-warning">
+            Some document data could not be loaded ({state.loadErrors.join(", ")}). What you
+            see may be incomplete — a section that failed to load is not the same as one with
+            no issues.
+          </p>
+          <button
+            type="button"
+            onClick={() => dispatch({ type: "REQUEST_RELOAD" })}
+            className="shrink-0 rounded border border-warning/50 px-3 py-1 text-sm font-medium text-warning hover:bg-warning/15"
+          >
+            Retry
+          </button>
         </div>
       )}
 
@@ -449,6 +504,9 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
           markdownStale={
             job.markdown_generated_at_version !== null && job.markdown_generated_at_version !== job.document_version
           }
+          hasPendingWork={pendingCorrections > 0}
+          queuePendingCount={pendingCorrections}
+          openBottomSignal={focusNonce}
           quickNav={
             <NavChips
               sections={specialViews}
@@ -506,51 +564,49 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
         />
       )}
 
-      {shortcutsOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-          onClick={() => setShortcutsOpen(false)}
-          role="presentation"
-        >
-          <div
-            role="dialog"
-            aria-label="Keyboard shortcuts"
-            className="w-full max-w-md rounded-lg border border-border bg-surface-panel p-5 shadow-xl"
-            onClick={(e) => e.stopPropagation()}
+      {/* Native <dialog> (P2-11): showModal() gives a focus trap, Escape-to-
+          close, aria-modal, and focus restoration to the trigger for free —
+          all of which the old hand-rolled overlay lacked. onClose keeps React
+          state in sync when the browser closes it (Escape or backdrop). */}
+      <dialog
+        ref={shortcutsDialogRef}
+        onClose={() => setShortcutsOpen(false)}
+        onClick={(e) => {
+          if (e.target === shortcutsDialogRef.current) setShortcutsOpen(false);
+        }}
+        className="m-auto w-full max-w-md rounded-lg border border-border bg-surface-panel p-5 text-text-primary shadow-xl backdrop:bg-black/40"
+      >
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-text-primary">Keyboard Shortcuts</h2>
+          <button
+            type="button"
+            onClick={() => setShortcutsOpen(false)}
+            className="text-text-secondary hover:text-text-primary"
+            aria-label="Close"
           >
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-text-primary">Keyboard Shortcuts</h2>
-              <button
-                type="button"
-                onClick={() => setShortcutsOpen(false)}
-                className="text-text-secondary hover:text-text-primary"
-                aria-label="Close"
-              >
-                ✕
-              </button>
-            </div>
-            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm">
-              {([
-                ["n / →", "Next issue"],
-                ["p / ←", "Previous issue"],
-                ["a", "Accept current"],
-                ["r", "Reject current"],
-                ["i", "Ignore current"],
-                ["u", "Undo last action"],
-                ["e", "Open inspector"],
-                ["j", "Jump to PDF"],
-                ["/", "Focus search"],
-                ["?", "Toggle this overlay"],
-              ] as [string, string][]).map(([key, desc]) => (
-                <div key={key} className="contents">
-                  <dt><kbd className="rounded border border-border bg-surface-elevated px-1.5 py-0.5 font-mono text-xs text-text-primary">{key}</kbd></dt>
-                  <dd className="text-text-secondary">{desc}</dd>
-                </div>
-              ))}
-            </dl>
-          </div>
+            ✕
+          </button>
         </div>
-      )}
+        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm">
+          {([
+            ["n / →", "Next issue"],
+            ["p / ←", "Previous issue"],
+            ["a", "Accept current"],
+            ["r", "Reject current"],
+            ["i", "Ignore current"],
+            ["u", "Undo last action"],
+            ["e", "Open inspector"],
+            ["j", "Jump to PDF"],
+            ["/", "Focus search"],
+            ["?", "Toggle this overlay"],
+          ] as [string, string][]).map(([key, desc]) => (
+            <div key={key} className="contents">
+              <dt><kbd className="rounded border border-border bg-surface-elevated px-1.5 py-0.5 font-mono text-xs text-text-primary">{key}</kbd></dt>
+              <dd className="text-text-secondary">{desc}</dd>
+            </div>
+          ))}
+        </dl>
+      </dialog>
     </div>
   );
 }

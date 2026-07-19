@@ -4,6 +4,8 @@ import { ReviewerWorkspace } from "@/components/ReviewerWorkspace";
 import { DocumentDataProvider } from "@/lib/store/DocumentDataContext";
 import { SelectionProvider } from "@/lib/store/SelectionContext";
 import { PdfViewportProvider } from "@/lib/store/PdfViewportContext";
+import { ReviewQueueProvider } from "@/lib/store/ReviewQueueContext";
+import { ToastProvider } from "@/components/Toast";
 
 // Reviewer Workspace (Phase F-2.1 minimum scope). DocumentDataProvider/
 // SelectionProvider/PdfViewportProvider are all plain, synchronous local
@@ -17,7 +19,11 @@ describe("Reviewer Workspace accessibility", () => {
       <PdfViewportProvider>
         <SelectionProvider>
           <DocumentDataProvider>
-            <ReviewerWorkspace jobId="test-job" />
+            <ReviewQueueProvider>
+              <ToastProvider>
+                <ReviewerWorkspace jobId="test-job" />
+              </ToastProvider>
+            </ReviewQueueProvider>
           </DocumentDataProvider>
         </SelectionProvider>
       </PdfViewportProvider>

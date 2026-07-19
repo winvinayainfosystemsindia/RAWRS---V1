@@ -520,6 +520,11 @@ class CorrectionOut(BaseModel):
     evidence: List[EvidenceSignalOut] = []
     status: str
     created_at: datetime
+    # When the reviewer last acted on this correction (accept/reject/edit/
+    # ignore/needs_review/undo). None while still PROPOSED. Distinct from
+    # created_at (pipeline creation time) so the reviewer timeline can order
+    # by actual reviewer action, not pipeline order.
+    reviewed_at: Optional[datetime] = None
     reviewer_notes: Optional[str] = None
     # M-4.2 (Reviewer Queue Navigation) — derived, not stored: rule_id/
     # severity already exist on the owning verifier's own RuleSpec

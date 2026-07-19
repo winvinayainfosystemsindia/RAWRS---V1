@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, type CorrectionItem } from "@/lib/api";
+import { type CorrectionItem } from "@/lib/api";
 import { STATUS_TABS, isResolved, statusTabMatches, type StatusTab } from "@/lib/correctionFilters";
 import { useDocumentData, useDocumentDispatch, selectCorrections } from "@/lib/store/DocumentDataContext";
 import { useSelection } from "@/lib/store/SelectionContext";
@@ -9,6 +9,9 @@ import { usePdfViewport } from "@/lib/store/PdfViewportContext";
 import { CorrectionHistoryList } from "@/components/CorrectionHistoryList";
 import { useListReviewKeyboard } from "@/lib/hooks/useListReviewKeyboard";
 import { usePersistedState } from "@/lib/hooks/usePersistedState";
+import { useReviewAction } from "@/lib/hooks/useReviewAction";
+import { useReviewQueue } from "@/lib/store/ReviewQueueContext";
+import { useToast } from "@/components/Toast";
 
 type SortKey = "document_order" | "confidence" | "page_number" | "priority";
 
@@ -56,11 +59,15 @@ export function ReviewerWorkspace({ jobId }: { jobId: string }) {
   const dispatch = useDocumentDispatch();
   const { select } = useSelection();
   const { jumpToObject } = usePdfViewport();
+  const { review, refreshIntelligence } = useReviewAction(jobId);
+  const { toast } = useToast();
+  // Asset-type filter is the shared, persisted queue filter (P1-6/P1-7):
+  // category cards in the Accessibility Center set it, and it survives reloads.
+  const { objectTypeFilter: assetType, setObjectTypeFilter: setAssetType } = useReviewQueue();
   const corrections = selectCorrections(state);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const [statusTab, setStatusTab] = usePersistedState<StatusTab>("rawrs:rw:statusTab", "pending");
-  const [assetType, setAssetType] = useState<string>(ANY);
   const [severity, setSeverity] = useState<string>(ANY);
   const [ruleId, setRuleId] = useState<string>(ANY);
   const [minConfidence, setMinConfidence] = useState<string>("");
@@ -124,6 +131,12 @@ export function ReviewerWorkspace({ jobId }: { jobId: string }) {
     if (current.page_number !== null) jumpToObject(current.page_number, null);
   }, [current, select, jumpToObject]);
 
+  // When the shared asset-type filter changes (e.g. a category card in the
+  // Accessibility Center set it), land on the first matching item.
+  useEffect(() => {
+    setIndex(0);
+  }, [assetType]);
+
   const totalCount = corrections.length;
   const reviewedCount = corrections.filter(isResolved).length;
   const acceptedCount = corrections.filter((c) => c.status === "accepted" || c.status === "auto_applied" || c.status === "edited").length;
@@ -141,14 +154,64 @@ export function ReviewerWorkspace({ jobId }: { jobId: string }) {
   const runAction = useCallback(
     async (action: "accept" | "reject" | "ignore" | "undo") => {
       if (!current) return;
-      const updated = await api.reviewCorrection(jobId, current.correction_id, { action });
-      dispatch({ type: "UPDATE_CORRECTION", correction: updated });
+      // Shared pipeline (P1-5): keyboard actions now get the exact toast +
+      // undo + error handling + live-score refresh the buttons get. The
+      // shared hook already surfaces failures via toast, so a throw here just
+      // stops the auto-advance rather than needing its own UI.
+      try {
+        await review(current, action);
+      } catch {
+        /* surfaced by the shared pipeline's toast */
+      }
       // ponytail: auto-advance — the resolved item leaves the "pending"
       // filter on next render, so the same clampedIndex naturally points
       // to the next item. No explicit index bump needed.
     },
-    [current, jobId, dispatch]
+    [current, review]
   );
+
+  // Bulk review (P2-9): accept every high-confidence pending item in the
+  // current view in one action, with a single Undo-all. High confidence =
+  // the same ≥0.95 threshold the card labels "Very High" — the items that
+  // need the least human judgement. Per-item toast/refresh are suppressed;
+  // one summary toast and one score refresh fire at the end.
+  const HIGH_CONF = 0.95;
+  const [bulkRunning, setBulkRunning] = useState(false);
+  const highConfidencePending = useMemo(
+    () => filtered.filter((c) => !isResolved(c) && (c.confidence ?? 0) >= HIGH_CONF),
+    [filtered]
+  );
+
+  async function acceptAllHighConfidence() {
+    if (bulkRunning || highConfidencePending.length === 0) return;
+    setBulkRunning(true);
+    const batch = highConfidencePending;
+    let ok = 0;
+    for (const c of batch) {
+      try {
+        await review(c, "accept", { silent: true, skipRefresh: true });
+        ok++;
+      } catch {
+        /* individual failure already toasted by the pipeline */
+      }
+    }
+    await refreshIntelligence();
+    setBulkRunning(false);
+    toast(`Accepted ${ok} high-confidence correction${ok === 1 ? "" : "s"}`, {
+      label: "Undo all",
+      onClick: async () => {
+        for (const c of batch) {
+          try {
+            await review(c, "undo", { silent: true, skipRefresh: true });
+          } catch {
+            /* ignore */
+          }
+        }
+        await refreshIntelligence();
+        toast(`Reverted ${batch.length} correction${batch.length === 1 ? "" : "s"}`);
+      },
+    });
+  }
 
   // M-4.3 (Proposal Review Experience) — keyboard-first review, now built
   // on the shared useListReviewKeyboard hook (Phase F-3.1) so any future
@@ -409,6 +472,23 @@ export function ReviewerWorkspace({ jobId }: { jobId: string }) {
           Next →
         </button>
       </div>
+
+      {/* Bulk review (P2-9) — only offered when there are high-confidence
+          items to clear; the reviewer's scarce attention is better spent on
+          the ambiguous ones. Every accept is individually undoable via the
+          summary toast's Undo-all. */}
+      {statusTab === "pending" && highConfidencePending.length > 1 && (
+        <button
+          type="button"
+          onClick={acceptAllHighConfidence}
+          disabled={bulkRunning}
+          className="rounded-lg border border-success/40 bg-success/5 px-3 py-2 text-sm font-medium text-success hover:bg-success/10 disabled:opacity-50"
+        >
+          {bulkRunning
+            ? "Accepting…"
+            : `Accept ${highConfidencePending.length} high-confidence corrections in view`}
+        </button>
+      )}
 
       {/* Keyboard shortcuts legend — documented per the shortcuts
           themselves, not just implemented silently. */}

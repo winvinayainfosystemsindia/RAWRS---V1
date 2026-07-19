@@ -660,6 +660,10 @@ export interface CorrectionItem {
   evidence: EvidenceSignal[];
   status: string;
   created_at: string;
+  // When the reviewer last acted on this correction. Null while still
+  // pending. Ordering the reviewer timeline by this (not created_at, which
+  // is pipeline creation time) is what makes "Recent Activity" honest.
+  reviewed_at: string | null;
   reviewer_notes: string | null;
   rule_id: string | null;
   severity: string | null;

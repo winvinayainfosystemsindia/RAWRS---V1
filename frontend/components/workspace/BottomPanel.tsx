@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import type { JobSummary, ValidationIssue } from "@/lib/api";
 import { ReviewerWorkspace } from "@/components/ReviewerWorkspace";
 import { useDocumentData, selectCorrections } from "@/lib/store/DocumentDataContext";
-import { isResolved } from "@/lib/correctionFilters";
+import { usePdfViewport } from "@/lib/store/PdfViewportContext";
 
 type BottomTab = "review" | "validation" | "export" | "console";
 
@@ -15,25 +15,47 @@ export function BottomPanel({ job, issues, jobId }: { job: JobSummary; issues: V
 
   const state = useDocumentData();
   const corrections = selectCorrections(state);
-  const coverage = useMemo(() => {
-    if (!corrections.length || !job.page_count) return null;
-    const pageSet = new Set(corrections.map((c) => c.page_number).filter((p): p is number => p !== null));
-    const reviewedPages = new Set(
-      corrections.filter(isResolved).map((c) => c.page_number).filter((p): p is number => p !== null)
-    );
-    return { pagesWithIssues: pageSet.size, pagesReviewed: reviewedPages.size, totalPages: job.page_count };
-  }, [corrections, job.page_count]);
+  const { visitedPages } = usePdfViewport();
 
+  // Coverage = reviewer ATTENTION, not issue resolution (P2-10). Pages
+  // visited comes from the viewport (the reviewer's eyes landed there);
+  // "decided" counts pages where a human acted on a correction, explicitly
+  // excluding auto_applied (the machine acted, not the reviewer). A visited
+  // page with no issues still counts as covered — coverage and completion
+  // are different questions.
+  const coverage = useMemo(() => {
+    if (!job.page_count) return null;
+    const pagesWithIssues = new Set(
+      corrections.map((c) => c.page_number).filter((p): p is number => p !== null)
+    );
+    const humanDecided = (c: (typeof corrections)[number]) =>
+      c.reviewed_at !== null && c.status !== "auto_applied";
+    const decidedPages = new Set(
+      corrections.filter(humanDecided).map((c) => c.page_number).filter((p): p is number => p !== null)
+    );
+    return {
+      pagesVisited: visitedPages.size,
+      pagesDecided: decidedPages.size,
+      pagesWithIssues: pagesWithIssues.size,
+      totalPages: job.page_count,
+    };
+  }, [corrections, job.page_count, visitedPages]);
+
+  // Recent Activity is now an honest reviewer timeline (P0-3): ordered by
+  // reviewed_at (when the human acted), not created_at (pipeline creation
+  // time — which was near-identical for every item and made the order
+  // meaningless). Only items the reviewer has actually acted on appear.
   const recentActivity = useMemo(() => {
     return corrections
-      .filter(isResolved)
-      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .filter((c) => c.reviewed_at !== null && c.status !== "auto_applied")
+      .sort((a, b) => (b.reviewed_at ?? "").localeCompare(a.reviewed_at ?? ""))
       .slice(0, 8)
       .map((c) => {
-        const verb = c.status === "accepted" || c.status === "auto_applied" ? "Accepted"
+        const verb = c.status === "accepted" ? "Accepted"
           : c.status === "rejected" ? "Rejected"
           : c.status === "edited" ? "Edited"
-          : c.status === "ignored" ? "Ignored" : c.status;
+          : c.status === "ignored" ? "Ignored"
+          : c.status === "reverted" ? "Reverted" : c.status;
         const type = c.object_type.charAt(0).toUpperCase() + c.object_type.slice(1);
         const page = c.page_number !== null ? ` on page ${c.page_number}` : "";
         return `${verb}: ${type} correction${page}`;
@@ -113,8 +135,10 @@ export function BottomPanel({ job, issues, jobId }: { job: JobSummary; issues: V
             )}
             {coverage && (
               <p>
-                Review coverage: {coverage.pagesReviewed} / {coverage.pagesWithIssues} pages with issues reviewed
-                {coverage.totalPages > 0 && ` (${coverage.totalPages} total pages)`}
+                Review coverage: {coverage.pagesVisited} / {coverage.totalPages} pages visited
+                {" · "}
+                {coverage.pagesDecided} page{coverage.pagesDecided === 1 ? "" : "s"} with your decisions
+                {coverage.pagesWithIssues > 0 && ` · ${coverage.pagesWithIssues} page${coverage.pagesWithIssues === 1 ? "" : "s"} have flagged issues`}
               </p>
             )}
             {recentActivity.length > 0 && (
