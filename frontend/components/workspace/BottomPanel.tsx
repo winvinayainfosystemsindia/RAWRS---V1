@@ -58,10 +58,31 @@ export function BottomPanel({ job, issues, jobId }: { job: JobSummary; issues: V
           </div>
         )}
         {tab === "console" && (
-          <p className="text-text-secondary/70">
-            No backend log-stream endpoint exists yet — this tab is reserved for a future
-            processing console, not fabricated output.
-          </p>
+          <div className="space-y-2">
+            <p>
+              <span className="text-text-primary font-medium">{job.filename}</span>
+              {" — "}
+              {job.status === "complete"
+                ? `Completed in ${job.duration_seconds?.toFixed(1) ?? "?"}s`
+                : job.status === "failed"
+                  ? `Failed${job.failed_stage ? ` at ${job.failed_stage}` : ""}`
+                  : job.status}
+            </p>
+            {job.page_count !== null && (
+              <p>{job.page_count} page{job.page_count === 1 ? "" : "s"} processed</p>
+            )}
+            <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">
+              {job.heading_count !== null && <><dt>Headings</dt><dd>{job.heading_count} detected</dd></>}
+              {job.image_count !== null && <><dt>Images</dt><dd>{job.image_count} detected</dd></>}
+              {job.footnote_count !== null && <><dt>Footnotes</dt><dd>{job.footnote_count} detected</dd></>}
+              {(job.error_count !== null || job.warning_count !== null) && (
+                <><dt>Validation</dt><dd>{job.error_count ?? 0} error{job.error_count === 1 ? "" : "s"}, {job.warning_count ?? 0} warning{job.warning_count === 1 ? "" : "s"}</dd></>
+              )}
+            </dl>
+            {job.error_message && (
+              <p className="text-danger">{job.error_message}</p>
+            )}
+          </div>
         )}
       </div>
     </div>

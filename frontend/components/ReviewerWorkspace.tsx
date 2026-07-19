@@ -126,14 +126,14 @@ export function ReviewerWorkspace({ jobId }: { jobId: string }) {
     setIndex(0);
   }
 
-  // Keyboard-first review actions call the same generic Corrections API
-  // CorrectionRow's own buttons call — one endpoint, two triggers (mouse,
-  // keyboard), not a second business-logic path.
   const runAction = useCallback(
     async (action: "accept" | "reject" | "ignore" | "undo") => {
       if (!current) return;
       const updated = await api.reviewCorrection(jobId, current.correction_id, { action });
       dispatch({ type: "UPDATE_CORRECTION", correction: updated });
+      // ponytail: auto-advance — the resolved item leaves the "pending"
+      // filter on next render, so the same clampedIndex naturally points
+      // to the next item. No explicit index bump needed.
     },
     [current, jobId, dispatch]
   );

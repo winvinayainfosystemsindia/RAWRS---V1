@@ -94,7 +94,18 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
   // Bumped by WorkspaceShell's toolbar Search button; SemanticNavTree
   // watches this to switch itself into Search mode (see focusSignal).
   const [searchNonce, setSearchNonce] = useState(0);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const elapsed = useElapsedSeconds(state.job);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if (e.key === "?") setShortcutsOpen((v) => !v);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   // Diff against the markdown from before this render's update, so a live
   // document_version regen can flash exactly what changed. The ref updates
@@ -493,6 +504,52 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
           specialView={renderSpecialView()}
           bottomPanel={<BottomPanel job={job} issues={state.validationIssues} jobId={jobId} />}
         />
+      )}
+
+      {shortcutsOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          onClick={() => setShortcutsOpen(false)}
+          role="presentation"
+        >
+          <div
+            role="dialog"
+            aria-label="Keyboard shortcuts"
+            className="w-full max-w-md rounded-lg border border-border bg-surface-panel p-5 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-text-primary">Keyboard Shortcuts</h2>
+              <button
+                type="button"
+                onClick={() => setShortcutsOpen(false)}
+                className="text-text-secondary hover:text-text-primary"
+                aria-label="Close"
+              >
+                ✕
+              </button>
+            </div>
+            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm">
+              {([
+                ["n / →", "Next issue"],
+                ["p / ←", "Previous issue"],
+                ["a", "Accept current"],
+                ["r", "Reject current"],
+                ["i", "Ignore current"],
+                ["u", "Undo last action"],
+                ["e", "Open inspector"],
+                ["j", "Jump to PDF"],
+                ["/", "Focus search"],
+                ["?", "Toggle this overlay"],
+              ] as [string, string][]).map(([key, desc]) => (
+                <div key={key} className="contents">
+                  <dt><kbd className="rounded border border-border bg-surface-elevated px-1.5 py-0.5 font-mono text-xs text-text-primary">{key}</kbd></dt>
+                  <dd className="text-text-secondary">{desc}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        </div>
       )}
     </div>
   );

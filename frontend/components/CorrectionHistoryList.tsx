@@ -45,6 +45,15 @@ function objectTypeLabel(objectType: string): string {
   return objectType.charAt(0).toUpperCase() + objectType.slice(1);
 }
 
+const OBJECT_TYPE_TONE: Record<string, "info" | "warning" | "success" | "danger" | "neutral"> = {
+  heading: "info",
+  image: "warning",
+  table: "success",
+  footnote: "neutral",
+  reading_order: "danger",
+  metadata: "neutral",
+};
+
 function CorrectionRow({ correction, jobId, onUpdated, onCorrectionClick }: { correction: CorrectionItem; jobId: string; onUpdated: (updated: CorrectionItem) => void; onCorrectionClick?: (c: CorrectionItem) => void }) {
   const [editValue, setEditValue] = useState(correction.suggested_value);
   const [reviewerNotes, setReviewerNotes] = useState(correction.reviewer_notes ?? "");
@@ -99,7 +108,7 @@ function CorrectionRow({ correction, jobId, onUpdated, onCorrectionClick }: { co
     <div className="rounded-lg border border-border bg-surface-panel p-3 space-y-3">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 flex-wrap">
-          <Badge tone="neutral">{objectTypeLabel(correction.object_type)}</Badge>
+          <Badge tone={OBJECT_TYPE_TONE[correction.object_type] ?? "neutral"}>{objectTypeLabel(correction.object_type)}</Badge>
           <Badge tone={statusTone(correction.status)}>{statusLabel(correction.status)}</Badge>
           {correction.confidence !== null && (
             <span className="text-xs text-text-secondary">
