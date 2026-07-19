@@ -117,6 +117,9 @@ export function ReviewerWorkspace({ jobId }: { jobId: string }) {
 
   const totalCount = corrections.length;
   const reviewedCount = corrections.filter(isResolved).length;
+  const acceptedCount = corrections.filter((c) => c.status === "accepted" || c.status === "auto_applied" || c.status === "edited").length;
+  const rejectedCount = corrections.filter((c) => c.status === "rejected").length;
+  const ignoredCount = corrections.filter((c) => c.status === "ignored").length;
 
   function handleUpdated(updated: CorrectionItem) {
     dispatch({ type: "UPDATE_CORRECTION", correction: updated });
@@ -183,6 +186,11 @@ export function ReviewerWorkspace({ jobId }: { jobId: string }) {
       <div className="flex items-center justify-between text-xs text-text-secondary">
         <span>
           {reviewedCount} / {totalCount} reviewed
+          {reviewedCount > 0 && (
+            <span className="ml-2 text-text-secondary/70">
+              {acceptedCount} accepted · {rejectedCount} rejected · {ignoredCount} ignored
+            </span>
+          )}
         </span>
         {filtered.length > 0 && (
           <span>

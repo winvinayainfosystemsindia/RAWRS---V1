@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { api, type CorrectionItem } from "@/lib/api";
 import { Badge } from "./Badge";
 import { EvidenceBreakdown } from "./EvidenceBreakdown";
@@ -54,11 +54,36 @@ const OBJECT_TYPE_TONE: Record<string, "info" | "warning" | "success" | "danger"
   metadata: "neutral",
 };
 
+function confidenceLabel(confidence: number): { text: string; tone: string } {
+  if (confidence >= 0.95) return { text: "Very High", tone: "text-success" };
+  if (confidence >= 0.80) return { text: "High", tone: "text-success" };
+  if (confidence >= 0.60) return { text: "Moderate", tone: "text-warning" };
+  if (confidence >= 0.40) return { text: "Requires Review", tone: "text-warning" };
+  return { text: "Low Confidence", tone: "text-danger" };
+}
+
+const ACCESSIBILITY_IMPACT: Record<string, string> = {
+  heading: "Screen reader users rely on heading hierarchy to navigate document structure.",
+  image: "Users of assistive technology receive no meaningful information without alternative text.",
+  table: "Tables without proper structure become incomprehensible to assistive technology users.",
+  footnote: "Footnote references must be navigable for non-visual readers.",
+  reading_order: "Content delivered out of order confuses assistive technology users.",
+  metadata: "Document metadata helps assistive technology orient users within the document.",
+};
+
+function editFieldWarning(value: string, objectType: string): string | null {
+  if (!value.trim()) return "Empty value — this will not resolve the accessibility issue.";
+  if (objectType === "image" && value.trim().length < 10) return "Very short — consider whether this provides meaningful context.";
+  if (/^(image|photo|picture|figure|table|heading)$/i.test(value.trim())) return "Placeholder text detected — describe the actual content.";
+  return null;
+}
+
 function CorrectionRow({ correction, jobId, onUpdated, onCorrectionClick }: { correction: CorrectionItem; jobId: string; onUpdated: (updated: CorrectionItem) => void; onCorrectionClick?: (c: CorrectionItem) => void }) {
   const [editValue, setEditValue] = useState(correction.suggested_value);
   const [reviewerNotes, setReviewerNotes] = useState(correction.reviewer_notes ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const editRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
   async function act(action: Parameters<typeof api.reviewCorrection>[2]["action"], proposedValue?: string) {
@@ -90,31 +115,23 @@ function CorrectionRow({ correction, jobId, onUpdated, onCorrectionClick }: { co
   }
 
   const isDecided = !["proposed", "pending_review"].includes(correction.status);
-
-  // Phase RW-1: some verifiers (footnotes/headings/lists/tables) encode a
-  // structured payload as a JSON string in current_value/suggested_value
-  // rather than a plain string — rendered as-is, that was raw JSON shown
-  // as "the suggestion" to a reviewer. Prefer the suggested shape (what
-  // RAWRS wants to insert) as the card's headline; the current shape
-  // (e.g. a footnote's old anchor page) supplies "what was there before"
-  // context when both parse. Neither parsing (the common case — image
-  // alt text, page-label text, plain corrected strings) falls back to
-  // the plain Detected/Suggested fix pair below, unchanged in shape.
   const suggestedPreview: CorrectionPreview | null = parseCorrectionPayload(correction.suggested_value);
   const currentPreview: CorrectionPreview | null = parseCorrectionPayload(correction.current_value);
   const preview = suggestedPreview ?? currentPreview;
+  const conf = correction.confidence !== null ? confidenceLabel(correction.confidence) : null;
+  const impact = ACCESSIBILITY_IMPACT[correction.object_type];
+  const warning = editFieldWarning(editValue, correction.object_type);
 
   return (
-    <div className="rounded-lg border border-border bg-surface-panel p-3 space-y-3">
+    <div className="rounded-lg border border-border bg-surface-panel p-4 space-y-3">
+      {/* Row 1: Type + Location + Status + Jump */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 flex-wrap">
           <Badge tone={OBJECT_TYPE_TONE[correction.object_type] ?? "neutral"}>{objectTypeLabel(correction.object_type)}</Badge>
-          <Badge tone={statusTone(correction.status)}>{statusLabel(correction.status)}</Badge>
-          {correction.confidence !== null && (
-            <span className="text-xs text-text-secondary">
-              {(correction.confidence * 100).toFixed(0)}%
-            </span>
+          {correction.page_number !== null && (
+            <span className="text-xs text-text-secondary">Page {correction.page_number}</span>
           )}
+          <Badge tone={statusTone(correction.status)}>{statusLabel(correction.status)}</Badge>
         </div>
         {onCorrectionClick && (
           <button
@@ -127,14 +144,18 @@ function CorrectionRow({ correction, jobId, onUpdated, onCorrectionClick }: { co
         )}
       </div>
 
+      {/* Row 2: Problem headline — the primary focal point */}
       <div>
-        {preview && <p className="text-sm font-semibold text-text-primary">{preview.kind}</p>}
-        <p className="text-sm text-text-primary">{correction.problem}</p>
-        {correction.page_number !== null && (
-          <p className="text-xs text-text-secondary">Detected on page {correction.page_number}</p>
-        )}
+        {preview && <p className="text-xs font-medium text-text-secondary">{preview.kind}</p>}
+        <p className="text-sm font-semibold text-text-primary leading-snug">{correction.problem}</p>
       </div>
 
+      {/* Row 3: Accessibility Impact — why this matters */}
+      {impact && (
+        <p className="text-xs text-text-secondary italic">{impact}</p>
+      )}
+
+      {/* Row 4: Recommended Fix / Current vs Suggested */}
       {preview ? (
         <dl className="space-y-1.5 rounded-lg border border-border bg-surface-canvas p-3">
           {preview.fields.map((f) => (
@@ -147,32 +168,46 @@ function CorrectionRow({ correction, jobId, onUpdated, onCorrectionClick }: { co
       ) : (
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-1">Detected</p>
+            <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-1">Current</p>
             <p className="text-sm text-text-primary break-words">{correction.current_value || "—"}</p>
           </div>
           <div>
-            <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-1">Suggested fix</p>
+            <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-1">Recommended Fix</p>
             <p className="text-sm text-success break-words">{correction.suggested_value || "—"}</p>
           </div>
         </div>
       )}
 
-      {correction.reason && <p className="text-sm text-text-secondary">Reason: {correction.reason}</p>}
+      {/* Row 5: Confidence + Detection Reason */}
+      <div className="flex items-baseline gap-3 text-xs">
+        {conf && (
+          <span className={`font-medium ${conf.tone}`}>{conf.text} confidence</span>
+        )}
+        {correction.reason && (
+          <span className="text-text-secondary">{correction.reason}</span>
+        )}
+      </div>
 
+      {/* Row 6: Evidence */}
       <EvidenceBreakdown evidence={correction.evidence} />
 
+      {/* Row 7: Edit field with live validation */}
       {!isDecided && (
         <div>
           <label className="block text-xs font-semibold text-text-secondary uppercase tracking-wider mb-1">
-            Edit suggested value
+            Edit value
           </label>
           <input
+            ref={editRef}
             type="text"
             value={editValue}
             onChange={(e) => setEditValue(e.target.value)}
             className="w-full rounded border border-border bg-surface-canvas px-2 py-1.5 text-sm font-mono text-text-primary focus:border-accent focus:outline-none"
             disabled={saving}
           />
+          {warning && (
+            <p className="mt-1 text-xs text-warning">{warning}</p>
+          )}
         </div>
       )}
 
@@ -191,6 +226,7 @@ function CorrectionRow({ correction, jobId, onUpdated, onCorrectionClick }: { co
 
       {error && <p className="text-sm text-danger" role="alert">{error}</p>}
 
+      {/* Row 8: Actions */}
       <div className="flex flex-wrap gap-2">
         {!isDecided && (
           <>
@@ -202,7 +238,11 @@ function CorrectionRow({ correction, jobId, onUpdated, onCorrectionClick }: { co
               {saving ? "Working…" : "Accept"}
             </button>
             <button
-              onClick={() => act("edit", editValue)}
+              onClick={() => {
+                act("edit", editValue);
+                editRef.current?.focus();
+                editRef.current?.select();
+              }}
               disabled={saving || editValue === correction.suggested_value}
               className="rounded bg-accent px-3 py-1.5 text-sm font-medium text-accent-contrast hover:opacity-90 disabled:opacity-50"
             >
@@ -244,17 +284,10 @@ function CorrectionRow({ correction, jobId, onUpdated, onCorrectionClick }: { co
         )}
       </div>
 
-      {/* Phase RW-1 issue #2: raw/technical fields (rule id, internal
-          field name, ids, and the raw current/suggested strings this
-          card already parsed into the friendly view above) live behind
-          a collapsed-by-default disclosure, placed after the action
-          buttons so expanding it never pushes Accept/Reject out of
-          reach (issue #6 — long-content ergonomics). Same native
-          <details> pattern already used elsewhere (Export menu,
-          Overview, Processing Log). */}
+      {/* Technical details — collapsed by default */}
       <details className="rounded border border-border">
         <summary className="cursor-pointer select-none px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-text-secondary hover:text-text-primary">
-          Developer Details
+          Technical Details
         </summary>
         <dl className="space-y-2 border-t border-border p-3 text-xs">
           <div>
