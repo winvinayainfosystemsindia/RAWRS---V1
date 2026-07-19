@@ -1,8 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { JobSummary, ValidationIssue } from "@/lib/api";
 import { ReviewerWorkspace } from "@/components/ReviewerWorkspace";
+import { useDocumentData, selectCorrections } from "@/lib/store/DocumentDataContext";
+import { isResolved } from "@/lib/correctionFilters";
 
 type BottomTab = "review" | "validation" | "export" | "console";
 
@@ -10,6 +12,33 @@ export function BottomPanel({ job, issues, jobId }: { job: JobSummary; issues: V
   const [tab, setTab] = useState<BottomTab>("review");
   const errorCount = issues.filter((i) => i.severity === "error").length;
   const warningCount = issues.filter((i) => i.severity === "warning").length;
+
+  const state = useDocumentData();
+  const corrections = selectCorrections(state);
+  const coverage = useMemo(() => {
+    if (!corrections.length || !job.page_count) return null;
+    const pageSet = new Set(corrections.map((c) => c.page_number).filter((p): p is number => p !== null));
+    const reviewedPages = new Set(
+      corrections.filter(isResolved).map((c) => c.page_number).filter((p): p is number => p !== null)
+    );
+    return { pagesWithIssues: pageSet.size, pagesReviewed: reviewedPages.size, totalPages: job.page_count };
+  }, [corrections, job.page_count]);
+
+  const recentActivity = useMemo(() => {
+    return corrections
+      .filter(isResolved)
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .slice(0, 8)
+      .map((c) => {
+        const verb = c.status === "accepted" || c.status === "auto_applied" ? "Accepted"
+          : c.status === "rejected" ? "Rejected"
+          : c.status === "edited" ? "Edited"
+          : c.status === "ignored" ? "Ignored" : c.status;
+        const type = c.object_type.charAt(0).toUpperCase() + c.object_type.slice(1);
+        const page = c.page_number !== null ? ` on page ${c.page_number}` : "";
+        return `${verb}: ${type} correction${page}`;
+      });
+  }, [corrections]);
 
   const markdownStale =
     job.markdown_generated_at_version !== null && job.markdown_generated_at_version !== job.document_version;
@@ -81,6 +110,22 @@ export function BottomPanel({ job, issues, jobId }: { job: JobSummary; issues: V
             </dl>
             {job.error_message && (
               <p className="text-danger">{job.error_message}</p>
+            )}
+            {coverage && (
+              <p>
+                Review coverage: {coverage.pagesReviewed} / {coverage.pagesWithIssues} pages with issues reviewed
+                {coverage.totalPages > 0 && ` (${coverage.totalPages} total pages)`}
+              </p>
+            )}
+            {recentActivity.length > 0 && (
+              <div>
+                <p className="text-text-primary font-medium">Recent Activity</p>
+                <ul className="mt-1 space-y-0.5">
+                  {recentActivity.map((line, i) => (
+                    <li key={i}>{line}</li>
+                  ))}
+                </ul>
+              </div>
             )}
           </div>
         )}

@@ -8,14 +8,25 @@ import { useSelection } from "@/lib/store/SelectionContext";
 import { usePdfViewport } from "@/lib/store/PdfViewportContext";
 import { CorrectionHistoryList } from "@/components/CorrectionHistoryList";
 import { useListReviewKeyboard } from "@/lib/hooks/useListReviewKeyboard";
+import { usePersistedState } from "@/lib/hooks/usePersistedState";
 
-type SortKey = "document_order" | "confidence" | "page_number";
+type SortKey = "document_order" | "confidence" | "page_number" | "priority";
 
 const SORT_OPTIONS: { id: SortKey; label: string }[] = [
+  { id: "priority", label: "Priority" },
   { id: "document_order", label: "Document Order" },
   { id: "confidence", label: "Confidence" },
   { id: "page_number", label: "Page Number" },
 ];
+
+function priorityScore(c: CorrectionItem): number {
+  let score = 0;
+  if (c.severity === "error") score += 300;
+  else if (c.severity === "warning") score += 200;
+  else score += 100;
+  score += Math.round((c.confidence ?? 0) * 100);
+  return score;
+}
 
 const ANY = "__any__";
 
@@ -48,14 +59,14 @@ export function ReviewerWorkspace({ jobId }: { jobId: string }) {
   const corrections = selectCorrections(state);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  const [statusTab, setStatusTab] = useState<StatusTab>("pending");
+  const [statusTab, setStatusTab] = usePersistedState<StatusTab>("rawrs:rw:statusTab", "pending");
   const [assetType, setAssetType] = useState<string>(ANY);
   const [severity, setSeverity] = useState<string>(ANY);
   const [ruleId, setRuleId] = useState<string>(ANY);
   const [minConfidence, setMinConfidence] = useState<string>("");
   const [pageFilter, setPageFilter] = useState<string>("");
   const [search, setSearch] = useState<string>("");
-  const [sortKey, setSortKey] = useState<SortKey>("document_order");
+  const [sortKey, setSortKey] = usePersistedState<SortKey>("rawrs:rw:sortKey", "priority");
   const [index, setIndex] = useState(0);
 
   const assetTypeOptions = useMemo(
@@ -87,11 +98,9 @@ export function ReviewerWorkspace({ jobId }: { jobId: string }) {
     });
 
     const sorted = [...result].sort((a, b) => {
+      if (sortKey === "priority") return priorityScore(b) - priorityScore(a);
       if (sortKey === "confidence") return (b.confidence ?? -1) - (a.confidence ?? -1);
       if (sortKey === "page_number") return (a.page_number ?? Infinity) - (b.page_number ?? Infinity);
-      // document_order: corrections are appended in the order each
-      // verifier generated them during the pipeline run, which created_at
-      // (microsecond resolution) preserves — no separate ordinal exists.
       return a.created_at.localeCompare(b.created_at);
     });
 
@@ -172,6 +181,24 @@ export function ReviewerWorkspace({ jobId }: { jobId: string }) {
     keyActions,
   });
 
+  const insight = useMemo(() => {
+    if (corrections.length < 3) return null;
+    const typeCounts = new Map<string, number>();
+    for (const c of corrections) {
+      typeCounts.set(c.object_type, (typeCounts.get(c.object_type) ?? 0) + 1);
+    }
+    const dominant = [...typeCounts.entries()].sort((a, b) => b[1] - a[1])[0];
+    if (!dominant) return null;
+    const pct = Math.round((dominant[1] / corrections.length) * 100);
+    if (pct < 40) return null;
+    const pending = corrections.filter((c) => !isResolved(c));
+    const blockingCount = pending.filter((c) => c.severity === "error").length;
+    const parts: string[] = [];
+    parts.push(`${pct}% of issues are ${dominant[0]} corrections.`);
+    if (blockingCount > 0) parts.push(`${blockingCount} blocking issue${blockingCount === 1 ? "" : "s"} remain.`);
+    return parts.join(" ");
+  }, [corrections]);
+
   if (corrections.length === 0) {
     return (
       <p className="text-sm text-text-secondary">
@@ -182,6 +209,13 @@ export function ReviewerWorkspace({ jobId }: { jobId: string }) {
 
   return (
     <div className="flex flex-col gap-4">
+      {/* Insight card */}
+      {insight && (
+        <p className="rounded-lg border border-accent/20 bg-accent/5 px-3 py-2 text-xs text-text-secondary">
+          {insight}
+        </p>
+      )}
+
       {/* Progress */}
       <div className="flex items-center justify-between text-xs text-text-secondary">
         <span>
