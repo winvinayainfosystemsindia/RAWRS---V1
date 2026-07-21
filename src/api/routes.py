@@ -20,6 +20,7 @@ from fastapi import APIRouter, HTTPException, UploadFile, File
 from fastapi.responses import FileResponse
 from loguru import logger
 
+from src.api.document_store import save_document, serialize_document
 from src.api.jobs import Job, JobStatus, create_job, get_job, list_jobs, start_job, _lock
 from src.api.schemas import (
     AIStatusResponse,
@@ -244,7 +245,9 @@ def review_validation_issue(
         elif body.action == ValidationIssueAction.REOPEN:
             issue.status = ValidationIssueStatus.OPEN
         issue.reviewed_at = datetime.now(timezone.utc)
+        payload = _snapshot(document)
 
+    _persist(job_id, payload)
     return _validation_issue_out(issue)
 
 
@@ -334,7 +337,9 @@ def generate_image_alt_text(job_id: str, image_id: str) -> ImageOut:
         image.figure.alt_text_status = AltTextStatus.AI_GENERATED
         from src.models.lifecycle import ObjectLifecycleStatus
         image.lifecycle_status = ObjectLifecycleStatus.AI_PROCESSED
+        payload = _snapshot(document)
 
+    _persist(job_id, payload)
     return _image_out(image, job_id)
 
 
@@ -376,7 +381,9 @@ def review_image(job_id: str, image_id: str, body: ImageReviewRequest) -> ImageO
                         ReviewAction.MARK_COMPLEX, ReviewAction.SKIP, ReviewAction.EDIT):
             image.lifecycle_status = ObjectLifecycleStatus.HUMAN_REVIEWED
         document.version += 1  # FEATURE_020 — invalidates cached exports
+        payload = _snapshot(document)
 
+    _persist(job_id, payload)
     return _image_out(image, job_id)
 
 
@@ -402,7 +409,9 @@ def bulk_review_images(job_id: str, body: BulkActionRequest) -> ImagesResponse:
                 image.figure = Figure()
             _apply_review_action(image.figure, body.action, alt_text=None)
         document.version += 1  # FEATURE_020 — invalidates cached exports
+        payload = _snapshot(document)
 
+    _persist(job_id, payload)
     images_out = [_image_out(img, job_id) for img in document.images]
     return ImagesResponse(images=images_out)
 
@@ -451,7 +460,9 @@ def create_table(job_id: str, body: TableReviewRequest) -> TableOut:
             extraction_source="manual",
         )
         document.tables.append(table)
+        payload = _snapshot(document)
 
+    _persist(job_id, payload)
     return _table_out(table)
 
 
@@ -508,7 +519,9 @@ def review_table(job_id: str, table_id: str, body: TableReviewRequest) -> TableO
         table.status = TableStatus.REVIEWED
         from src.models.lifecycle import ObjectLifecycleStatus
         table.lifecycle_status = ObjectLifecycleStatus.HUMAN_REVIEWED
+        payload = _snapshot(document)
 
+    _persist(job_id, payload)
     return _table_out(table)
 
 
@@ -570,7 +583,9 @@ def analyze_table(job_id: str, table_id: str) -> TableOut:
             warnings=result.warnings,
             confidence=result.confidence,
         )
+        payload = _snapshot(document)
 
+    _persist(job_id, payload)
     return _table_out(table)
 
 
@@ -587,8 +602,12 @@ def delete_table(job_id: str, table_id: str) -> None:
     original_count = len(document.tables)
     with _lock:
         document.tables = [t for t in document.tables if t.table_id != table_id]
+        payload = _snapshot(document)
     if len(document.tables) == original_count:
         raise HTTPException(status_code=404, detail=f"No table '{table_id}' on this document.")
+    # Persisted only on a real deletion — a 404 changed nothing, so
+    # writing a multi-megabyte no-op would be pure waste.
+    _persist(job_id, payload)
 
 
 @router.get("/documents/{job_id}/headings", response_model=HeadingsResponse)
@@ -639,7 +658,9 @@ def review_heading(job_id: str, document_order: int, body: HeadingReviewRequest)
             raise HTTPException(status_code=422, detail=f"Unknown action '{body.action}'. Use 'approve' or 'reject'.")
         if body.reviewer_note is not None:
             heading.reviewer_note = body.reviewer_note
+        payload = _snapshot(document)
 
+    _persist(job_id, payload)
     return _heading_out(heading)
 
 
@@ -682,7 +703,9 @@ def review_footnote(job_id: str, footnote_id: str, body: FootnoteReviewRequest) 
             raise HTTPException(status_code=422, detail=f"Unknown action '{body.action}'. Use 'approve' or 'reject'.")
         if body.reviewer_note is not None:
             note.reviewer_note = body.reviewer_note
+        payload = _snapshot(document)
 
+    _persist(job_id, payload)
     return _footnote_out(note)
 
 
@@ -769,7 +792,9 @@ def update_metadata(job_id: str, body: MetadataUpdateRequest) -> MetadataOut:
             document.metadata.author = body.author or None
         if body.subject is not None:
             document.metadata.subject = body.subject or None
+        payload = _snapshot(document)
 
+    _persist(job_id, payload)
     m = document.metadata
     return MetadataOut(
         filename=m.filename,
@@ -913,7 +938,9 @@ def update_reading_order(job_id: str, page_num: int, body: ReadingOrderPatchRequ
                 detail=f"Unknown action '{body.action}'. Use 'approve' or 'reorder'.",
             )
         document.version += 1  # FEATURE_020 — invalidates cached exports
+        payload = _snapshot(document)
 
+    _persist(job_id, payload)
     sorted_blocks = sorted(
         page_blocks,
         key=lambda b: b.corrected_order if b.corrected_order is not None else b.order,
@@ -1063,7 +1090,9 @@ def update_page_label(job_id: str, page_num: int, body: PageLabelOverrideRequest
             )
             _sync_page_marker_heading(document, page)
             document.version += 1  # FEATURE_020 — invalidates cached exports
+        payload = _snapshot(document)
 
+    _persist(job_id, payload)
     return _page_label_out(page)
 
 
@@ -1129,7 +1158,9 @@ def set_page_label_sections(job_id: str, body: PageLabelSectionsRequest) -> Page
             _sync_page_marker_heading(document, page)
         if changed_pages:
             document.version += 1  # FEATURE_020 — invalidates cached exports
+        payload = _snapshot(document)
 
+    _persist(job_id, payload)
     return PageLabelsResponse(
         pages=[_page_label_out(p) for p in sorted(document.pages, key=lambda p: p.page_number)],
         sections=[_page_label_section_out(s) for s in document.page_label_sections],
@@ -1589,7 +1620,9 @@ def review_correction(job_id: str, correction_id: str, body: CorrectionActionReq
                     latency_seconds=(now - correction.created_at).total_seconds(),
                 )
             )
+        payload = _snapshot(document)
 
+    _persist(job_id, payload)
     return _correction_out(document, correction)
 
 
@@ -1687,6 +1720,30 @@ def _require_job(job_id: str) -> Job:
     if job is None:
         raise HTTPException(status_code=404, detail=f"No document found for id '{job_id}'.")
     return job
+
+
+def _snapshot(document: Optional[Document]) -> Optional[str]:
+    """Serialize a document for persistence. **Call with _lock HELD.**
+
+    FE-0-001 invariant 2. ``model_dump_json()`` walks a mutable object
+    graph, so serializing after the lock is released can interleave with
+    another thread's mutation and produce a torn snapshot that still
+    validates on reload — silent, permanent corruption. Pure CPU:
+    1-101 ms across the benchmark corpus.
+    """
+    return serialize_document(document) if document is not None else None
+
+
+def _persist(job_id: str, payload: Optional[str]) -> None:
+    """Write a snapshot to disk. **Call with _lock RELEASED.**
+
+    FE-0-001 invariant 2 (cont.) — a multi-megabyte write must not block
+    the single global lock. Failures are logged inside save_document()
+    and deliberately swallowed here: the reviewer's mutation already
+    succeeded in memory, so a disk problem must not fail their request.
+    """
+    if payload is not None:
+        save_document(job_id, payload)
 
 
 def _require_document(job_id: str) -> Optional[Document]:

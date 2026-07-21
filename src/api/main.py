@@ -29,9 +29,17 @@ from src.api.routes import router
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
+    from src.api.document_store import sweep_orphan_temp_files
     from src.api.jobs import load_persisted_jobs
     from src.ai.registry import init_ai
 
+    # FE-0-001 — clear *.json.tmp left by a process killed mid-write.
+    # Orphans are always safe to delete: a temp file only becomes
+    # authoritative via os.replace(), so any survivor is a write that
+    # never completed. Runs before load_persisted_jobs() so recovery
+    # never sees them. Deliberately limited to temp artifacts — sidecar
+    # lifecycle (retention, deletion) is out of scope for FE-0-001.
+    sweep_orphan_temp_files()
     load_persisted_jobs()
     init_ai()  # resolves AI provider; never raises, never blocks on model load
     yield

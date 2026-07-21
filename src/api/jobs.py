@@ -21,11 +21,19 @@ On startup, call load_persisted_jobs() to reload these records into the
 in-memory store. Jobs that were still PROCESSING when the server died
 are recovered as FAILED with an explanatory error_message.
 
-The in-memory document object (job.result.document) is NOT serialized.
-After a restart, sub-resource endpoints (images, headings, etc.) will
-return empty collections for recovered jobs — the job summary, markdown,
-DOCX, and validation report downloads all continue to work because those
-are on-disk artifacts.
+The canonical Document is persisted alongside the job record, as its own
+sidecar under outputs/documents/{job_id}.json (see
+src/api/document_store.py). Before FE-0-001 it was not: a recovered job
+came back as status=COMPLETE with document=None, so the UI reported a
+finished, clean document while holding no data at all.
+
+``document_persisted`` records whether that sidecar was written, so a
+recovered job can tell "no document was ever saved" apart from "a
+document exists and should be loaded". Checkpoints written before
+FE-0-001 have no such key and default to False, which reproduces the old
+behaviour exactly: sub-resource endpoints return empty collections, while
+the job summary, markdown, DOCX and validation report downloads keep
+working because those are on-disk artifacts.
 """
 
 import json
@@ -39,6 +47,7 @@ from typing import Dict, List, Optional, Tuple
 
 from loguru import logger
 
+from src.api.document_store import load_document, save_document, serialize_document
 from src.pipeline.phase1_pipeline import DEFAULT_OUTPUT_ROOT, PipelineResult, run_pipeline
 
 UPLOAD_DIR = DEFAULT_OUTPUT_ROOT / "uploads"
@@ -88,6 +97,11 @@ class Job:
     last_completed_stage: Optional[str] = None
     mmd_path: Optional[Path] = None
     image_dir: Optional[Path] = None
+    # FE-0-001 — True once this job's Document has been written to
+    # outputs/documents/{job_id}.json. Distinguishes "no document was
+    # ever saved" (pre-FE-0-001 checkpoint, or a job that failed before
+    # producing one) from "a document exists and should be loaded".
+    document_persisted: bool = False
 
 
 _jobs: Dict[str, Job] = {}
@@ -276,6 +290,19 @@ def _run_job(job_id: str, enable_ocr: bool) -> None:
         job.status = JobStatus.COMPLETE if result.success else JobStatus.FAILED
         job.error_message = result.error_message
         job.completed_at = datetime.now(timezone.utc)
+        # FE-0-001 invariant 2: serialize while the lock is still held.
+        # model_dump_json() walks a mutable object graph, so serializing
+        # after release could interleave with a reviewer mutation and
+        # produce a torn snapshot that still validates on reload.
+        document_payload = (
+            serialize_document(result.document) if result.document is not None else None
+        )
+
+    # FE-0-001 invariant 2 (cont.): file I/O happens after the lock is
+    # released, matching _write_checkpoint's existing convention that
+    # disk writes must not block the lock.
+    if document_payload is not None:
+        job.document_persisted = save_document(job.job_id, document_payload)
 
     _write_checkpoint(job)
 
@@ -305,6 +332,7 @@ def _write_checkpoint(job: Job) -> None:
         "completed_at": job.completed_at.isoformat() if job.completed_at else None,
         "last_completed_stage": job.last_completed_stage,
         "error_message": job.error_message,
+        "document_persisted": job.document_persisted,
         "result": _result_to_dict(job.result) if job.result else None,
     }
     path = JOBS_DIR / f"{job.job_id}.json"
@@ -373,6 +401,10 @@ def _job_from_dict(data: dict) -> Job:
         completed_at=completed_at,
         last_completed_stage=last_stage,
         error_message=error_message,
+        # Absent in checkpoints written before FE-0-001 — defaulting to
+        # False reproduces the old "no document after restart" behaviour
+        # for them exactly.
+        document_persisted=bool(data.get("document_persisted", False)),
     )
 
     if not recovering and data.get("result"):
@@ -380,5 +412,30 @@ def _job_from_dict(data: dict) -> Job:
             job.result = _result_from_dict(data["result"])
         except Exception as exc:
             logger.warning("Could not reconstruct PipelineResult for job {}: {}", job.job_id, exc)
+
+    # FE-0-001 — rehydrate the canonical Document.
+    #
+    # The sidecar on disk is the source of truth, not job.document_persisted:
+    # that flag is written once at completion and can be stale in either
+    # direction (a sidecar deleted out of band; a save that succeeded while
+    # the checkpoint write did not). So the load is attempted whenever there
+    # is a result to attach it to, and the flag is then corrected to match
+    # what was actually found.
+    #
+    # load_document() returns None for every failure mode — missing,
+    # unreadable, corrupt, schema mismatch, failed validation — so None here
+    # is not exceptional. It reproduces the documented pre-FE-0-001 state
+    # (recovered job, document=None) that the rest of the system already
+    # handles, rather than failing the whole recovery.
+    if job.result is not None:
+        document = load_document(job.job_id)
+        if document is None and job.document_persisted:
+            logger.warning(
+                "Job {} checkpoint claims a persisted document but none could be "
+                "loaded; recovering without it",
+                job.job_id,
+            )
+        job.result.document = document
+        job.document_persisted = document is not None
 
     return job
