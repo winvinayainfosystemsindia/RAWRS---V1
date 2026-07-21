@@ -11,7 +11,7 @@ distinct from 404 "no such job".
 """
 
 import json
-import tempfile
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -20,7 +20,17 @@ from fastapi import APIRouter, HTTPException, UploadFile, File
 from fastapi.responses import FileResponse
 from loguru import logger
 
-from src.api.document_store import save_document, serialize_document
+from src.api.document_store import (
+    save_document,
+    serialize_document,
+    # Private by name, shared by intent: _ensure_current_export needs the
+    # exact same durability sequence and Windows replace-retry as the
+    # document sidecar. Duplicating that loop would mean two divergent
+    # answers to one platform problem.
+    _replace_with_retry,
+    TEMP_SUFFIX,
+)
+from src.pipeline.phase1_pipeline import DEFAULT_OUTPUT_ROOT
 from src.api.jobs import Job, JobStatus, create_job, get_job, list_jobs, start_job, _lock
 from src.api.schemas import (
     AIStatusResponse,
@@ -828,10 +838,28 @@ def get_pages(job_id: str) -> PagesResponse:
 
 @router.get("/documents/{job_id}/markdown", response_model=MarkdownResponse)
 def get_markdown(job_id: str) -> MarkdownResponse:
+    """Return the Markdown preview shown in the reviewer's document pane.
+
+    Re-generates from current in-memory Document state when it has diverged
+    from the static pipeline-time file (see _needs_export_regen) — the same
+    regen-on-demand treatment the download handlers below already apply.
+
+    FE-0-003: this endpoint previously served markdown_path unconditionally
+    while both download handlers regenerated, so an accepted correction
+    reached the exported .md/.docx but never the pane the reviewer was
+    looking at. The review loop appeared dead when only the preview was.
+    """
     job = _require_job(job_id)
     if job.result is None or job.result.markdown_path is None or not job.result.markdown_path.is_file():
         raise HTTPException(status_code=404, detail="Markdown has not been generated for this document.")
-    return MarkdownResponse(content=job.result.markdown_path.read_text(encoding="utf-8"))
+
+    # Shared with both download handlers, so preview and deliverable can
+    # never disagree — them disagreeing is what made FE-0-003 look like
+    # "corrections never reach the output" when only the preview was stale.
+    # On a failed rebuild this returns the previous artifact rather than
+    # raising: a read must not 500.
+    path = _ensure_current_export(job, "markdown") or job.result.markdown_path
+    return MarkdownResponse(content=path.read_text(encoding="utf-8"))
 
 
 # --- Reading order review (FEATURE_016B) ------------------------------------
@@ -1646,63 +1674,131 @@ def _needs_export_regen(document: Optional[Document], generated_at_version: Opti
     return document.version != generated_at_version
 
 
+# (path attribute, version-marker attribute, output subdirectory, suffix)
+_EXPORT_SPECS = {
+    "markdown": ("markdown_path", "markdown_generated_at_version", "markdown", ".md"),
+    "docx": ("docx_path", "docx_generated_at_version", "docx", ".docx"),
+}
+
+
+def _atomic_write(final: Path, produce) -> None:
+    """Write via temp -> fsync -> atomic replace, within the same directory.
+
+    Same durability sequence as document_store.save_document (its invariant
+    3): os.replace() is atomic, but a rename without fsync can land while
+    the data pages have not been written, leaving a file that looks valid
+    and is empty. The temp file sits in the destination directory so the
+    rename never crosses a volume boundary.
+
+    _replace_with_retry is reused rather than reimplemented because the
+    Windows failure it handles applies here too — and more so: these
+    destinations are actively served by FileResponse, so a concurrent
+    download can hold the target open exactly when we try to replace it.
+    """
+    final.parent.mkdir(parents=True, exist_ok=True)
+    tmp = final.with_name(final.name + TEMP_SUFFIX)
+    try:
+        produce(tmp)
+        with open(tmp, "r+b") as handle:
+            handle.flush()
+            os.fsync(handle.fileno())
+        _replace_with_retry(tmp, final)
+    except Exception:
+        try:
+            if tmp.exists():
+                tmp.unlink()
+        except OSError:
+            pass
+        raise
+
+
+def _ensure_current_export(job: Job, kind: str) -> Optional[Path]:
+    """Return a path to an artifact matching the document's current version.
+
+    Regenerate-and-cache: a rebuild happens at most once per
+    document.version rather than once per request. That distinction is the
+    whole point — the workspace poller reads the preview every 4s, so a
+    per-request rebuild would burn ~110ms (Markdown) or ~880ms (DOCX) on
+    every tick of every open tab, forever.
+
+    FE-0-003 Phase 2. The persisted Document is canonical and the on-disk
+    artifact is a cache of it, so this overwrites the pipeline-time file in
+    place rather than keeping it as a separate pre-review backup.
+
+    Lock discipline (FE-0-001 invariant 1): the build runs with no lock
+    held — _lock is a plain non-reentrant Lock and an 880ms DOCX render
+    inside it would stall every other reviewer request. Only the marker
+    update is taken under the lock.
+
+    Returns the artifact path, or None when there is nothing to serve.
+    Never raises: a failed rebuild degrades to the previous artifact,
+    because a read must not 500.
+    """
+    result = job.result
+    if result is None:
+        return None
+
+    path_attr, marker_attr, subdir, suffix = _EXPORT_SPECS[kind]
+    document = result.document
+    current_path: Optional[Path] = getattr(result, path_attr)
+
+    if document is None or not _needs_export_regen(document, getattr(result, marker_attr)):
+        return current_path
+
+    # Captured before the build, not after: a reviewer mutation landing
+    # mid-render must not be marked as already exported. Marking the older
+    # version simply costs one more rebuild on the next read — the safe
+    # direction.
+    version = document.version
+
+    final = current_path
+    if final is None:
+        # No pipeline artifact (e.g. a job that failed after producing a
+        # document). Derive the canonical path so the reviewer still gets
+        # their reviewed content, matching the pipeline's own layout.
+        stem = job.filename.rsplit(".", 1)[0] if "." in job.filename else job.filename
+        final = DEFAULT_OUTPUT_ROOT / subdir / f"{stem}{suffix}"
+
+    try:
+        from src.markdown.markdown_builder import build_markdown
+
+        markdown = build_markdown(document)
+        if kind == "markdown":
+            _atomic_write(final, lambda tmp: tmp.write_text(markdown, encoding="utf-8"))
+        else:
+            from src.docx.docx_generator import generate_docx
+
+            _atomic_write(final, lambda tmp: generate_docx(document, markdown, output_path=tmp))
+    except Exception as exc:
+        logger.error("{} re-generation failed for job {}: {}", kind, job.job_id, exc)
+        return current_path
+
+    with _lock:
+        setattr(result, marker_attr, version)
+        if getattr(result, path_attr) is None:
+            setattr(result, path_attr, final)
+    return final
+
+
 @router.get("/documents/{job_id}/download/markdown")
 def download_markdown(job_id: str) -> FileResponse:
-    """Download the Markdown.
-
-    Re-generates from current in-memory Document state when it has
-    diverged from the static pipeline-time file (see _needs_export_regen)
-    - same regen-on-demand treatment as download_docx below, so a
-    reviewed page label (or alt text) is reflected here too.
-    """
+    """Download the Markdown, refreshed from current Document state."""
     job = _require_job(job_id)
     if job.result is None:
         raise HTTPException(status_code=404, detail="This output was not generated for this document.")
 
-    document = job.result.document
-    if _needs_export_regen(document, job.result.markdown_generated_at_version) and document is not None:
-        from src.markdown.markdown_builder import build_markdown
-        tmp = tempfile.NamedTemporaryFile(suffix=".md", delete=False, mode="w", encoding="utf-8")
-        try:
-            tmp.write(build_markdown(document))
-        finally:
-            tmp.close()
-        stem = job.filename.rsplit(".", 1)[0] if "." in job.filename else job.filename
-        return FileResponse(tmp.name, filename=f"{stem}.md")
-
+    _ensure_current_export(job, "markdown")
     return _download(job.result.markdown_path, job.filename, ".md")
 
 
 @router.get("/documents/{job_id}/download/docx")
 def download_docx(job_id: str) -> FileResponse:
-    """Download the DOCX.
-
-    Re-generates from current in-memory Document state when it has
-    diverged from the static pipeline-time file (see _needs_export_regen)
-    - e.g. an image's alt text was reviewed, or a page label was reviewed.
-    The original docx_path file written during the pipeline run is kept
-    as-is (it's the pre-review backup).
-    """
+    """Download the DOCX, refreshed from current Document state."""
     job = _require_job(job_id)
     if job.result is None:
         raise HTTPException(status_code=404, detail="This output was not generated for this document.")
 
-    document = job.result.document
-    if _needs_export_regen(document, job.result.docx_generated_at_version) and document is not None:
-        from src.markdown.markdown_builder import build_markdown
-        from src.docx.docx_generator import generate_docx
-        tmp = tempfile.NamedTemporaryFile(suffix=".docx", delete=False)
-        tmp.close()
-        regen_path = Path(tmp.name)
-        try:
-            fresh_markdown = build_markdown(document)
-            generate_docx(document, fresh_markdown, output_path=regen_path)
-        except Exception as exc:
-            logger.error("DOCX re-generation failed for job {}: {}", job_id, exc)
-            regen_path = job.result.docx_path  # fall back to original
-        stem = job.filename.rsplit(".", 1)[0] if "." in job.filename else job.filename
-        return FileResponse(regen_path, filename=f"{stem}.docx")
-
+    _ensure_current_export(job, "docx")
     return _download(job.result.docx_path, job.filename, ".docx")
 
 
