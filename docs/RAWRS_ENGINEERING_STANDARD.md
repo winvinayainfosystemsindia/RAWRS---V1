@@ -103,7 +103,9 @@ Never label a Hypothesis as Confirmed. Promote it only by testing the mechanism.
 | Accessibility | Reviewer-facing or output-affecting change | WCAG 2.2 / PDF-UA check on the affected surface |
 | **Live** | **Any change to reviewer-facing behaviour** | **Click-through against a running app — code tracing is not validation (P2)** |
 
-**Baseline (2026-07-20):** `1645 passed, 0 failed, 7 skipped` in `37m46s`. **Any failure is now a regression** — there is no longer a tolerated red test. `test_oleary_single_page_recovers_real_text` was fixed by P0-1 dependency pinning and now passes.
+**Baseline (2026-07-22):** `1727 passed, 0 failed, 7 skipped`. **Any failure is now a regression** — there is no longer a tolerated red test. `test_oleary_single_page_recovers_real_text` was fixed by P0-1 dependency pinning and now passes.
+
+**Runtime is deliberately excluded from this baseline.** The 2026-07-22 run took `48m58s` against `37m46s` on 2026-07-20 (+30%), but was measured on a machine concurrently running the dev server, the API, a browser session, Jest and `tsc`. The suite is dominated by four CPU-bound OCR integration tests (~920s of the total: Surya 338s + 333s, Docling 151s + 98s), so contention is a sufficient explanation and nothing in that window touched the OCR path. Re-measure on an idle machine before treating any runtime figure as authoritative.
 
 *Superseded baseline (2026-07-19): `1617 passed, 1 failed, 7 skipped` in `42m58s`.*
 

@@ -4,7 +4,13 @@
 > persistence — is CLOSED** (`FE-0-001_document_persistence_2026-07-21.md`).
 > That retires three of the four Critical risks: silent work loss on restart,
 > the post-restart false-clean state, and the stale export. Suite baseline is
-> now **1711 passed / 0 failed / 7 skipped**.
+> now **1727 passed / 0 failed / 7 skipped** (2026-07-22).
+>
+> **All four FE-0 P0 blockers are now closed.** FE-0-001 (persistence) shipped;
+> FE-0-002 (first render) closed on live evidence as already fixed; FE-0-003
+> (correction → output) shipped as preview/download regeneration unification;
+> FE-0-004 shipped earlier. Figures in the body below are as of this audit's
+> own date (2026-07-20) and are left unedited as a historical record.
 >
 > **The NOT READY verdict below still stands**, on the remaining blockers —
 > FE-0-002 (all-zero first render), FE-0-003, no resource cleanup, no CI, no

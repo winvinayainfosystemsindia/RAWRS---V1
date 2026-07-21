@@ -13,7 +13,7 @@ Consolidates: Architecture Inventory · Architecture Review · ADR · Implementa
 | Verified backlog items | 41 |
 | Critical path length | 6 items |
 | Blocked on Phase 0 | 38 |
-| Suite state | **0 failed / 1645 passed / 7 skipped · 37m46s** (2026-07-20) |
+| Suite state | **0 failed / 1727 passed / 7 skipped** (2026-07-22) · runtime 48m58s — measured under concurrent load, see Engineering Standard |
 | Fresh-clone reproducible | **No** |
 | Architecture | Ratified (ADR), unchanged here |
 
@@ -131,8 +131,8 @@ Sourced from `FE0_VERIFICATION_REPORT_2026-07-19.md`. First live click-through i
 | ID | Title | Cat | Pri | Eff | Deps | Acceptance | Owner |
 |---|---|---|---|---|---|---|---|
 | ~~**FE-0-001**~~ | ~~Persist corrections/validation/headings across restart~~ | Data Loss | ~~P0~~ | L | A02 | ✅ **DONE 2026-07-21** — restart preserves review state; see `FE-0-001_document_persistence_2026-07-21.md` | BE |
-| **FE-0-002** | Fix all-zero first render after pipeline completion | State Bug | **P0** | M | — | Counters populate on completion without a manual reload | FE |
-| **FE-0-003** | Regenerate endpoint + UI action for stale artifacts | Dead End | **P0** | M | A14 | Accepted correction reaches the exported DOCX/MD | SH |
+| ~~**FE-0-002**~~ | ~~Fix all-zero first render after pipeline completion~~ | State Bug | ~~P0~~ | M | — | ✅ **CLOSED 2026-07-21** — not reproducible; 3 live runs, first render identical to post-reload; see `FE-0-002_first_render_investigation_2026-07-21.md` | FE |
+| ~~**FE-0-003**~~ | ~~Regenerate endpoint + UI action for stale artifacts~~ | Dead End | ~~P0~~ | M | A14 | ✅ **DONE 2026-07-22** — ticket premise was wrong: downloads always applied corrections, only the *preview* was stale. Fixed by unifying all read paths on a regenerate-and-cache helper; no new endpoint, no UI action, no frontend change. Phase 3 (marker persistence) evaluated and **rejected**. See `FE-0-003_correction_to_output_2026-07-22.md` | BE |
 | **FE-0-004** | Emit page-marker `Heading` objects on Mathpix ingest | Correctness | **P0** | M | A01 | PAGE_001 stops firing on documents whose markdown contains `###### N` | BE |
 | **FE-0-005** | Promote document title to H1 on Mathpix ingest | Semantic | P1 | M | A01 | HEADING_002 clears on a titled document | BE |
 | **FE-0-006** | Classify bylines as front-matter, not headings | Semantic | P1 | M | A01 | Author byline no longer proposed as H2 | BE |
@@ -252,7 +252,14 @@ Every item in this backlog executes under **`RAWRS_ENGINEERING_STANDARD.md` (RES
 
 The walkthrough above was performed. See `FE0_VERIFICATION_REPORT_2026-07-19.md` and the FE-0 backlog section.
 
-**Status 2026-07-21:** FE-0-001, FE-0-004, FE-0-005 and FE-0-006 are closed. FE-0-002 and FE-0-003 remain open at P0.
+**Status 2026-07-22: every FE-0 P0 is closed.** FE-0-001, FE-0-002, FE-0-003, FE-0-004, FE-0-005 and FE-0-006 are done. Remaining FE-0 items are P1/P2 (FE-0-007, -008, -010..013).
+
+- **FE-0-002** closed by live re-verification, not a code change — already fixed; see `FE-0-002_first_render_investigation_2026-07-21.md`.
+- **FE-0-003** closed at half the estimated scope: two of the three surfaces named in the ticket were already correct. See `FE-0-003_correction_to_output_2026-07-22.md`.
+
+**Evaluated-but-rejected optimization — FE-0-003 Phase 3 (export marker persistence).** Persisting `markdown/docx_generated_at_version` through the job checkpoint was implemented and unit-tested (7/7), then rejected on production verification: `_write_checkpoint` fires only on job-lifecycle events, while markers advance during a GET, so nothing flushed them and the marker did not survive a live restart. Making it work requires a GET request to write a checkpoint. Benefit is one rebuild per artifact per restart (~110 ms Markdown / ~880 ms DOCX, once) — not worth turning every read path into a disk writer. Reverted; `src/api/jobs.py` untouched. **Do not re-propose without new evidence that the rebuild cost matters.**
+
+Settled architecture: GET performs regeneration and cache updates only; checkpoint writes stay tied to job lifecycle events; one regeneration per artifact after restart is accepted.
 
 **Outcome:** 13 defects found, 4 at P0. Three of them — FE-0-001, FE-0-002, FE-0-004 — cause the product to display a document as clean when it is not. None had been predicted by any of the six prior planning documents, and none was discoverable by code tracing: each required watching the running application.
 

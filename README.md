@@ -111,7 +111,7 @@ Full suite including real OCR benchmark tests:
 pytest -q
 ```
 
-Last confirmed full-suite count: **1296 passed, 0 failed, 7 skipped** (2026-06-30, all markers).
+Last confirmed full-suite count: **1727 passed, 0 failed, 7 skipped** (2026-07-22, all markers).
 
 ---
 
