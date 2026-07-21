@@ -4,6 +4,7 @@ import { useState } from "react";
 import { type CorrectionItem } from "@/lib/api";
 import { type StatusTab, STATUS_TABS as TABS, statusTabMatches as tabMatches } from "@/lib/correctionFilters";
 import { CorrectionHistoryList } from "./CorrectionHistoryList";
+import { INSPECTOR_TOOLBAR } from "./workspace/inspectorLayout";
 
 interface Props {
   corrections: CorrectionItem[];
@@ -46,8 +47,10 @@ export function CorrectionsPanel({
 
   return (
     <div className="flex flex-col gap-4">
-      {/* PR-style status tabs */}
-      <div className="flex items-center rounded-lg border border-border bg-surface-panel p-1">
+      {/* PR-style status tabs — pinned via the shared inspector toolbar
+          class so they stay reachable while the (often very long) list
+          scrolls underneath. */}
+      <div className={`${INSPECTOR_TOOLBAR} flex items-center rounded-lg border border-border bg-surface-panel p-1`}>
         {TABS.map((tab) => {
           const count = tabCounts[tab.id];
           const isActive = activeTab === tab.id;

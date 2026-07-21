@@ -4,6 +4,7 @@ import { useState } from "react";
 import { api, type AiStatus, type TableItem } from "@/lib/api";
 import { TableCard } from "./TableCard";
 import { TableDetailPanel } from "./TableDetailPanel";
+import { INSPECTOR_TOOLBAR } from "./workspace/inspectorLayout";
 
 interface Props {
   tables: TableItem[];
@@ -47,7 +48,7 @@ export function TableGrid({ tables, jobId, aiStatus, onTablesUpdated }: Props) {
   return (
     <div className="space-y-4">
       {/* Toolbar */}
-      <div className="flex items-center justify-between">
+      <div className={`${INSPECTOR_TOOLBAR} flex items-center justify-between`}>
         <p className="text-sm text-text-secondary">
           {tables.length === 0
             ? "No tables detected automatically."

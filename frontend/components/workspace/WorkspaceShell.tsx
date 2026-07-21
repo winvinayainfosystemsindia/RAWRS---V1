@@ -423,8 +423,25 @@ export function WorkspaceShell({
             // id/order as the other two center-slot branches below: exactly
             // one of the three is ever mounted, occupying the same logical
             // slot, so it needs the same stable identity, not three.
-            <Panel id="center" order={2} minSize={30} className="overflow-auto bg-surface-canvas p-4">
-              {specialView}
+            <Panel
+              id="center"
+              order={2}
+              minSize={30}
+              // FE-1-001: the pane itself no longer scrolls (overflow-hidden)
+              // and is a flex column, so the inner container below is the
+              // single scroll region for every inspector panel. Previously
+              // this Panel scrolled directly, which pushed the whole
+              // workspace — toolbar and all — when a panel held many items.
+              className="flex flex-col overflow-hidden bg-surface-canvas"
+            >
+              {/* The one shared scroll container. min-h-0 is what makes it
+                  work: a flex child's default min-height:auto refuses to
+                  shrink below its content, so without it the container grows
+                  to fit the list and overflow never engages. flex-1 makes it
+                  claim exactly the leftover height — no hardcoded values, so
+                  it follows panel resizing for free. Every current and future
+                  panel rendered through `specialView` inherits this. */}
+              <div className="min-h-0 flex-1 overflow-y-auto p-4">{specialView}</div>
             </Panel>
           ) : splitPair ? (
             <Panel id="center" order={2} minSize={40} className="flex overflow-hidden">

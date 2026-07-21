@@ -6,6 +6,7 @@ import { SeverityBadge } from "./Badge";
 import { useArrowKeyTabs } from "@/lib/hooks/useArrowKeyTabs";
 import { IconCheckCircle, IconWarningTriangle } from "@/components/icons";
 import { categoryOf, sortCategories } from "@/lib/validationCategories";
+import { INSPECTOR_TOOLBAR } from "./workspace/inspectorLayout";
 
 interface Props {
   issues: ValidationIssue[];
@@ -213,7 +214,7 @@ export function ValidationIssueTable({ issues, onJump, onIssueSelect, jobId, onI
         ))}
       </div>
 
-      <div className="mb-4 flex flex-wrap items-center gap-3">
+      <div className={`${INSPECTOR_TOOLBAR} mb-4 flex flex-wrap items-center gap-3`}>
         <FilterSelect
           label="Category"
           value={categoryFilter}

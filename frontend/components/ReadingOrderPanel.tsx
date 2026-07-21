@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { api, type BlockItem, type PageReadingOrder } from "@/lib/api";
+import { INSPECTOR_TOOLBAR } from "./workspace/inspectorLayout";
 
 interface Props {
   pages: PageReadingOrder[];
@@ -73,7 +74,7 @@ function PageOrderPanel({ page, jobId, onUpdated }: PagePanelProps) {
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className={`${INSPECTOR_TOOLBAR} flex flex-wrap items-center justify-between gap-3`}>
         <div className="flex items-center gap-2">
           <span
             className={`inline-flex items-center rounded px-2 py-0.5 text-xs font-medium ${statusClasses(page.reading_order_status)}`}
