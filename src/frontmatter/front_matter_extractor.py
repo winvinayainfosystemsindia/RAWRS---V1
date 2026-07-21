@@ -9,11 +9,23 @@ reforms in India... Suzana Brinkmann Institute of Education, London,
 UK" rendered as one run-on paragraph, indistinguishable from any other
 body text).
 
-This module is deliberately isolated from src/headings/heading_detector.py:
+SUPERSEDED (2026-07-20, ADR-003 · FE-0-005/006): the "wholly separate,
+additive signal" constraint stated in the next paragraph was feature_006's
+original scope rule. It no longer governs. ADR-003 (Artifact
+Classification, verdict ACCEPT, docs/ADR_2026-07-19.md) formally adopts
+semantic classification as an input to heading detection - "New pipeline
+stage between detect_structure and detect_headings. Additive; detector
+takes optional classification and falls back to current behaviour."
+src/frontmatter/front_matter_roles.py implements that contract for
+front-matter roles: heading_detector.py consults it and declines AUTHOR/
+AFFILIATION lines, falling back to typography-only classification when no
+front matter is present. This module itself is unchanged - it still only
+produces FrontMatter; it is the *consumer* relationship that inverted.
+
+This module remains deliberately isolated from
+src/headings/heading_detector.py in the direction that still matters:
 it does not call into it, import its private constants, or change any
-of its classification tiers - "preserve existing heading detection"
-means this module adds a wholly separate, additive signal, not a
-modification to that one. It reads only src/structure/structure_detector.py's
+of its classification tiers. It reads only src/structure/structure_detector.py's
 already-persisted Document.blocks (Phase H) - no new PDF re-open, no new
 PyMuPDF dependency beyond what's already been read - mirroring the
 "operate on already-persisted TextBlock data" pattern

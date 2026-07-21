@@ -548,11 +548,27 @@ def _render_page(
     if page_paragraphs is None:
         page_paragraphs = []
     marker = _find_page_marker(headings, page, page_numbering_policy)
+    page_front_matter = front_matter if page.page_number == 1 else None
+
+    # FE-0-005: the document title is an H1 in document.headings (both
+    # ingestion paths), but _render_front_matter_blocks() already renders
+    # it — deliberately as a bold block that "sits alongside, not
+    # instead of, whatever H1 heading detection already produced".
+    # Excluding it here keeps the front-matter block the single owner of
+    # the title's *rendering* while the H1 remains in the model for
+    # structure and validation. Without this the semantic (Mathpix)
+    # renderer, which projects headings by source_line, emits the title
+    # a second time.
+    _fm_title = page_front_matter.title if page_front_matter else None
     content_headings = sorted(
-        (h for h in headings if h.page_number == page.page_number and not h.is_page_marker),
+        (
+            h for h in headings
+            if h.page_number == page.page_number
+            and not h.is_page_marker
+            and not (_fm_title is not None and h.text == _fm_title)
+        ),
         key=lambda h: h.document_order,
     )
-    page_front_matter = front_matter if page.page_number == 1 else None
 
     blocks: List[str] = []
     if marker is not None:

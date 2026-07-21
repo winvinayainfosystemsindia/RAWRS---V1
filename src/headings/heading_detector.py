@@ -134,6 +134,11 @@ import fitz  # PyMuPDF
 from loguru import logger
 
 from src.config.page_numbering import PageNumberingPolicy
+from src.frontmatter.front_matter_roles import (
+    classify_front_matter_line,
+    is_heading_eligible,
+)
+from src.headings.page_markers import build_page_marker
 from src.models.contracts import Document, Heading, HeadingLevel
 from src.structure.layout_signals import LineLayout, line_layout
 from src.utils.text_sanitization import sanitize_xml_text
@@ -286,24 +291,9 @@ def detect_headings(
         # acts as the sole decision point: returning None suppresses the
         # marker entirely (e.g. AUTO mode on a page with no detected
         # printed number, or DISABLED, or a page outside MANUAL_RANGE).
-        effective_label = page.page_label or page.printed_label
-        if page_numbering_policy is not None:
-            marker_text: Optional[str] = page_numbering_policy.resolve_marker_text(
-                page.page_number, effective_label
-            )
-        else:
-            marker_text = effective_label or str(page.page_number)
-
-        if marker_text is not None:
-            headings.append(
-                Heading(
-                    level=HeadingLevel.H6,
-                    text=marker_text,
-                    page_number=page.page_number,
-                    document_order=order,
-                    is_page_marker=True,
-                )
-            )
+        marker = build_page_marker(page, page_numbering_policy, order)
+        if marker is not None:
+            headings.append(marker)
             order += 1
 
         text = page.cleaned_text or page.raw_text
@@ -318,6 +308,21 @@ def detect_headings(
         line_index = 0
         while line_index < len(page_lines):
             line = page_lines[line_index]
+
+            # FE-0-006: front-matter roles are authoritative over
+            # typography. A line the front-matter extractor already
+            # claimed as an author or affiliation is never a heading,
+            # whatever its font size — a byline is routinely set larger
+            # than body text without being a document division.
+            #
+            # Checked BEFORE the H1-slot test so a byline that precedes
+            # the title cannot consume the slot on its way to being
+            # declined.
+            fm_role = classify_front_matter_line(line, document.front_matter)
+            if not is_heading_eligible(fm_role):
+                line_index += 1
+                continue
+
             # H1-slot Robustness Repair: the slot stays open across
             # unproductive lines (bare footer page numbers, stray
             # single-character decorative glyphs) instead of being

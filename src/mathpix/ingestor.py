@@ -27,6 +27,8 @@ from typing import Any, List, Optional
 
 from loguru import logger
 
+from src.frontmatter.front_matter_roles import build_title_heading
+from src.headings.page_markers import build_page_marker
 from src.mathpix.mmd_parser import parse_mmd
 from src.mathpix.page_estimation import estimate_page
 from src.models.contracts import (
@@ -126,6 +128,19 @@ class MathpixImportProvider:
         # ── 2. Headings (+ Callouts, FEATURE_019) ───────────────────────
         heading_order = 0
         callout_order = 0
+
+        # FE-0-005: the document title becomes H1. Mathpix marks the
+        # title with \title{}, not \section{}, so it never reached the
+        # heading loop below and Mathpix documents had no H1 at all
+        # (HEADING_002). The native path already promotes its title via
+        # the H1 slot; this gives the Mathpix path the same result from
+        # the same canonical source.
+        title_heading = build_title_heading(
+            document.front_matter, page_number=1, document_order=heading_order
+        )
+        if title_heading is not None:
+            document.headings.append(title_heading)
+            heading_order += 1
         for block in p2doc.blocks:
             if block.block_type == P2BlockType.HEADING and block.heading:
                 page_num = estimate_page(
@@ -148,6 +163,28 @@ class MathpixImportProvider:
                             )
                         )
                         callout_order += 1
+
+        # ── 2b. Page markers (FE-0-004) ────────────────────────────────
+        # Every page carries an H6 page marker in the canonical model,
+        # exactly as detect_headings() produces for the native PDF path.
+        # Built via the shared helper so the two ingestion paths cannot
+        # diverge again.
+        #
+        # Without this, markdown output still LOOKED correct — the
+        # renderer synthesizes a replacement marker when the model has
+        # none — but Document.headings held no markers, so PAGE_001
+        # reported every page as missing one and those phantom errors
+        # drove the readiness score.
+        #
+        # Markers are appended after the content headings rather than
+        # interleaved: the Mathpix renderer projects content by
+        # source_line and resolves markers by page_number, so relative
+        # document_order between the two groups does not affect output.
+        for page in document.pages:
+            marker = build_page_marker(page, document_order=heading_order)
+            if marker is not None:
+                document.headings.append(marker)
+                heading_order += 1
 
         # ── 3. Page text (proportional distribution) ───────────────────
         _assign_page_text(document, p2doc, page_count, total_blocks)

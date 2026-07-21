@@ -249,9 +249,18 @@ class TestMathpixImportProvider:
     def test_headings_populated(self, tmp_path):
         mmd = "\\title{Doc}\n\n\\section*{Part One}\n\n\\subsection*{Sub A}"
         doc = _run_import(mmd, page_count=2, tmp_path=tmp_path)
-        assert len(doc.headings) == 2
-        assert doc.headings[0].text == "Part One"
-        assert doc.headings[1].text == "Sub A"
+        # FE-0-004: doc.headings holds content headings AND one H6 page
+        # marker per page, matching the native PDF path. Assert the two
+        # groups separately rather than the combined length.
+        # FE-0-005: \title{Doc} is additionally promoted to an H1, so
+        # content is [title H1, "Part One", "Sub A"].
+        content = [h for h in doc.headings if not h.is_page_marker]
+        markers = [h for h in doc.headings if h.is_page_marker]
+        assert len(content) == 3
+        assert len(markers) == 2  # one per page
+        assert content[0].text == "Doc"          # title -> H1
+        assert content[1].text == "Part One"
+        assert content[2].text == "Sub A"
 
     def test_heading_levels(self, tmp_path):
         mmd = "\\section*{H2 Heading}\n\n\\subsection*{H3 Heading}"
@@ -270,8 +279,13 @@ class TestMathpixImportProvider:
             f"\\section*{{Section {i}}}" for i in range(5)
         )
         doc = _run_import(mmd, page_count=2, tmp_path=tmp_path)
-        orders = [h.document_order for h in doc.headings]
-        assert orders == list(range(5))
+        # FE-0-004: content headings keep orders 0..4; the 2 page markers
+        # continue the sequence (5, 6) rather than restarting or colliding.
+        content_orders = [h.document_order for h in doc.headings if not h.is_page_marker]
+        assert content_orders == list(range(5))
+        all_orders = [h.document_order for h in doc.headings]
+        assert all_orders == list(range(7))  # 5 content + 2 page markers
+        assert len(set(all_orders)) == len(all_orders)  # no duplicate orders
 
     def test_front_matter_title(self, tmp_path):
         mmd = "\\title{My Document Title}\n\n\\section*{Chapter 1}"
@@ -410,7 +424,13 @@ class TestFeature020ParagraphPromotionAndSourceLine:
         doc = _make_document(1)
         doc = MathpixImportProvider().import_document(doc, mmd_path=mmd_file)
         assert doc.front_matter.title == "Double Extension"
-        assert len(doc.headings) == 1
+        # FE-0-004: content headings counted separately from page markers.
+        # FE-0-005: the title is additionally promoted to H1, so content
+        # is [title H1, "Introduction"].
+        content = [h for h in doc.headings if not h.is_page_marker]
+        assert len(content) == 2
+        assert content[0].text == "Double Extension"   # title -> H1
+        assert content[1].text == "Introduction"
 
     def test_no_front_matter_when_missing(self, tmp_path):
         mmd = "\\section*{Just a Heading}"
@@ -442,3 +462,76 @@ class TestFeature020ParagraphPromotionAndSourceLine:
         provider = MathpixImportProvider()
         assert isinstance(provider, ImportProvider)
         assert provider.name == "mathpix"
+
+
+# ════════════════════════════════════════════════════════════════════════
+# FE-0-004 — page-marker parity between ingestion pipelines
+#
+# The defect: Mathpix ingestion produced no page-marker Heading objects,
+# while the markdown renderer silently synthesized replacements at render
+# time. Output looked correct; the canonical model was incomplete, so
+# PAGE_001 reported every page as missing its marker and those phantom
+# errors drove the readiness score.
+#
+# These tests fail if either pipeline stops producing markers, or if the
+# two stop agreeing.
+# ════════════════════════════════════════════════════════════════════════
+
+class TestFE0004PageMarkerParity:
+    def test_mathpix_import_creates_one_marker_per_page(self, tmp_path):
+        doc = _run_import(r"\section*{Only Heading}", page_count=4, tmp_path=tmp_path)
+        markers = [h for h in doc.headings if h.is_page_marker]
+        assert len(markers) == 4
+        assert sorted(m.page_number for m in markers) == [1, 2, 3, 4]
+
+    def test_markers_are_h6(self, tmp_path):
+        from src.models.contracts import HeadingLevel
+        doc = _run_import(r"\section*{H}", page_count=3, tmp_path=tmp_path)
+        for m in (h for h in doc.headings if h.is_page_marker):
+            assert m.level == HeadingLevel.H6
+
+    def test_every_page_has_exactly_one_marker(self, tmp_path):
+        """The invariant PAGE_001 enforces, asserted directly."""
+        doc = _run_import(
+            "\\section*{A}\n\n\\section*{B}", page_count=5, tmp_path=tmp_path
+        )
+        for page in doc.pages:
+            found = [
+                h for h in doc.headings
+                if h.is_page_marker and h.page_number == page.page_number
+            ]
+            assert len(found) == 1, f"page {page.page_number} has {len(found)} markers"
+
+    def test_page_001_reports_no_error_for_mathpix_document(self, tmp_path):
+        """End-to-end: the validator rule that produced the false errors."""
+        from src.validation.validator import _check_missing_page_markers
+        doc = _run_import(r"\section*{Heading}", page_count=4, tmp_path=tmp_path)
+        assert _check_missing_page_markers(doc) == []
+
+    def test_marker_text_prefers_page_label_then_printed_label(self, tmp_path):
+        """Label precedence must match the native path (FEATURE_018/feature_009)."""
+        doc = _make_document(3)
+        doc.pages[0].page_label = "iv"          # reviewed label wins
+        doc.pages[1].printed_label = "12"       # detected label when no review
+        # page 3 has neither -> physical page number
+        mmd_file = tmp_path / "t.mmd"
+        mmd_file.write_text(r"\section*{X}", encoding="utf-8")
+        doc = MathpixImportProvider().import_document(doc, mmd_path=mmd_file)
+        by_page = {
+            h.page_number: h.text for h in doc.headings if h.is_page_marker
+        }
+        assert by_page[1] == "iv"
+        assert by_page[2] == "12"
+        assert by_page[3] == "3"
+
+    def test_both_pipelines_use_the_same_marker_builder(self):
+        """Guards against a second, divergent implementation appearing.
+
+        Both ingestion paths must resolve build_page_marker to the same
+        function object; if either grows its own copy this fails.
+        """
+        from src.headings import heading_detector
+        from src.mathpix import ingestor
+        from src.headings.page_markers import build_page_marker
+        assert heading_detector.build_page_marker is build_page_marker
+        assert ingestor.build_page_marker is build_page_marker
