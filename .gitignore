@@ -92,3 +92,38 @@ $RECYCLE.BIN/
 *.zip
 *.git.bak
 frontend.git.bak/
+
+# Logs
+*.log
+logs/
+
+# Temp files
+*.tmp
+*.temp
+tmp/
+temp/
+
+# Node / Next.js at any depth (existing rules are frontend/-scoped only)
+node_modules/
+.next/
+out/
+.turbo/
+
+# Python tooling
+.tox/
+.nox/
+*.cover
+
+# JetBrains project files
+*.iml
+*.ipr
+*.iws
+
+# macOS
+.AppleDouble
+.LSOverride
+._*
+
+# Merge / patch artifacts
+*.orig
+*.rej
