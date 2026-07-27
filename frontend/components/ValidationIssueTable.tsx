@@ -5,7 +5,7 @@ import { api, type ReadinessReport, type Severity, type ValidationIssue } from "
 import { SeverityBadge } from "./Badge";
 import { useArrowKeyTabs } from "@/lib/hooks/useArrowKeyTabs";
 import { IconCheckCircle, IconWarningTriangle } from "@/components/icons";
-import { categoryOf, sortCategories } from "@/lib/validationCategories";
+import { categoryOf, sortCategories, isActionable } from "@/lib/validationCategories";
 import { INSPECTOR_TOOLBAR } from "./workspace/inspectorLayout";
 
 interface Props {
@@ -30,6 +30,20 @@ const SEVERITY_TABS: { id: Severity | "all"; label: string }[] = [
   { id: "info", label: "Info" },
 ];
 const SEVERITY_TAB_IDS = SEVERITY_TABS.map((t) => t.id);
+
+function groupByCategory(list: ValidationIssue[]): { category: string; issues: ValidationIssue[] }[] {
+  const byCategory = new Map<string, ValidationIssue[]>();
+  for (const issue of list) {
+    const cat = categoryOf(issue.rule_id);
+    const existing = byCategory.get(cat) ?? [];
+    existing.push(issue);
+    byCategory.set(cat, existing);
+  }
+  return sortCategories(Array.from(byCategory.keys())).map((cat) => ({
+    category: cat,
+    issues: byCategory.get(cat)!,
+  }));
+}
 
 export function ValidationIssueTable({ issues, onJump, onIssueSelect, jobId, onIssueUpdated, readiness }: Props) {
   const [severityFilter, setSeverityFilter] = useState<Severity | "all">("all");
@@ -145,19 +159,110 @@ export function ValidationIssueTable({ issues, onJump, onIssueSelect, jobId, onI
 
   const allSelected = filtered.length > 0 && filtered.every((i) => selected.has(i.issue_id));
 
-  const grouped = useMemo(() => {
-    const byCategory = new Map<string, ValidationIssue[]>();
-    for (const issue of filtered) {
-      const cat = categoryOf(issue.rule_id);
-      const list = byCategory.get(cat) ?? [];
-      list.push(issue);
-      byCategory.set(cat, list);
-    }
-    return sortCategories(Array.from(byCategory.keys())).map((cat) => ({
-      category: cat,
-      issues: byCategory.get(cat)!,
-    }));
-  }, [filtered]);
+  // Split the queue by actionability (Queue Signal Improvement, Option A):
+  // issues carrying a suggested_action are real remediation tasks; the rest
+  // are cross-source _VERIFY_ duplicates already actionable in the
+  // Corrections workspace, shown collapsed as "Verification Findings" so
+  // they stop competing with genuine work. Nothing is dropped — both
+  // partitions draw from `filtered`, so severity/category filters, bulk
+  // selection, and readiness are all unaffected.
+  const actionableGroups = useMemo(
+    () => groupByCategory(filtered.filter(isActionable)),
+    [filtered]
+  );
+  const verificationIssues = useMemo(() => filtered.filter((i) => !isActionable(i)), [filtered]);
+  const verificationGroups = useMemo(() => groupByCategory(verificationIssues), [verificationIssues]);
+
+  const renderIssueRow = (issue: ValidationIssue) => {
+    const isIgnored = issue.status === "ignored";
+    const isDeferredIssue = issue.status === "deferred";
+    const isPending = pendingIds.has(issue.issue_id);
+    const flatIndex = filtered.indexOf(issue);
+    return (
+      <li
+        key={issue.issue_id || `${issue.rule_id}-${issue.page_number}-${flatIndex}`}
+        className={`p-4 ${isIgnored ? "opacity-50" : ""}`}
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          {jobId && (
+            <input
+              type="checkbox"
+              checked={selected.has(issue.issue_id)}
+              onChange={(e) => handleCheckbox(issue.issue_id, flatIndex, e.nativeEvent instanceof MouseEvent && e.nativeEvent.shiftKey)}
+              className="shrink-0 accent-accent"
+              aria-label={`Select issue ${issue.rule_id}`}
+            />
+          )}
+          <SeverityBadge severity={issue.severity} />
+          <span className="font-mono text-xs text-text-secondary">{issue.rule_id}</span>
+          {issue.page_number !== null && (
+            <span className="text-xs text-text-secondary">Page {issue.page_number}</span>
+          )}
+          {isDeferredIssue && (
+            <span className="rounded bg-warning/15 px-1.5 py-0.5 text-[10px] font-medium text-warning">
+              Review later
+            </span>
+          )}
+          {isIgnored && (
+            <span className="rounded bg-surface-elevated px-1.5 py-0.5 text-[10px] font-medium text-text-secondary">
+              Ignored
+            </span>
+          )}
+          <div className="ml-auto flex items-center gap-1">
+            {onJump && issue.page_number !== null && !isIgnored && (
+              <button
+                type="button"
+                onClick={() => {
+                  onIssueSelect?.(issue);
+                  onJump(issue.page_number!);
+                }}
+                className="rounded border border-border px-2 py-0.5 text-xs font-medium text-accent hover:bg-hover-row"
+              >
+                Fix
+              </button>
+            )}
+            {jobId && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => toggleDefer(issue)}
+                  disabled={isPending}
+                  className={`rounded border px-2 py-0.5 text-xs font-medium transition-colors disabled:opacity-40 ${
+                    isDeferredIssue
+                      ? "border-warning/40 text-warning hover:bg-warning/10"
+                      : "border-border text-text-secondary hover:bg-hover-row"
+                  }`}
+                >
+                  {isDeferredIssue ? "Undefer" : "Review later"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => toggleIgnore(issue)}
+                  disabled={isPending}
+                  className="rounded border border-border px-2 py-0.5 text-xs font-medium text-text-secondary transition-colors hover:bg-hover-row disabled:opacity-40"
+                >
+                  {isIgnored ? "Unignore" : "Ignore"}
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => onIssueSelect?.(issue)}
+          className="mt-2 text-left text-sm text-text-primary hover:text-accent"
+        >
+          {issue.message}
+        </button>
+        {issue.suggested_action && (
+          <p className="mt-1 text-sm text-text-secondary">
+            <span className="font-medium">Suggested action: </span>
+            {issue.suggested_action}
+          </p>
+        )}
+      </li>
+    );
+  };
 
   const readinessBanner = readiness && (
     <div className="mb-3 flex items-center gap-3">
@@ -269,7 +374,7 @@ export function ValidationIssueTable({ issues, onJump, onIssueSelect, jobId, onI
       )}
 
       <div className="space-y-3">
-        {grouped.map(({ category, issues: categoryIssues }) => (
+        {actionableGroups.map(({ category, issues: categoryIssues }) => (
           <details key={category} className="rounded-lg border border-border bg-surface-panel" open>
             <summary className="cursor-pointer select-none px-4 py-2.5 text-sm font-semibold text-text-primary">
               {category}{" "}
@@ -278,100 +383,48 @@ export function ValidationIssueTable({ issues, onJump, onIssueSelect, jobId, onI
               </span>
             </summary>
             <ul className="divide-y divide-border border-t border-border">
-              {categoryIssues.map((issue, index) => {
-                const isIgnored = issue.status === "ignored";
-                const isDeferredIssue = issue.status === "deferred";
-                const isPending = pendingIds.has(issue.issue_id);
-                const flatIndex = filtered.indexOf(issue);
-                return (
-                  <li
-                    key={issue.issue_id || `${issue.rule_id}-${issue.page_number}-${index}`}
-                    className={`p-4 ${isIgnored ? "opacity-50" : ""}`}
-                  >
-                    <div className="flex flex-wrap items-center gap-2">
-                      {jobId && (
-                        <input
-                          type="checkbox"
-                          checked={selected.has(issue.issue_id)}
-                          onChange={(e) => handleCheckbox(issue.issue_id, flatIndex, e.nativeEvent instanceof MouseEvent && e.nativeEvent.shiftKey)}
-                          className="shrink-0 accent-accent"
-                          aria-label={`Select issue ${issue.rule_id}`}
-                        />
-                      )}
-                      <SeverityBadge severity={issue.severity} />
-                      <span className="font-mono text-xs text-text-secondary">{issue.rule_id}</span>
-                      {issue.page_number !== null && (
-                        <span className="text-xs text-text-secondary">Page {issue.page_number}</span>
-                      )}
-                      {isDeferredIssue && (
-                        <span className="rounded bg-warning/15 px-1.5 py-0.5 text-[10px] font-medium text-warning">
-                          Review later
-                        </span>
-                      )}
-                      {isIgnored && (
-                        <span className="rounded bg-surface-elevated px-1.5 py-0.5 text-[10px] font-medium text-text-secondary">
-                          Ignored
-                        </span>
-                      )}
-                      <div className="ml-auto flex items-center gap-1">
-                        {onJump && issue.page_number !== null && !isIgnored && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              onIssueSelect?.(issue);
-                              onJump(issue.page_number!);
-                            }}
-                            className="rounded border border-border px-2 py-0.5 text-xs font-medium text-accent hover:bg-hover-row"
-                          >
-                            Fix
-                          </button>
-                        )}
-                        {jobId && (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => toggleDefer(issue)}
-                              disabled={isPending}
-                              className={`rounded border px-2 py-0.5 text-xs font-medium transition-colors disabled:opacity-40 ${
-                                isDeferredIssue
-                                  ? "border-warning/40 text-warning hover:bg-warning/10"
-                                  : "border-border text-text-secondary hover:bg-hover-row"
-                              }`}
-                            >
-                              {isDeferredIssue ? "Undefer" : "Review later"}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => toggleIgnore(issue)}
-                              disabled={isPending}
-                              className="rounded border border-border px-2 py-0.5 text-xs font-medium text-text-secondary transition-colors hover:bg-hover-row disabled:opacity-40"
-                            >
-                              {isIgnored ? "Unignore" : "Ignore"}
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => onIssueSelect?.(issue)}
-                      className="mt-2 text-left text-sm text-text-primary hover:text-accent"
-                    >
-                      {issue.message}
-                    </button>
-                    {issue.suggested_action && (
-                      <p className="mt-1 text-sm text-text-secondary">
-                        <span className="font-medium">Suggested action: </span>
-                        {issue.suggested_action}
-                      </p>
-                    )}
-                  </li>
-                );
-              })}
+              {categoryIssues.map(renderIssueRow)}
             </ul>
           </details>
         ))}
       </div>
+
+      {actionableGroups.length === 0 && verificationIssues.length > 0 && (
+        <p className="rounded-lg border border-success/30 bg-success/5 p-4 text-sm text-text-secondary">
+          No action required.{" "}
+          {verificationIssues.length} verification finding{verificationIssues.length === 1 ? "" : "s"} below —
+          review and accept in the Corrections panel.
+        </p>
+      )}
+
+      {verificationIssues.length > 0 && (
+        <details className="mt-3 rounded-lg border border-border bg-surface-canvas">
+          <summary className="cursor-pointer select-none px-4 py-2.5 text-sm font-semibold text-text-secondary">
+            Verification Findings{" "}
+            <span className="font-mono text-xs font-normal text-text-secondary">
+              ({verificationIssues.length})
+            </span>
+            <span className="ml-2 font-normal text-text-secondary">
+              — cross-source checks; review &amp; accept in the Corrections panel
+            </span>
+          </summary>
+          <div className="space-y-3 border-t border-border p-3">
+            {verificationGroups.map(({ category, issues: categoryIssues }) => (
+              <details key={category} className="rounded-lg border border-border bg-surface-panel" open>
+                <summary className="cursor-pointer select-none px-4 py-2 text-sm font-medium text-text-primary">
+                  {category}{" "}
+                  <span className="font-mono text-xs font-normal text-text-secondary">
+                    ({categoryIssues.length})
+                  </span>
+                </summary>
+                <ul className="divide-y divide-border border-t border-border">
+                  {categoryIssues.map(renderIssueRow)}
+                </ul>
+              </details>
+            ))}
+          </div>
+        </details>
+      )}
 
       {ignoredCount > 0 && (
         <button

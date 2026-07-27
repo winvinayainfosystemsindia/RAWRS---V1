@@ -31,6 +31,21 @@ export function categoryOf(ruleId: string): string {
   return RULE_CATEGORY_LABELS[prefix] ?? prefix;
 }
 
+// A finding is actionable in the validation queue only when it carries a
+// suggested_action — the field the validator populates with the concrete
+// fix plus its workspace destination. Cross-source *_VERIFY_* findings are
+// emitted with suggested_action=null (src/verification/engine.py's
+// findings_to_validation_issues) because they are already surfaced as
+// accept/reject CorrectionRecords in the Corrections workspace; in this
+// queue they are non-actionable duplicates ("Verification Findings").
+// Keying on suggested_action rather than the rule-id family keeps this
+// robust: any future finding that has a real fix to perform *here*
+// automatically counts as actionable. Runtime invariant, verified across
+// the benchmark corpus: suggested_action present <=> not a _VERIFY_ rule.
+export function isActionable(issue: { suggested_action: string | null }): boolean {
+  return Boolean(issue.suggested_action);
+}
+
 // Canonical display order — cross-source verification and structural
 // document-level issues surface first, per-object categories follow.
 export const CATEGORY_ORDER = [
