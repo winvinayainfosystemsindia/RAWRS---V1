@@ -224,6 +224,21 @@ A production PDF crashed DOCX generation with an XML-compatibility error from an
 
 Per this document's own Severity Levels (above): Error means "processing quality is compromised." That is false every time DOC_004 runs, by construction - nothing is missing, corrupted, or failed. What remains true matches Warning's own definition exactly: a potential issue (confirm the removed character's surrounding context still reads as intended) recommended for human review - not a confirmed defect, and not a processing failure. DOC_004 is therefore a **disclosure of an already-handled defect**, not a predictive "this will break something" signal - see docs/DECISIONS_LOG.md for the full architecture review this was explicitly re-derived from (an earlier draft of this rule was provisionally scoped as Error before Layer 1 existed; that recommendation no longer applies once sanitization is unconditional).
 
+## Queue presentation — actionable vs. verification findings
+
+The reviewer-facing queue (`ValidationIssueTable.tsx`) is split on the
+`suggested_action` field, not on severity:
+
+| Partition | Predicate | What it holds | Reviewer action |
+|---|---|---|---|
+| **Action required** (main queue) | `suggested_action` present | Structural findings with a concrete fix + workspace destination (`PAGE_003`, `HEADING_*`, `IMAGE_004/005`, `META_001/002`, `TABLE_001/002/004`, `DOC_004`, …) | Fix in the named workspace (changes output) |
+| **Verification Findings** (collapsed) | `suggested_action` is `null` | All cross-source `_VERIFY_` findings — emitted with `suggested_action=None` by `engine.findings_to_validation_issues` because they are already actionable as `CorrectionRecord`s | Accept/reject in the **Corrections** workspace |
+
+Runtime invariant (verified across the 10-doc benchmark corpus): `suggested_action`
+present ⟺ **not** a `_VERIFY_` rule. This is presentation only — every issue
+still lives in `document.validation_issues`, so readiness scoring is unchanged.
+See `KNOWN_LIMITATIONS.md` for the still-open readiness-gate double-count.
+
 ## Validation Output
 
 Each validation issue must contain:

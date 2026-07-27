@@ -36,6 +36,10 @@ Consolidates: Architecture Inventory · Architecture Review · ADR · Implementa
 | Mathpix import path + object projection | `mathpix/ingestor.py`, `markdown_builder.py:798` |
 | `real_docling`/`real_surya` markers | `pytest.ini` — convention exists |
 | Stabilization P0-1..P2-11 | `STABILIZATION_REPORT_2026-07-19.md` — **code-traced, live-unverified** |
+| Scanned-page reconstruction band filter | `image_extractor.py` `_page_reconstruction_indices`; corpus-verified (Bryman −89, Bruner −460 bands, 0 collateral) — 2026-07-27 |
+| Validation queue signal split (actionable vs. Verification Findings) | `ValidationIssueTable.tsx` + `validationCategories.isActionable`; runtime-verified default queue 550→165 (−70%) — 2026-07-27 |
+
+**Newly identified (2026-07-27) — deferred, needs backend sign-off:** the export-readiness gate (`readiness.py` `compute_readiness`) still counts WARNING-severity `_VERIFY_` **ValidationIssue mirrors**, so "Export Ready" stays red until ~300 cross-source warnings clear — even though those findings are managed as `CorrectionRecord`s, not from the queue. Fix: key readiness on unresolved `CorrectionRecord`s, not their mirrors. See `KNOWN_LIMITATIONS.md` → "Confirmed gaps found during this audit". Owner BE · Pri P1.
 
 ---
 
