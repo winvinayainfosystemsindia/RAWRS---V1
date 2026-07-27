@@ -122,6 +122,33 @@ _SLIVER_SHORT_SIDE_MAX_PT = 50.0
 # negligible spacer/bullet icon, not content.
 _TINY_MIN_PIXELS = 16
 
+# --- Scanned-page reconstruction detection --------------------------------
+# A scanned PDF often stores each page as several full-width raster bands
+# that tile top-to-bottom to reconstruct the page image, while the text is
+# supplied separately (native OCR, or a Mathpix package). Those bands are
+# the page itself, not semantic figures, so they must not become content
+# images or figure-verification candidates (otherwise every band becomes an
+# IMAGE_VERIFY_002 "image not in the package" false positive). A single
+# image is caught by _BACKGROUND_AREA_FRACTION only when it covers ~the
+# whole page; a page *sliced* into bands never triggers that, which is why
+# this set-level classifier exists alongside the per-image _filter_reason.
+#
+# Thresholds are named, not magic: the tiling + count signals do the real
+# work, so the exact width fraction is non-critical.
+#
+# Three equal-width contiguous bands is the tiling fingerprint; two stacked
+# images is ambiguous (could be two real figures).
+_RECON_MIN_BANDS = 3
+# A reconstruction band spans the full text column. 0.6 of page width sits
+# below a single-column text measure (~0.75-0.9 incl. margins) yet above
+# most within-column embedded figures, which are indented.
+_RECON_MIN_WIDTH_FRAC = 0.6
+# Bands from one slicing are near-identical in width; allow scan jitter.
+_RECON_WIDTH_TOLERANCE = 0.10
+# Bands tile contiguously; tolerate a small gap/overlap between adjacent
+# bands (rounding, scan seams), as a fraction of page height.
+_RECON_GAP_TOLERANCE_FRAC = 0.03
+
 
 class ImageExtractionError(Exception):
     """Raised when the source PDF cannot be opened for image extraction."""
@@ -214,9 +241,28 @@ def _extract_images_from_pdf(
         for page_index in range(pdf_document.page_count):
             page_number = page_index + 1
             page = pdf_document[page_index]
-            page_area = page.rect.width * page.rect.height
+            page_rect = page.rect
+            page_area = page_rect.width * page_rect.height
 
-            for ref_index, info in enumerate(page.get_image_info(xrefs=True), start=1):
+            # Read the page's image placements once so the set-level
+            # reconstruction classifier and the per-image filter see the
+            # same list (get_image_info is re-scanned otherwise).
+            infos = list(page.get_image_info(xrefs=True))
+            recon_indices = _page_reconstruction_indices(
+                infos, page_rect.width, page_rect.height
+            )
+
+            for idx, info in enumerate(infos):
+                ref_index = idx + 1
+                if idx in recon_indices:
+                    filtered_count += 1
+                    logger.debug(
+                        "Filtered page-reconstruction band (xref={}) on page {}",
+                        info.get("xref"),
+                        page_number,
+                    )
+                    continue
+
                 reason = _filter_reason(info, page_area, seen_digests)
                 if reason is not None:
                     filtered_count += 1
@@ -294,6 +340,65 @@ def _filter_reason(info: Dict, page_area: float, seen_digests: Set[bytes]) -> Op
             return "sliver"
 
     return None
+
+
+def _page_reconstruction_indices(
+    infos: List[Dict], page_width: float, page_height: float
+) -> Set[int]:
+    """Indices (into ``infos``) of images that together reconstruct the
+    scanned page rather than represent semantic content.
+
+    Detected by set-level geometry, using the minimum robust signal set:
+    at least ``_RECON_MIN_BANDS`` full-column images (same page — this is
+    called per page), of consistent width, that tile contiguously down the
+    page (each band's top meets the previous band's bottom within a small
+    tolerance). A single band, a pair of stacked figures, or images of
+    differing widths never qualify, so genuine figures — even a full-width
+    one — are preserved unless they are part of such a tiling run.
+
+    Pure geometry: no PDF handle, no OCR state, so it is unit-testable
+    against synthetic ``info`` dicts and behaves identically on the native
+    extraction path and the Mathpix verification path (the two callers of
+    ``_extract_images_from_pdf``).
+    """
+    if page_width <= 0 or page_height <= 0:
+        return set()
+
+    gap_tol = page_height * _RECON_GAP_TOLERANCE_FRAC
+    min_width = _RECON_MIN_WIDTH_FRAC * page_width
+
+    # Full-column candidates as (index, top, bottom, width), top-to-bottom.
+    candidates = []
+    for idx, info in enumerate(infos):
+        bbox = info.get("bbox")
+        if not bbox:
+            continue
+        width = bbox[2] - bbox[0]
+        if width >= min_width:
+            candidates.append((idx, bbox[1], bbox[3], width))
+    if len(candidates) < _RECON_MIN_BANDS:
+        return set()
+    candidates.sort(key=lambda c: c[1])
+
+    recon: Set[int] = set()
+    run = [candidates[0]]
+
+    def _flush(current_run):
+        if len(current_run) >= _RECON_MIN_BANDS:
+            recon.update(c[0] for c in current_run)
+
+    for cur in candidates[1:]:
+        prev = run[-1]
+        contiguous = cur[1] <= prev[2] + gap_tol  # this top <= prev bottom + tol
+        widths = [c[3] for c in run] + [cur[3]]
+        consistent = (max(widths) / min(widths)) <= 1 + _RECON_WIDTH_TOLERANCE
+        if contiguous and consistent:
+            run.append(cur)
+        else:
+            _flush(run)
+            run = [cur]
+    _flush(run)
+    return recon
 
 
 def _extract_single_image(

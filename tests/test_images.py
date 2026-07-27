@@ -329,6 +329,88 @@ class TestFilterReasonUnit:
         assert _filter_reason(info, self._page_area(), set()) is None
 
 
+class TestPageReconstructionDetection:
+    """White-box tests of the scanned-page reconstruction classifier
+    against synthetic per-page info lists. Pure geometry, so no crafted
+    PDF is needed. Page is US Letter (612x792pt), matching the corpus.
+
+    A reconstruction band spans the full text column (x 21..591 = 570pt
+    wide, > 0.6*612) and is 98pt tall; consecutive bands tile top-to-bottom.
+    """
+
+    PAGE_W = 612.0
+    PAGE_H = 792.0
+
+    def _band(self, xref, y0, y1, x0=21.0, x1=591.0):
+        return {"xref": xref, "digest": bytes([xref]), "width": 1424, "height": 245,
+                "bbox": (x0, y0, x1, y1)}
+
+    def test_three_tiling_bands_are_reconstruction(self):
+        from src.images.image_extractor import _page_reconstruction_indices
+
+        infos = [self._band(1, 0, 98), self._band(2, 98, 196), self._band(3, 196, 294)]
+        assert _page_reconstruction_indices(infos, self.PAGE_W, self.PAGE_H) == {0, 1, 2}
+
+    def test_born_digital_narrow_figures_are_not_reconstruction(self):
+        from src.images.image_extractor import _page_reconstruction_indices
+
+        # Two normal in-column figures, neither full-column, no tiling.
+        infos = [
+            {"xref": 1, "bbox": (72.0, 128.0, 336.0, 543.0)},  # 264pt wide
+            {"xref": 2, "bbox": (72.0, 560.0, 272.0, 710.0)},  # 200pt wide
+        ]
+        assert _page_reconstruction_indices(infos, self.PAGE_W, self.PAGE_H) == set()
+
+    def test_real_figure_beside_bands_is_preserved(self):
+        from src.images.image_extractor import _page_reconstruction_indices
+
+        # Three tiling bands (0,1,2) plus a genuine narrow figure (3).
+        infos = [
+            self._band(1, 0, 98),
+            self._band(2, 98, 196),
+            self._band(3, 196, 294),
+            {"xref": 9, "bbox": (72.0, 400.0, 336.0, 700.0)},  # narrow real figure
+        ]
+        result = _page_reconstruction_indices(infos, self.PAGE_W, self.PAGE_H)
+        assert result == {0, 1, 2}
+        assert 3 not in result  # the real figure must survive
+
+    def test_single_full_page_background_is_not_reconstruction(self):
+        from src.images.image_extractor import _page_reconstruction_indices
+
+        # One image, whole page. Count < MIN_BANDS; also caught separately
+        # by _filter_reason's background rule.
+        infos = [{"xref": 1, "bbox": (0.0, 0.0, 612.0, 792.0)}]
+        assert _page_reconstruction_indices(infos, self.PAGE_W, self.PAGE_H) == set()
+
+    def test_two_stacked_bands_are_not_reconstruction(self):
+        from src.images.image_extractor import _page_reconstruction_indices
+
+        # Two is ambiguous (could be two real figures) — must not trigger.
+        infos = [self._band(1, 0, 98), self._band(2, 98, 196)]
+        assert _page_reconstruction_indices(infos, self.PAGE_W, self.PAGE_H) == set()
+
+    def test_large_vertical_gap_breaks_the_tiling_run(self):
+        from src.images.image_extractor import _page_reconstruction_indices
+
+        # Full-column, but a big gap between #2 and #3 means they do not
+        # tile — no run reaches MIN_BANDS.
+        infos = [self._band(1, 0, 98), self._band(2, 98, 196), self._band(3, 600, 698)]
+        assert _page_reconstruction_indices(infos, self.PAGE_W, self.PAGE_H) == set()
+
+    def test_inconsistent_widths_break_the_run(self):
+        from src.images.image_extractor import _page_reconstruction_indices
+
+        # Middle band is full-column but 14% narrower — a differently-sized
+        # element, not a uniform slice — so the run cannot reach MIN_BANDS.
+        infos = [
+            self._band(1, 0, 98),
+            self._band(2, 98, 196, x0=21.0, x1=520.0),  # 499pt vs others' 570 (>10%)
+            self._band(3, 196, 294),
+        ]
+        assert _page_reconstruction_indices(infos, self.PAGE_W, self.PAGE_H) == set()
+
+
 class TestExtractImagesFailureHandling:
     def test_missing_source_pdf_raises_file_not_found(self, tmp_path: Path) -> None:
         document = Document(
