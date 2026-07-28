@@ -273,7 +273,21 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
               select("validation-issue", issue.issue_id);
               if (issue.page_number !== null) jumpToObject(issue.page_number, null);
             }}
-            readiness={state.readiness}
+            // Readiness convergence (Commit 1): the banner reads the
+            // Accessibility Intelligence Engine (the same source as the
+            // header badge and ReadinessPanel), never the frozen
+            // ValidationIssue snapshot. compute_readiness/state.readiness is
+            // retired in a later commit; mapped to ReadinessReport's shape
+            // here (the banner only reads ready + overall_score).
+            readiness={
+              state.accessibilityReport
+                ? {
+                    ready: state.accessibilityReport.export_ready,
+                    overall_score: state.accessibilityReport.overall_score,
+                    categories: [],
+                  }
+                : null
+            }
           />
         );
       case "images":
@@ -490,8 +504,8 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
           durationSeconds={job.duration_seconds}
           mode={activeSpecialView ? "special" : "document"}
           currentPage={pageNumber}
-          readinessScore={state.accessibilityReport?.overall_score ?? state.readiness?.overall_score ?? null}
-          readinessReady={state.accessibilityReport?.export_ready ?? state.readiness?.ready}
+          readinessScore={state.accessibilityReport?.overall_score ?? null}
+          readinessReady={state.accessibilityReport?.export_ready}
           onOpenSearch={() => {
             setActiveSpecialView("");
             setSearchNonce((n) => n + 1);
