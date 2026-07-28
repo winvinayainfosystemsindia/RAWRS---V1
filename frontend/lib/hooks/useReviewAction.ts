@@ -50,11 +50,7 @@ export function useReviewAction(jobId: string) {
   // idempotent; failures degrade to leaving the current values in place
   // (never blanking a real score to null on a transient blip).
   const refreshIntelligence = useCallback(async () => {
-    const [readiness, report] = await Promise.all([
-      api.getReadiness(jobId).then((r) => r).catch(() => undefined),
-      api.getAccessibilityReport(jobId).then((r) => r).catch(() => undefined),
-    ]);
-    if (readiness !== undefined) dispatch({ type: "SET_READINESS", readiness });
+    const report = await api.getAccessibilityReport(jobId).catch(() => undefined);
     if (report !== undefined) dispatch({ type: "SET_ACCESSIBILITY_REPORT", report });
   }, [jobId, dispatch]);
 

@@ -586,9 +586,6 @@ export const api = {
     );
   },
 
-  getReadiness(jobId: string): Promise<ReadinessReport> {
-    return request<ReadinessReport>(`/api/documents/${jobId}/readiness`);
-  },
 
   getAccessibilityReport(jobId: string): Promise<AccessibilityReport> {
     return request<AccessibilityReport>(`/api/documents/${jobId}/accessibility-report`);

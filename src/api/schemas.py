@@ -369,58 +369,6 @@ class ReadingOrderPatchRequest(BaseModel):
     block_sequence: Optional[List[int]] = None  # TextBlock.order values in desired sequence
 
 
-# --- Export readiness / accessibility gate (FEATURE_015.2 PART F) -----------
-
-
-class ReadinessCategoryOut(BaseModel):
-    """Readiness summary for one accessibility category."""
-
-    complete: bool
-    total: int = 0
-    approved: int = 0
-    issues: List[str] = []
-
-
-class ExportReadinessOut(BaseModel):
-    """Pre-export accessibility readiness report.
-
-    ready: True only when all categories are complete (no outstanding
-           WARNING-level accessibility issues). Informational issues
-           (INFO severity) do not block readiness.
-    overall_score: fraction of categories that are complete (0.0–1.0).
-    categories: per-category readiness breakdown.
-    """
-
-    ready: bool
-    overall_score: float
-    categories: dict  # str → ReadinessCategoryOut (Dict not used for JSON compat)
-
-
-# --- Generic Accessibility Readiness (backend-driven, rule-id-prefix-based) --
-#
-# Distinct from ExportReadinessOut above (FEATURE_015.2's hand-written
-# per-category business logic, kept as-is for backward compatibility).
-# This endpoint groups document.validation_issues by rule_id prefix — the
-# convention every rule ID already follows (HEADING_001, LIST_VERIFY_002,
-# IMAGE_VERIFY_004, ...) — so a brand-new verifier's rules count toward
-# readiness automatically, with zero changes here or in the frontend.
-
-
-class ReadinessCategoryDetailOut(BaseModel):
-    category: str
-    label: str
-    error_count: int = 0
-    warning_count: int = 0
-    info_count: int = 0
-    ready: bool = True
-
-
-class ReadinessReportOut(BaseModel):
-    ready: bool
-    overall_score: float
-    categories: List[ReadinessCategoryDetailOut]
-
-
 class AccessibilityEvidenceSignalOut(BaseModel):
     """See docs/ACCESSIBILITY_INTELLIGENCE_ENGINE_DESIGN.md Section 12/27.
     Distinct from EvidenceSignalOut above (which is table-detection-specific)

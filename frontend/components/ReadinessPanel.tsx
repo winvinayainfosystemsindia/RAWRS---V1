@@ -1,18 +1,16 @@
 "use client";
 
 import { useMemo } from "react";
-import type { AccessibilityReport, ReadinessReport } from "@/lib/api";
-import { KNOWN_READINESS_CATEGORIES } from "@/lib/validationCategories";
-import { IconCheckCircle, IconWarningTriangle, IconValidation } from "@/components/icons";
+import type { AccessibilityReport } from "@/lib/api";
+import { IconCheckCircle, IconWarningTriangle } from "@/components/icons";
 
 interface Props {
-  readiness: ReadinessReport | null;
   accessibilityReport: AccessibilityReport | null;
   onSelectCategory?: (specialViewId: string) => void;
   onFixNext?: () => void;
 }
 
-// --- Engine-powered view (when accessibilityReport is available) -----------
+// --- Engine-powered view (AccessibilityReport.export_ready is canonical) ----
 
 const CATEGORY_SPECIAL_VIEW: Record<string, string> = {
   headings: "headings",
@@ -169,7 +167,6 @@ function EngineReadinessPanel({ report, onSelectCategory, onFixNext }: {
             const specialView = specialViewFor(cat.category);
             const isFailing = cat.points_lost > 0;
             const cov = coverageByCategory.get(cat.category);
-            const covPercent = cov && cov.total > 0 ? Math.round((cov.covered / cov.total) * 100) : 100;
             return (
               <li key={cat.category} className="rounded-lg border border-border bg-surface-elevated px-4 py-3">
                 <div className="flex items-center justify-between gap-4">
@@ -266,166 +263,11 @@ function EngineReadinessPanel({ report, onSelectCategory, onFixNext }: {
   );
 }
 
-// --- Legacy view (fallback when engine report is not available) ------------
+// --- Public component — engine-only (snapshot readiness retired, Commit 3) --
 
-type CategoryStatus = "passed" | "warning" | "failed" | "manual_review" | "not_assessed";
-
-interface CategoryRow {
-  prefix: string;
-  label: string;
-  specialViewId?: string;
-  status: CategoryStatus;
-  errorCount: number;
-  warningCount: number;
-  infoCount: number;
-}
-
-function buildCategoryRows(readiness: ReadinessReport): CategoryRow[] {
-  return KNOWN_READINESS_CATEGORIES.map((known) => {
-    const real = readiness.categories.find((c) => c.category === known.prefix);
-    const errorCount = real?.error_count ?? 0;
-    const warningCount = real?.warning_count ?? 0;
-    const infoCount = real?.info_count ?? 0;
-
-    let status: CategoryStatus;
-    if (errorCount > 0) status = "failed";
-    else if (warningCount > 0) status = "warning";
-    else if (infoCount > 0) status = "manual_review";
-    else status = "passed";
-
-    return { prefix: known.prefix, label: real?.label ?? known.label, specialViewId: known.specialViewId, status, errorCount, warningCount, infoCount };
-  });
-}
-
-const STATUS_META: Record<CategoryStatus, { label: string; className: string }> = {
-  passed: { label: "Passed", className: "bg-success/10 text-success" },
-  warning: { label: "Warning", className: "bg-warning/10 text-warning" },
-  failed: { label: "Failed", className: "bg-danger/10 text-danger" },
-  manual_review: { label: "Manual Review Required", className: "bg-accent/10 text-accent" },
-  not_assessed: { label: "Not yet assessed", className: "bg-hover-row text-text-secondary" },
-};
-
-function StatusIcon({ status }: { status: CategoryStatus }) {
-  const className = "h-4 w-4 shrink-0";
-  if (status === "passed") return <IconCheckCircle className={className} />;
-  if (status === "manual_review") return <IconValidation className={className} />;
-  if (status === "not_assessed") return null;
-  return <IconWarningTriangle className={className} />;
-}
-
-function LegacyCategoryCard({ row, onSelectCategory }: { row: CategoryRow; onSelectCategory?: (id: string) => void }) {
-  const meta = STATUS_META[row.status];
-  const issueSummary =
-    row.errorCount + row.warningCount + row.infoCount === 0
-      ? "No issues found"
-      : [
-          row.errorCount > 0 && `${row.errorCount} critical`,
-          row.warningCount > 0 && `${row.warningCount} warning${row.warningCount === 1 ? "" : "s"}`,
-          row.infoCount > 0 && `${row.infoCount} for manual review`,
-        ]
-          .filter(Boolean)
-          .join(", ");
-
-  return (
-    <li className="flex items-center justify-between gap-4 rounded-lg border border-border bg-surface-elevated px-4 py-3">
-      <div className="min-w-0">
-        <p className="text-sm font-medium text-text-primary">{row.label}</p>
-        <p className="text-xs text-text-secondary">{issueSummary}</p>
-      </div>
-      <div className="flex shrink-0 items-center gap-2">
-        <span className={`inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-xs font-medium ${meta.className}`}>
-          <StatusIcon status={row.status} />
-          {meta.label}
-        </span>
-        {row.specialViewId && onSelectCategory && row.status !== "passed" && (
-          <button
-            type="button"
-            onClick={() => onSelectCategory(row.specialViewId!)}
-            className="rounded border border-border px-2 py-0.5 text-xs font-medium text-accent hover:bg-hover-row"
-          >
-            Review &rarr;
-          </button>
-        )}
-      </div>
-    </li>
-  );
-}
-
-function LegacyReadinessPanel({ readiness, onSelectCategory }: {
-  readiness: ReadinessReport;
-  onSelectCategory?: (id: string) => void;
-}) {
-  const rows = buildCategoryRows(readiness);
-  const totals = rows.reduce(
-    (acc, r) => ({
-      critical: acc.critical + r.errorCount,
-      warnings: acc.warnings + r.warningCount,
-      manualReview: acc.manualReview + r.infoCount,
-      passed: acc.passed + (r.status === "passed" ? 1 : 0),
-    }),
-    { critical: 0, warnings: 0, manualReview: 0, passed: 0 }
-  );
-
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-surface-panel p-4">
-        <span
-          className={`inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-base font-semibold ${
-            readiness.ready ? "bg-success/10 text-success" : "bg-warning/10 text-warning"
-          }`}
-        >
-          {readiness.ready ? <IconCheckCircle className="h-5 w-5" /> : <IconWarningTriangle className="h-5 w-5" />}
-          {readiness.ready ? "Export Ready" : "Not Yet Ready"}
-        </span>
-        <span className="text-sm text-text-secondary">
-          Overall Accessibility Score:{" "}
-          <span className="font-semibold text-text-primary">{Math.round(readiness.overall_score * 100)}%</span>
-        </span>
-      </div>
-
-      <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <div className="rounded-lg border border-danger/30 bg-danger/10 p-3">
-          <dt className="text-xs text-danger">Critical Issues</dt>
-          <dd className="mt-1 text-xl font-bold tabular-nums text-danger">{totals.critical}</dd>
-        </div>
-        <div className="rounded-lg border border-warning/30 bg-warning/10 p-3">
-          <dt className="text-xs text-warning">Warnings</dt>
-          <dd className="mt-1 text-xl font-bold tabular-nums text-warning">{totals.warnings}</dd>
-        </div>
-        <div className="rounded-lg border border-success/30 bg-success/10 p-3">
-          <dt className="text-xs text-success">Passed Checks</dt>
-          <dd className="mt-1 text-xl font-bold tabular-nums text-success">
-            {totals.passed} / {rows.length}
-          </dd>
-        </div>
-        <div className="rounded-lg border border-accent/30 bg-accent/10 p-3">
-          <dt className="text-xs text-accent">Manual Review</dt>
-          <dd className="mt-1 text-xl font-bold tabular-nums text-accent">{totals.manualReview}</dd>
-        </div>
-      </dl>
-
-      <div>
-        <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-text-secondary">
-          Category Breakdown
-        </p>
-        <ul className="space-y-2">
-          {rows.map((row) => (
-            <LegacyCategoryCard key={row.prefix} row={row} onSelectCategory={onSelectCategory} />
-          ))}
-        </ul>
-      </div>
-    </div>
-  );
-}
-
-// --- Public component — delegates to engine or legacy view ----------------
-
-export function ReadinessPanel({ readiness, accessibilityReport, onSelectCategory, onFixNext }: Props) {
+export function ReadinessPanel({ accessibilityReport, onSelectCategory, onFixNext }: Props) {
   if (accessibilityReport) {
     return <EngineReadinessPanel report={accessibilityReport} onSelectCategory={onSelectCategory} onFixNext={onFixNext} />;
-  }
-  if (readiness) {
-    return <LegacyReadinessPanel readiness={readiness} onSelectCategory={onSelectCategory} />;
   }
   return <p className="text-sm text-text-secondary">Readiness data not available.</p>;
 }

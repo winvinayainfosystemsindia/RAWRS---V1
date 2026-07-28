@@ -48,7 +48,7 @@ function DocumentPoller({ jobId, reloadNonce }: { jobId: string; reloadNonce: nu
 
     async function loadResults(summary: Awaited<ReturnType<typeof api.getDocument>>) {
       const errors: string[] = [];
-      const [validation, images, tables, footnotes, headings, lists, callouts, metadata, pages, readingOrder, pageLabels, corrections, readiness] =
+      const [validation, images, tables, footnotes, headings, lists, callouts, metadata, pages, readingOrder, pageLabels, corrections] =
         await Promise.all([
           tryLoad("validation", errors, () => api.getValidation(jobId), { issues: [], error_count: 0, warning_count: 0, info_count: 0 }),
           tryLoad("images", errors, () => api.getImages(jobId), { images: [] }),
@@ -62,7 +62,6 @@ function DocumentPoller({ jobId, reloadNonce }: { jobId: string; reloadNonce: nu
           tryLoad("reading order", errors, () => api.getReadingOrder(jobId), { pages: [] }),
           tryLoad("page labels", errors, () => api.getPageLabels(jobId), { pages: [], sections: [] }),
           tryLoad("corrections", errors, () => api.getCorrections(jobId), { corrections: [] }),
-          tryLoad("readiness", errors, () => api.getReadiness(jobId), null),
         ]);
       const markdown = summary.markdown_available
         ? await tryLoad("markdown", errors, () => api.getMarkdown(jobId).then((r) => r.content), "")
@@ -87,7 +86,6 @@ function DocumentPoller({ jobId, reloadNonce }: { jobId: string; reloadNonce: nu
           validationIssues: validation.issues,
           metadata,
           pages: pages.pages,
-          readiness,
           markdown,
           loadErrors: errors,
         },
@@ -112,16 +110,14 @@ function DocumentPoller({ jobId, reloadNonce }: { jobId: string; reloadNonce: nu
           // action taken in another tab moves the numbers here too, without
           // a manual refresh. useReviewAction already refreshes the acting
           // tab immediately; this covers cross-tab / out-of-band changes.
-          const [content, readiness, report] = await Promise.all([
+          const [content, report] = await Promise.all([
             summary.markdown_available
               ? api.getMarkdown(jobId).then((r) => r.content).catch(() => null)
               : Promise.resolve(null),
-            api.getReadiness(jobId).catch(() => undefined),
             api.getAccessibilityReport(jobId).catch(() => undefined),
           ]);
           if (cancelled) return;
           if (content !== null) dispatch({ type: "UPDATE_MARKDOWN", markdown: content });
-          if (readiness !== undefined) dispatch({ type: "SET_READINESS", readiness });
           if (report !== undefined) dispatch({ type: "SET_ACCESSIBILITY_REPORT", report });
         }
       } catch {

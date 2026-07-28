@@ -292,17 +292,8 @@ class TestDocumentVersionBump:
         assert resp.status_code == 404
 
 
-class TestReadinessEndpoint:
-    def test_reports_category_from_validation_issues(self, client, synthetic_job):
-        job_id, _correction_id, _heading = synthetic_job
-        resp = client.get(f"/api/documents/{job_id}/readiness")
-        assert resp.status_code == 200
-        data = resp.json()
-        categories = {c["category"]: c for c in data["categories"]}
-        assert "HEADING" in categories
-        assert categories["HEADING"]["ready"] is False
-        assert data["ready"] is False
-
-    def test_unknown_job_returns_404(self, client):
-        resp = client.get("/api/documents/doesnotexist/readiness")
-        assert resp.status_code == 404
+# The GET /readiness endpoint (compute_readiness over the ValidationIssue
+# snapshot) was retired in the readiness convergence — AccessibilityReport
+# .export_ready (GET /accessibility-report) is now the canonical readiness
+# authority. compute_readiness remains unit-tested in isolation
+# (tests/test_readiness.py) as legacy diagnostics.

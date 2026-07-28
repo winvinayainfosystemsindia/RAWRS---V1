@@ -371,7 +371,6 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
       case "readiness":
         return (
           <ReadinessPanel
-            readiness={state.readiness}
             accessibilityReport={state.accessibilityReport}
             onSelectCategory={handleSelectCategory}
             onFixNext={() => {

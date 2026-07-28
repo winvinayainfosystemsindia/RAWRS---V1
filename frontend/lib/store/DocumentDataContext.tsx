@@ -16,7 +16,6 @@ import type {
   PageLabelSection,
   PageOcrInfo,
   PageReadingOrder,
-  ReadinessReport,
   TableItem,
   ValidationIssue,
 } from "@/lib/api";
@@ -49,7 +48,6 @@ export interface DocumentEntities {
   validationIssues: ValidationIssue[];
   metadata: MetadataItem | null;
   pages: PageOcrInfo[];
-  readiness: ReadinessReport | null;
   accessibilityReport: AccessibilityReport | null;
   markdown: string;
   // Names of result slices whose last fetch failed (e.g. "validation",
@@ -80,7 +78,6 @@ const initialState: DocumentEntities = {
   validationIssues: [],
   metadata: null,
   pages: [],
-  readiness: null,
   accessibilityReport: null,
   markdown: "",
   loadErrors: [],
@@ -107,7 +104,6 @@ export type DocumentAction =
         validationIssues: ValidationIssue[];
         metadata: MetadataItem | null;
         pages: PageOcrInfo[];
-        readiness: ReadinessReport | null;
         markdown: string;
         loadErrors: string[];
       };
@@ -130,7 +126,6 @@ export type DocumentAction =
   | { type: "UPDATE_MARKDOWN"; markdown: string }
   | { type: "UPDATE_VALIDATION_ISSUE"; issue: ValidationIssue }
   | { type: "SET_ACCESSIBILITY_REPORT"; report: AccessibilityReport | null }
-  | { type: "SET_READINESS"; readiness: ReadinessReport | null }
   | { type: "REQUEST_RELOAD" };
 
 function keyBy<T>(items: T[], keyFn: (item: T) => string | number): Record<string | number, T> {
@@ -163,7 +158,6 @@ function reducer(state: DocumentEntities, action: DocumentAction): DocumentEntit
         validationIssues: action.payload.validationIssues,
         metadata: action.payload.metadata,
         pages: action.payload.pages,
-        readiness: action.payload.readiness,
         markdown: action.payload.markdown,
         loadErrors: action.payload.loadErrors,
       };
@@ -235,8 +229,6 @@ function reducer(state: DocumentEntities, action: DocumentAction): DocumentEntit
       };
     case "SET_ACCESSIBILITY_REPORT":
       return { ...state, accessibilityReport: action.report };
-    case "SET_READINESS":
-      return { ...state, readiness: action.readiness };
     case "REQUEST_RELOAD":
       return { ...state, reloadNonce: state.reloadNonce + 1 };
     default:

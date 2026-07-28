@@ -51,7 +51,6 @@ from src.api.schemas import (
     CorrectionOut,
     CorrectionsResponse,
     EvidenceSignalOut,
-    ExportReadinessOut,
     FigureOut,
     FootnoteOut,
     FootnoteReviewRequest,
@@ -77,9 +76,6 @@ from src.api.schemas import (
     PageOcrInfoOut,
     PageReadingOrderOut,
     PagesResponse,
-    ReadinessCategoryDetailOut,
-    ReadinessCategoryOut,
-    ReadinessReportOut,
     ReadingOrderPatchRequest,
     ReadingOrderResponse,
     ReviewAction,
@@ -104,7 +100,6 @@ from src.models.correction import (
 )
 from src.models.validation_issue import ValidationIssue, ValidationIssueStatus
 from src.models.figure import AltTextStatus
-from src.validation.readiness import compute_readiness
 from src.verification.engine import UnknownAssetTypeError, engine
 import src.accessibility.rules  # noqa: F401 - side effect: registers Phase 1 rules
 from src.accessibility.debt import compute_debt_report
@@ -1198,231 +1193,12 @@ def set_page_label_sections(job_id: str, body: PageLabelSectionsRequest) -> Page
 # --- Export readiness (FEATURE_015.2 PART F) ---------------------------------
 
 
-@router.get("/documents/{job_id}/export-readiness", response_model=ExportReadinessOut)
-def get_export_readiness(job_id: str) -> ExportReadinessOut:
-    """Return a pre-export accessibility readiness report.
-
-    Evaluates every reviewable object category and reports whether all
-    required accessibility checks have been addressed. This is the final
-    gate before a document is considered ready for accessible export.
-
-    ready=True only when all categories are complete (no outstanding
-    WARNING-level issues for any category). INFO-level issues (footnotes
-    detected, metadata missing, etc.) do not block readiness.
-
-    This endpoint is non-blocking: DOCX download works regardless of
-    readiness score. Use this report to guide the reviewer toward any
-    remaining gaps before distributing the document.
-    """
-    from src.models.table import TableStatus
-    from src.models.figure import AltTextStatus
-    from src.models.heading import HeadingReviewStatus
-    from src.models.footnote import FootnoteReviewStatus
-    from src.models.page import ReadingOrderStatus
-
-    document = _require_document(job_id)
-    if document is None:
-        raise HTTPException(status_code=404, detail="No document for this job.")
-
-    categories: dict = {}
-    category_complete: list = []
-
-    # --- Tables ---
-    tables = document.tables
-    table_issues = []
-    table_approved = sum(
-        1 for t in tables if t.status == TableStatus.REVIEWED
-    )
-    unreviewed = [t for t in tables if t.status == TableStatus.AUTO_DETECTED]
-    if unreviewed:
-        table_issues.append(f"{len(unreviewed)} auto-detected table(s) not yet reviewed")
-    no_caption = [t for t in tables if not t.caption]
-    if no_caption:
-        table_issues.append(f"{len(no_caption)} table(s) missing accessibility caption")
-    no_summary = [t for t in tables if not t.summary]
-    if no_summary:
-        table_issues.append(f"{len(no_summary)} table(s) missing WCAG H73 summary")
-    no_headers = [t for t in tables if not any(row.is_header_row for row in t.rows)]
-    if no_headers:
-        table_issues.append(f"{len(no_headers)} table(s) with no header row")
-    low_conf = [t for t in tables if t.status == TableStatus.AUTO_DETECTED and t.confidence < 0.7]
-    if low_conf:
-        table_issues.append(f"{len(low_conf)} table(s) with low detection confidence (<70%) — verify cell content")
-    tables_complete = not table_issues
-    category_complete.append(tables_complete)
-    categories["tables"] = ReadinessCategoryOut(
-        complete=tables_complete,
-        total=len(tables),
-        approved=table_approved,
-        issues=table_issues,
-    ).model_dump()
-
-    # --- Images ---
-    images = document.images
-    img_issues = []
-    img_approved = sum(
-        1 for img in images
-        if img.figure and img.figure.alt_text_status in (
-            AltTextStatus.APPROVED, AltTextStatus.DECORATIVE,
-            AltTextStatus.COMPLEX, AltTextStatus.REJECTED,
-        )
-    )
-    _IMG_COMPLETE = {
-        AltTextStatus.APPROVED, AltTextStatus.DECORATIVE,
-        AltTextStatus.COMPLEX, AltTextStatus.REJECTED,
-        AltTextStatus.SKIPPED, AltTextStatus.HUMAN_REVIEWED,
-    }
-    img_pending = [
-        img for img in images
-        if not img.extraction_failed
-        and (img.figure is None or img.figure.alt_text_status not in _IMG_COMPLETE)
-    ]
-    if img_pending:
-        img_issues.append(f"{len(img_pending)} image(s) with unreviewed alt text")
-    images_complete = not img_issues
-    category_complete.append(images_complete)
-    categories["images"] = ReadinessCategoryOut(
-        complete=images_complete,
-        total=len(images),
-        approved=img_approved,
-        issues=img_issues,
-    ).model_dump()
-
-    # --- Headings ---
-    content_headings = [h for h in document.headings if not h.is_page_marker]
-    heading_issues = []
-    heading_approved = sum(
-        1 for h in content_headings
-        if h.review_status == HeadingReviewStatus.APPROVED
-    )
-    from src.models.heading import HeadingLevel
-    h1_headings = [h for h in content_headings if h.level == HeadingLevel.H1]
-    if not h1_headings:
-        heading_issues.append("No H1 heading — document title not identified")
-    rejected = [h for h in content_headings if h.review_status == HeadingReviewStatus.REJECTED]
-    if rejected:
-        heading_issues.append(f"{len(rejected)} heading(s) marked as false positive (rejected)")
-    headings_complete = not heading_issues
-    category_complete.append(headings_complete)
-    categories["headings"] = ReadinessCategoryOut(
-        complete=headings_complete,
-        total=len(content_headings),
-        approved=heading_approved,
-        issues=heading_issues,
-    ).model_dump()
-
-    # --- Footnotes ---
-    footnotes = document.footnotes
-    fn_approved = sum(
-        1 for fn in footnotes if fn.review_status == FootnoteReviewStatus.APPROVED
-    )
-    fn_issues = []
-    # Footnotes are informational — never block readiness
-    fn_complete = True
-    category_complete.append(fn_complete)
-    categories["footnotes"] = ReadinessCategoryOut(
-        complete=fn_complete,
-        total=len(footnotes),
-        approved=fn_approved,
-        issues=fn_issues,
-    ).model_dump()
-
-    # --- Reading order ---
-    page_003_pages = {
-        issue.page_number
-        for issue in document.validation_issues
-        if issue.rule_id == "PAGE_003" and issue.page_number is not None
-    }
-    ro_issues = []
-    ro_reviewed = sum(
-        1 for p in document.pages
-        if p.page_number in page_003_pages
-        and p.reading_order_status != ReadingOrderStatus.UNREVIEWED
-    )
-    unreviewed_ro = len([
-        p for p in document.pages
-        if p.page_number in page_003_pages
-        and p.reading_order_status == ReadingOrderStatus.UNREVIEWED
-    ])
-    if unreviewed_ro:
-        ro_issues.append(
-            f"{unreviewed_ro} page(s) with reading order anomalies not yet reviewed"
-        )
-    ro_complete = not ro_issues
-    category_complete.append(ro_complete)
-    categories["reading_order"] = ReadinessCategoryOut(
-        complete=ro_complete,
-        total=len(page_003_pages),
-        approved=ro_reviewed,
-        issues=ro_issues,
-    ).model_dump()
-
-    # --- Metadata ---
-    meta = document.metadata
-    meta_issues = []
-    if not meta.language:
-        meta_issues.append("No document language set (required for screen reader voice selection)")
-    if not meta.title:
-        meta_issues.append("No document title set (required for WCAG 2.4.2)")
-    meta_complete = not meta_issues
-    category_complete.append(meta_complete)
-    categories["metadata"] = ReadinessCategoryOut(
-        complete=meta_complete,
-        total=2,
-        approved=2 - len(meta_issues),
-        issues=meta_issues,
-    ).model_dump()
-
-    complete_count = sum(1 for c in category_complete if c)
-    overall_score = complete_count / len(category_complete) if category_complete else 0.0
-    ready = all(category_complete)
-
-    return ExportReadinessOut(
-        ready=ready,
-        overall_score=round(overall_score, 4),
-        categories=categories,
-    )
-
-
-# --- Accessibility Readiness (generic, rule-id-prefix-based) ---------------
-
-
-@router.get("/documents/{job_id}/readiness", response_model=ReadinessReportOut)
-def get_readiness(job_id: str) -> ReadinessReportOut:
-    """Backend-driven accessibility readiness, grouped by rule_id prefix.
-
-    Every current and future verifier's ValidationIssues count toward this
-    automatically (see src/validation/readiness.py) — the frontend renders
-    whatever this reports and never needs its own rule_id -> category map.
-    """
-    document = _require_document(job_id)
-    if document is None:
-        return ReadinessReportOut(ready=True, overall_score=1.0, categories=[])
-
-    report = compute_readiness(document)
-    return ReadinessReportOut(
-        ready=report.ready,
-        overall_score=round(report.overall_score, 4),
-        categories=[
-            ReadinessCategoryDetailOut(
-                category=c.category,
-                label=c.label,
-                error_count=c.error_count,
-                warning_count=c.warning_count,
-                info_count=c.info_count,
-                ready=c.ready,
-            )
-            for c in report.categories
-        ],
-    )
-
-
 @router.get("/documents/{job_id}/accessibility-report", response_model=AccessibilityReportOut)
 def get_accessibility_report(job_id: str) -> AccessibilityReportOut:
     """Accessibility Intelligence Engine (Phase 1) - see
-    docs/ACCESSIBILITY_INTELLIGENCE_ENGINE_DESIGN.md. Fully additive: does
-    not change GET /readiness's response shape or the data it reads, and
-    is not yet consumed by the frontend (Section 22 roadmap Phase 4).
+    docs/ACCESSIBILITY_INTELLIGENCE_ENGINE_DESIGN.md. This is the canonical
+    readiness authority: AccessibilityReport.export_ready is the single gate
+    every frontend readiness indicator reads.
     """
     document = _require_document(job_id)
     if document is None:

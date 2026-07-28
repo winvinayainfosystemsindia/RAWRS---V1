@@ -1,17 +1,18 @@
-"""Accessibility Readiness — backend-driven, no hand-maintained rule maps.
+"""Accessibility Readiness — LEGACY DIAGNOSTICS ONLY (no longer a readiness gate).
 
-Groups Document.validation_issues by rule_id prefix (the convention every
-rule ID already follows: HEADING_001, HEADING_VERIFY_003, LIST_VERIFY_002,
-IMAGE_VERIFY_004, TABLE_005, ...) so a brand-new verifier's rules count
-toward readiness automatically the moment it names its rules with a
-category prefix. Nothing here enumerates rule_ids or asset types by hand.
+**Not part of the production export-readiness path.** The canonical readiness
+authority is `AccessibilityReport.export_ready` (src/accessibility/, GET
+/accessibility-report), which evaluates live document/review state. This module
+computes a summary over the *frozen, pipeline-time* `Document.validation_issues`
+snapshot, so it can never reflect reviewer actions and must not gate export.
+The `/readiness` and `/export-readiness` HTTP endpoints that once exposed this
+were retired in the readiness convergence; `compute_readiness` is kept only as
+an isolated diagnostic (unit-tested in tests/test_readiness.py) and is imported
+by nothing in the production request path.
 
-Distinct from src/api/routes.py's existing `get_export_readiness` endpoint
-(FEATURE_015.2), which is hand-written per-category business logic kept
-as-is for backward compatibility with its existing frontend consumers —
-this is the new, generic, engine-fed surface every future verifier's
-findings automatically participate in (see docs/DECISIONS_LOG.md roadmap
-entry for migrating export-readiness onto this aggregator later).
+Groups Document.validation_issues by rule_id prefix (HEADING_001,
+LIST_VERIFY_002, IMAGE_VERIFY_004, TABLE_005, ...) — a purely mechanical
+rollup, no hand-maintained rule map.
 """
 
 from __future__ import annotations
