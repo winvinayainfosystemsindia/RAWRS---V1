@@ -4,4 +4,4 @@ Callers that need the registry populated (the pipeline, the new API
 endpoint, tests) import this module once.
 """
 
-from . import headings, images, metadata, reading_order, tables  # noqa: F401
+from . import corrections, headings, images, metadata, reading_order, tables  # noqa: F401

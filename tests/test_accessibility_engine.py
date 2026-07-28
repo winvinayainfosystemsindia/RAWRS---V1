@@ -77,8 +77,12 @@ class TestRegistry:
         assert reg.by_category("Stub") == reg.all()
         assert reg.by_category("Other") == []
 
-    def test_real_registry_has_14_phase1_rules(self):
-        assert len(real_registry.all()) == 14
+    def test_real_registry_has_15_rules(self):
+        # 14 Phase-1 accessibility rules + REVIEW_001 (CorrectionTerminalRule,
+        # the cross-source correction review gate added in the readiness
+        # convergence work).
+        assert len(real_registry.all()) == 15
+        assert real_registry.get("REVIEW_001") is not None
 
 
 def _evaluation(rule_id, outcome, object_id=None):
