@@ -567,12 +567,39 @@ class TestStructureDetectionDoesNotChangeExistingOutputs:
             (fm.author_source_texts + fm.affiliation_source_texts) if fm else []
         )
 
+        # L3 (Artifact-aware Candidate Selection): heading detection is now
+        # a second, ADR-003-style consumer of Structure Detection actually
+        # running. A line an L2 ArtifactClassification marks (running
+        # header/footer, page number, decorative repeated) on
+        # document.blocks is declined as a heading in the "with" run and, in
+        # the "without" run (blocks stubbed empty), correctly FALLS BACK to
+        # prior typography-only behaviour — exactly like a front-matter role
+        # above. Keyed by (page_number, text) to mirror the detector's own
+        # per-page rejection precisely, so a line that is an artifact on one
+        # page never masks a legitimate same-text heading on another.
+        artifact_keys = {
+            (b.page_number, b.text)
+            for b in result_with.document.blocks
+            if b.artifact is not None
+        }
+
         def _normalize(headings):
-            """Drop role-declined headings, then renumber positional
-            fields. id/document_order are dense positional artifacts —
-            removing an element legitimately renumbers both, so they are
-            re-derived rather than compared raw."""
-            kept = [h for h in headings if h.text not in role_texts]
+            """Drop role-declined and L3 artifact-declined headings, then
+            renumber positional fields. id/document_order are dense
+            positional artifacts — removing an element legitimately
+            renumbers both, so they are re-derived rather than compared
+            raw."""
+            kept = [
+                h
+                for h in headings
+                if h.text not in role_texts
+                # Content headings only: page markers (H6) carry their own
+                # feature_009 with/without divergence (printed label vs
+                # physical number) and are neutralised separately below, so
+                # a PAGE_NUMBER artifact sharing a marker's label text must
+                # not drop the marker here.
+                and (h.is_page_marker or (h.page_number, h.text) not in artifact_keys)
+            ]
             out = []
             for position, heading in enumerate(kept):
                 data = heading.model_dump()
@@ -596,6 +623,28 @@ class TestStructureDetectionDoesNotChangeExistingOutputs:
             assert declined not in with_texts, (
                 f"{declined!r} was classified as a front-matter role but still "
                 f"became a heading in the classified run"
+            )
+
+        # L3 fallback assertion (same contract as the role one above):
+        # every (page, text) an artifact classification declined must be
+        # present as a heading in the "without" run — proving the detector
+        # fell back to prior behaviour when blocks were unavailable — and
+        # absent from the "with" run, proving it was actually suppressed
+        # there rather than lost by accident.
+        without_keys = {
+            (h.page_number, h.text)
+            for h in result_without.document.headings
+            if not h.is_page_marker
+        }
+        with_keys_h = {
+            (h.page_number, h.text)
+            for h in result_with.document.headings
+            if not h.is_page_marker
+        }
+        for key in artifact_keys & without_keys:
+            assert key not in with_keys_h, (
+                f"{key!r} is L2-artifact-classified but still became a heading "
+                f"in the classified run"
             )
         # Compared without "message": IMAGE_xxx messages embed each
         # image's randomly-generated image_id (see image_extractor.py),

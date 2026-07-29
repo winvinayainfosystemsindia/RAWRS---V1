@@ -125,7 +125,7 @@ _absorb_continuations()'s own docstring for the full gate list.
 """
 
 import re
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Set, Tuple
@@ -139,7 +139,7 @@ from src.frontmatter.front_matter_roles import (
     is_heading_eligible,
 )
 from src.headings.page_markers import build_page_marker
-from src.models.contracts import Document, Heading, HeadingLevel
+from src.models.contracts import Document, Heading, HeadingLevel, TextBlock
 from src.structure.layout_signals import LineLayout, line_layout
 from src.utils.text_sanitization import sanitize_xml_text
 
@@ -272,6 +272,19 @@ def detect_headings(
         document.source_pdf_path
     )
 
+    # L3 (Artifact-aware Candidate Selection): the canonical L2 artifact
+    # classification (running header/footer, page number, decorative
+    # repeated) already computed on document.blocks by the Layout
+    # Intelligence layer (src/structure/layout_signals.py). Heading
+    # detection is now a *consumer* of that evidence: a line an
+    # artifact-classified block occupies is rejected from heading
+    # candidacy before any tier scores it, instead of each tier
+    # re-deriving "is this a running header" from its own local
+    # recurrence/geometry heuristics. Empty on the Mathpix path (which
+    # skips detect_headings) and for any fixture Document with no blocks -
+    # in which case this pre-filter is a no-op and behaviour is unchanged.
+    artifact_texts_by_page = _index_artifact_texts(document.blocks)
+
     headings: List[Heading] = []
     order = 0
     h1_slot_open = True  # only the first non-blank line in the whole document is eligible for H1
@@ -320,6 +333,17 @@ def detect_headings(
             # declined.
             fm_role = classify_front_matter_line(line, document.front_matter)
             if not is_heading_eligible(fm_role):
+                line_index += 1
+                continue
+
+            # L3 (Artifact-aware Candidate Selection): a line the Layout
+            # Intelligence layer already classified as a document artifact
+            # (running header/footer, page number, decorative repeated) is
+            # never a content heading. Rejected here - BEFORE the H1-slot
+            # test below, exactly like the front-matter check above - so a
+            # running-header line preceding the real title cannot consume
+            # the H1 slot on its way to being declined.
+            if line in artifact_texts_by_page.get(page.page_number, frozenset()):
                 line_index += 1
                 continue
 
@@ -506,6 +530,28 @@ def _iter_candidate_lines(text: str) -> Iterator[str]:
         line = raw_line.strip()
         if line:
             yield line
+
+
+def _index_artifact_texts(blocks: List[TextBlock]) -> Dict[int, Set[str]]:
+    """L3: page_number -> set of line texts an L2-classified artifact occupies.
+
+    Consumes the canonical ArtifactClassification the Layout Intelligence
+    layer (src/structure/layout_signals.py::classify_artifacts) already
+    attached to each TextBlock - never recomputing geometry, repetition,
+    or classification here. Keyed by TextBlock.text, which is
+    sanitize_xml_text() of the PyMuPDF line: the identical key space
+    _build_layout_index()/_build_fallback_tier_index() use and that the
+    main loop already matches candidate lines against (page_layouts.get(
+    line)), so this lookup is exactly as reliable as the existing bold-tier
+    lookup - no new matching fragility. Returns an empty dict when
+    document.blocks is empty (e.g. a fixture Document, or the Mathpix path
+    which skips detect_headings), making the caller's pre-filter a no-op.
+    """
+    index: Dict[int, Set[str]] = defaultdict(set)
+    for block in blocks:
+        if block.artifact is not None:
+            index[block.page_number].add(block.text)
+    return index
 
 
 def _is_productive_h1_candidate(line: str) -> bool:
