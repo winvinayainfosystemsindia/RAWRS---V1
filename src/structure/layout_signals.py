@@ -13,6 +13,8 @@ not just duplicate models).
 
 from typing import Optional, Tuple
 
+from src.models.text_block import PhysicalZone
+
 LineLayout = Tuple[float, bool]  # (font size, is_bold)
 
 _BOLD_FONT_FLAG = 16  # PyMuPDF span flags bit 4
@@ -49,3 +51,25 @@ def line_layout(line_dict: dict) -> Optional[Tuple[str, float, bool, int]]:
 def span_is_bold(span: dict) -> bool:
     font_name = span.get("font", "")
     return "bold" in font_name.lower() or bool(span.get("flags", 0) & _BOLD_FONT_FLAG)
+
+
+_HEADER_FOOTER_BAND_RATIO = 0.12  # top/bottom fraction of page height treated as header/footer
+
+
+def assign_physical_zone(y0: float, y1: float, page_height: float) -> PhysicalZone:
+    """Classify a line into a vertical physical zone by its bbox centre.
+
+    HEADER when the line's vertical centre falls in the top
+    ``_HEADER_FOOTER_BAND_RATIO`` of the page, FOOTER when in the bottom band,
+    BODY otherwise. Purely geometric - a calibration knob, not an
+    interpretation. Returns BODY on a degenerate (non-positive) page height
+    rather than raising.
+    """
+    if page_height <= 0:
+        return PhysicalZone.BODY
+    centre = (y0 + y1) / 2
+    if centre < page_height * _HEADER_FOOTER_BAND_RATIO:
+        return PhysicalZone.HEADER
+    if centre > page_height * (1 - _HEADER_FOOTER_BAND_RATIO):
+        return PhysicalZone.FOOTER
+    return PhysicalZone.BODY

@@ -13,12 +13,32 @@ footnote detection - none of which this model or its producing stage
 implement) have a foundation to build on instead of recomputing it.
 """
 
+from enum import Enum
 from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
 from src.models.bounding_box import BoundingBox
 from src.models.span import Span
+
+
+class PhysicalZone(str, Enum):
+    """Where on the page a line physically sits (L1 Layout Intelligence).
+
+    Vertical bands only in this first pass: HEADER (top band), FOOTER (bottom
+    band), BODY (everything between). Horizontal MARGIN/GUTTER zones are a
+    documented follow-up. Assigned by
+    src/structure/layout_signals.py::assign_physical_zone from the line's bbox
+    and page height - purely geometric, no interpretation. Additive signal for
+    later stages (repetition/artifact classification, heading detection); no
+    existing consumer reads it, so its default (None on any TextBlock not built
+    by the real extraction path) always means "zone not assigned," never a real
+    BODY classification.
+    """
+
+    HEADER = "header"
+    FOOTER = "footer"
+    BODY = "body"
 
 
 class TextBlock(BaseModel):
@@ -77,6 +97,9 @@ class TextBlock(BaseModel):
     is_bold: Optional[bool] = None
     source_block_index: Optional[int] = None
     spans: List[Span] = Field(default_factory=list)
+    # L1 physical zone (header/footer/body) from geometry; additive, no
+    # consumer yet. None = not assigned (see PhysicalZone docstring).
+    physical_zone: Optional[PhysicalZone] = None
     # 016B reading order correction. None = use `order` (PyMuPDF extraction
     # order). Set to an integer by the reading-order workspace when a human
     # manually reorders the page's blocks. markdown_builder.py sorts by

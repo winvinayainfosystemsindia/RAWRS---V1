@@ -56,7 +56,7 @@ import fitz  # PyMuPDF
 from loguru import logger
 
 from src.models.contracts import BoundingBox, Document, SanitizationEvent, Span, TextBlock
-from src.structure.layout_signals import line_layout
+from src.structure.layout_signals import assign_physical_zone, line_layout
 from src.structure.page_label_resolver import resolve_page_labels
 from src.utils.text_sanitization import sanitize_xml_text
 
@@ -179,6 +179,7 @@ def _extract_page_blocks(
         zero found - both otherwise collapse to printed_label=None).
     """
     page_dict = page.get_text("dict")
+    page_height = page.rect.height
     text_blocks: List[TextBlock] = []
     events: List[SanitizationEvent] = []
     order = 0
@@ -209,6 +210,7 @@ def _extract_page_blocks(
                     is_bold=is_bold,
                     source_block_index=source_block_index,
                     spans=_extract_spans(line_dict),
+                    physical_zone=assign_physical_zone(y0, y1, page_height),
                 )
             )
             order += 1
