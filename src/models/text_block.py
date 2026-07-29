@@ -41,6 +41,25 @@ class PhysicalZone(str, Enum):
     BODY = "body"
 
 
+class RepetitionEvidence(BaseModel):
+    """Document-wide repetition evidence for one line's normalized text
+    (L1 Layout Intelligence). Attached to every TextBlock whose text recurs
+    across two or more pages - the running-header / masthead / repeated-footer
+    signature. A faithful measurement, not an interpretation: it records how
+    and where the text repeats, and later stages decide whether that makes it
+    an artifact. Produced by src/structure/layout_signals.py::annotate_repetition;
+    additive, with no consumer yet, so ``TextBlock.repetition`` defaulting to
+    None always means "not repeated (or not analysed)," never a real signal.
+    """
+
+    signature: str                       # normalized (lowercased, whitespace-collapsed) text
+    recurrence_count: int                # total occurrences of the signature in the document
+    page_numbers: List[int]              # distinct pages it appears on, sorted
+    recurrence_ratio: float              # len(page_numbers) / document page count
+    positional_stability: float          # 0..1; higher = occurrences share a tighter y-band
+    alternation: Optional[str] = None    # "odd" | "even" | None (page-parity pattern)
+
+
 class TextBlock(BaseModel):
     """One line of text on a page, with its layout signal and position.
 
@@ -100,6 +119,9 @@ class TextBlock(BaseModel):
     # L1 physical zone (header/footer/body) from geometry; additive, no
     # consumer yet. None = not assigned (see PhysicalZone docstring).
     physical_zone: Optional[PhysicalZone] = None
+    # L1 document-wide repetition evidence (running-header/masthead
+    # signature); additive, no consumer yet. None = not repeated/analysed.
+    repetition: Optional[RepetitionEvidence] = None
     # 016B reading order correction. None = use `order` (PyMuPDF extraction
     # order). Set to an integer by the reading-order workspace when a human
     # manually reorders the page's blocks. markdown_builder.py sorts by

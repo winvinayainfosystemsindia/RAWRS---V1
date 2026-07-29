@@ -56,7 +56,11 @@ import fitz  # PyMuPDF
 from loguru import logger
 
 from src.models.contracts import BoundingBox, Document, SanitizationEvent, Span, TextBlock
-from src.structure.layout_signals import assign_physical_zone, line_layout
+from src.structure.layout_signals import (
+    annotate_repetition,
+    assign_physical_zone,
+    line_layout,
+)
 from src.structure.page_label_resolver import resolve_page_labels
 from src.utils.text_sanitization import sanitize_xml_text
 
@@ -140,6 +144,7 @@ def detect_structure(document: Document) -> Document:
         pdf_document.close()
 
     document.blocks = blocks
+    annotate_repetition(document.blocks, len(document.pages))
     # FEATURE_018: initial auto-population of the final page_label from
     # each page's just-detected printed_label. document.page_label_sections
     # is empty at this point (no reviewer action yet), so every page falls

@@ -11,9 +11,11 @@ structures" rule (read broadly to include duplicate extraction logic,
 not just duplicate models).
 """
 
-from typing import Optional, Tuple
+import statistics
+from collections import defaultdict
+from typing import List, Optional, Tuple
 
-from src.models.text_block import PhysicalZone
+from src.models.text_block import PhysicalZone, RepetitionEvidence, TextBlock
 
 LineLayout = Tuple[float, bool]  # (font size, is_bold)
 
@@ -73,3 +75,51 @@ def assign_physical_zone(y0: float, y1: float, page_height: float) -> PhysicalZo
     if centre > page_height * (1 - _HEADER_FOOTER_BAND_RATIO):
         return PhysicalZone.FOOTER
     return PhysicalZone.BODY
+
+
+_REPETITION_MIN_PAGES = 2  # a signature must span this many distinct pages to count
+_STABILITY_SCALE = 20.0  # pt; positional_stability = scale / (scale + y-centre stdev)
+
+
+def _repetition_signature(text: str) -> str:
+    return " ".join(text.lower().split()).strip()
+
+
+def annotate_repetition(blocks: List[TextBlock], page_count: int) -> None:
+    """Document-wide pass: attach RepetitionEvidence to every block whose
+    normalized text recurs across >= _REPETITION_MIN_PAGES distinct pages.
+
+    Mutates ``blocks`` in place and is purely additive - blocks below the
+    threshold keep ``repetition = None``. Evidence only: no classification, no
+    suppression, no consumer. The reusable, model-attached successor to the
+    per-interpreter recurrence heuristics scattered elsewhere (e.g.
+    heading_detector's Tier-4 guard), which later stages will converge onto.
+    """
+    groups: dict = defaultdict(list)
+    for block in blocks:
+        signature = _repetition_signature(block.text)
+        if signature:
+            groups[signature].append(block)
+
+    for signature, group in groups.items():
+        pages = sorted({block.page_number for block in group})
+        if len(pages) < _REPETITION_MIN_PAGES:
+            continue
+        centres = [(block.bbox.y0 + block.bbox.y1) / 2 for block in group]
+        stdev = statistics.pstdev(centres) if len(centres) > 1 else 0.0
+        if all(page % 2 == 1 for page in pages):
+            alternation = "odd"
+        elif all(page % 2 == 0 for page in pages):
+            alternation = "even"
+        else:
+            alternation = None
+        evidence = RepetitionEvidence(
+            signature=signature,
+            recurrence_count=len(group),
+            page_numbers=pages,
+            recurrence_ratio=round(len(pages) / page_count, 4) if page_count else 0.0,
+            positional_stability=round(_STABILITY_SCALE / (_STABILITY_SCALE + stdev), 4),
+            alternation=alternation,
+        )
+        for block in group:
+            block.repetition = evidence

@@ -38,7 +38,7 @@ from src.models.sanitization import SanitizationEvent
 from src.models.semantic_object import ProvenanceSource, SemanticObject
 from src.models.span import Span
 from src.models.table import Table, TableAISuggestions, TableCell, TableRow, TableStatus
-from src.models.text_block import PhysicalZone, TextBlock
+from src.models.text_block import PhysicalZone, RepetitionEvidence, TextBlock
 from src.models.validation_issue import Severity, ValidationIssue
 from src.models.verification import (
     BenchmarkOutcome,
@@ -100,6 +100,7 @@ __all__ = [
     "TableRow",
     "TableStatus",
     "PhysicalZone",
+    "RepetitionEvidence",
     "TextBlock",
     "ValidationIssue",
     "VerificationStatus",
