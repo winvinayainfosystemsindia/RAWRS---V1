@@ -13,9 +13,15 @@ not just duplicate models).
 
 import statistics
 from collections import defaultdict
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
-from src.models.text_block import PhysicalZone, RepetitionEvidence, TextBlock
+from src.models.text_block import (
+    ArtifactClass,
+    ArtifactClassification,
+    PhysicalZone,
+    RepetitionEvidence,
+    TextBlock,
+)
 
 LineLayout = Tuple[float, bool]  # (font size, is_bold)
 
@@ -123,3 +129,57 @@ def annotate_repetition(blocks: List[TextBlock], page_count: int) -> None:
         )
         for block in group:
             block.repetition = evidence
+
+
+_ARTIFACT_MIN_STABILITY = 0.5  # a repeated line below this y-band stability is not a running artifact
+_PAGE_NUMBER_CONFIDENCE = 0.9
+
+
+def classify_artifacts(blocks: List[TextBlock], page_labels: Dict[int, str]) -> None:
+    """Attach an evidence-driven ArtifactClassification to blocks the L1 layer
+    identifies as artifacts rather than content.
+
+    Consumes only already-computed evidence - PhysicalZone + RepetitionEvidence
+    on each block, plus the page's printed label (feature_009, reused via
+    ``page_labels``). Multi-signal by construction: every class requires at
+    least two agreeing signals, never one. Purely additive - content blocks
+    keep ``artifact = None``. Classification only: no suppression, no consumer.
+    """
+    labels = {pn: " ".join((lbl or "").lower().split()).strip() for pn, lbl in page_labels.items()}
+    for block in blocks:
+        zone = block.physical_zone
+        rep = block.repetition
+        norm = " ".join(block.text.lower().split()).strip()
+
+        # PAGE_NUMBER: the line is this page's printed label (feature_009) AND
+        # sits in a header/footer zone - two independent signals.
+        if norm and labels.get(block.page_number) == norm and zone in (PhysicalZone.HEADER, PhysicalZone.FOOTER):
+            block.artifact = ArtifactClassification(
+                artifact_class=ArtifactClass.PAGE_NUMBER,
+                confidence=_PAGE_NUMBER_CONFIDENCE,
+                evidence=[f"matches page {block.page_number}'s printed label", f"{zone.value} zone"],
+            )
+            continue
+
+        # Repetition-driven artifacts: text recurs across pages in a stable
+        # y-band. Requires repetition AND stability, plus the zone signal to
+        # separate header/footer from body (decorative).
+        if rep is not None and rep.positional_stability >= _ARTIFACT_MIN_STABILITY:
+            if zone == PhysicalZone.HEADER:
+                artifact_class = ArtifactClass.RUNNING_HEADER
+            elif zone == PhysicalZone.FOOTER:
+                artifact_class = ArtifactClass.RUNNING_FOOTER
+            else:
+                artifact_class = ArtifactClass.DECORATIVE_REPEATED
+            evidence = [
+                f"repeats on {len(rep.page_numbers)} page(s) (ratio {rep.recurrence_ratio})",
+                f"positional stability {rep.positional_stability}",
+                f"{zone.value if zone else 'unzoned'} zone",
+            ]
+            if rep.alternation:
+                evidence.append(f"{rep.alternation}-page alternation")
+            block.artifact = ArtifactClassification(
+                artifact_class=artifact_class,
+                confidence=round(min(1.0, rep.recurrence_ratio) * rep.positional_stability, 4),
+                evidence=evidence,
+            )

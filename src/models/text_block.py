@@ -60,6 +60,33 @@ class RepetitionEvidence(BaseModel):
     alternation: Optional[str] = None    # "odd" | "even" | None (page-parity pattern)
 
 
+class ArtifactClass(str, Enum):
+    """A document artifact a line may be, as opposed to content (L2 Artifact
+    Classification). Classified from accumulated L1 evidence, never one signal.
+    """
+
+    RUNNING_HEADER = "running_header"
+    RUNNING_FOOTER = "running_footer"
+    PAGE_NUMBER = "page_number"
+    DECORATIVE_REPEATED = "decorative_repeated"
+
+
+class ArtifactClassification(BaseModel):
+    """Additive, evidence-driven artifact label for one TextBlock (L2).
+
+    Produced by src/structure/layout_signals.py::classify_artifacts from the
+    already-computed PhysicalZone + RepetitionEvidence (and the page's printed
+    label). ``evidence`` is the human-readable list of signals that produced the
+    label, so every classification is explainable. Additive: no consumer reads
+    ``TextBlock.artifact`` yet (no suppression), so its default None always
+    means "not classified as an artifact" (content, or not analysed).
+    """
+
+    artifact_class: ArtifactClass
+    confidence: float
+    evidence: List[str]
+
+
 class TextBlock(BaseModel):
     """One line of text on a page, with its layout signal and position.
 
@@ -122,6 +149,10 @@ class TextBlock(BaseModel):
     # L1 document-wide repetition evidence (running-header/masthead
     # signature); additive, no consumer yet. None = not repeated/analysed.
     repetition: Optional[RepetitionEvidence] = None
+    # L2 artifact classification (running header/footer/page-number/
+    # decorative); additive, evidence-driven, no consumer/suppression yet.
+    # None = content (or not analysed).
+    artifact: Optional[ArtifactClassification] = None
     # 016B reading order correction. None = use `order` (PyMuPDF extraction
     # order). Set to an integer by the reading-order workspace when a human
     # manually reorders the page's blocks. markdown_builder.py sorts by

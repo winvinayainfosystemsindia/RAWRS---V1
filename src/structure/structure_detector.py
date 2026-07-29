@@ -59,6 +59,7 @@ from src.models.contracts import BoundingBox, Document, SanitizationEvent, Span,
 from src.structure.layout_signals import (
     annotate_repetition,
     assign_physical_zone,
+    classify_artifacts,
     line_layout,
 )
 from src.structure.page_label_resolver import resolve_page_labels
@@ -145,6 +146,10 @@ def detect_structure(document: Document) -> Document:
 
     document.blocks = blocks
     annotate_repetition(document.blocks, len(document.pages))
+    classify_artifacts(
+        document.blocks,
+        {p.page_number: p.printed_label for p in document.pages if p.printed_label},
+    )
     # FEATURE_018: initial auto-population of the final page_label from
     # each page's just-detected printed_label. document.page_label_sections
     # is empty at this point (no reviewer action yet), so every page falls
