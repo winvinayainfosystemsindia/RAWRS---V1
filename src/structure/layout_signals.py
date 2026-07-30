@@ -134,6 +134,23 @@ def annotate_repetition(blocks: List[TextBlock], page_count: int) -> None:
 _ARTIFACT_MIN_STABILITY = 0.5  # a repeated line below this y-band stability is not a running artifact
 _PAGE_NUMBER_CONFIDENCE = 0.9
 
+# L2.1 Running-title classification: a running title (book/section/chapter
+# masthead repeated across pages) often lands in the BODY zone in reflowed or
+# two-column PDFs and wanders enough vertically to fall below
+# _ARTIFACT_MIN_STABILITY, so the RUNNING_HEADER/FOOTER/DECORATIVE branch below
+# misses it entirely. Strong cross-page recurrence of a MULTI-WORD phrase is
+# itself the artifact signature here, standing in for the tight y-band the 0.5
+# stability gate demands. The thresholds separate the measured running-title
+# cluster (benchmark: BODY zone, stability 0.29-0.40, multi-word, recurring on
+# 3-12 pages) from repeated-body-word / column-split noise (stability <= 0.19,
+# or single tokens) with margin on both sides - a general property of running
+# titles, not fitted to any one document. Only the [_RUNNING_TITLE_MIN_STABILITY,
+# _ARTIFACT_MIN_STABILITY) band is new; at/above 0.5 the existing branch already
+# fires (DECORATIVE_REPEATED in BODY), so the two never overlap.
+_RUNNING_TITLE_MIN_STABILITY = 0.25
+_RUNNING_TITLE_MIN_PAGES = 3
+_RUNNING_TITLE_MIN_WORDS = 2
+
 
 def classify_artifacts(blocks: List[TextBlock], page_labels: Dict[int, str]) -> None:
     """Attach an evidence-driven ArtifactClassification to blocks the L1 layer
@@ -161,21 +178,46 @@ def classify_artifacts(blocks: List[TextBlock], page_labels: Dict[int, str]) -> 
             )
             continue
 
-        # Repetition-driven artifacts: text recurs across pages in a stable
-        # y-band. Requires repetition AND stability, plus the zone signal to
-        # separate header/footer from body (decorative).
-        if rep is not None and rep.positional_stability >= _ARTIFACT_MIN_STABILITY:
+        # Repetition-driven artifacts: text recurs across pages. A running
+        # artifact is either a tightly-banded repeat (>= _ARTIFACT_MIN_STABILITY)
+        # or - L2.1 - a strongly-recurring MULTI-WORD phrase whose looser band
+        # (>= _RUNNING_TITLE_MIN_STABILITY) is compensated by that recurrence:
+        # a masthead/running title that wanders vertically and alternates zone
+        # across pages, which the tight-band gate alone misses. The per-block
+        # zone still names the class - a BODY-zone strong-recurrence phrase is a
+        # RUNNING_TITLE - so the same running title is caught on every page it
+        # appears, whichever zone each occurrence lands in. Occurrences with
+        # stability >= 0.5 are classified exactly as before (identical class,
+        # confidence, and evidence); only the [_RUNNING_TITLE_MIN_STABILITY, 0.5)
+        # multi-word strong-recurrence band is newly reached.
+        is_multiword_recurrence = (
+            rep is not None
+            and len(rep.page_numbers) >= _RUNNING_TITLE_MIN_PAGES
+            and len(rep.signature.split()) >= _RUNNING_TITLE_MIN_WORDS
+        )
+        if rep is not None and (
+            rep.positional_stability >= _ARTIFACT_MIN_STABILITY
+            or (is_multiword_recurrence and rep.positional_stability >= _RUNNING_TITLE_MIN_STABILITY)
+        ):
+            tight = rep.positional_stability >= _ARTIFACT_MIN_STABILITY
             if zone == PhysicalZone.HEADER:
                 artifact_class = ArtifactClass.RUNNING_HEADER
             elif zone == PhysicalZone.FOOTER:
                 artifact_class = ArtifactClass.RUNNING_FOOTER
-            else:
+            elif tight:
                 artifact_class = ArtifactClass.DECORATIVE_REPEATED
+            else:
+                artifact_class = ArtifactClass.RUNNING_TITLE
             evidence = [
                 f"repeats on {len(rep.page_numbers)} page(s) (ratio {rep.recurrence_ratio})",
                 f"positional stability {rep.positional_stability}",
                 f"{zone.value if zone else 'unzoned'} zone",
             ]
+            if not tight:
+                evidence.append(
+                    f"multi-word phrase; strong recurrence compensates for stability "
+                    f"below the {_ARTIFACT_MIN_STABILITY} gate (L2.1)"
+                )
             if rep.alternation:
                 evidence.append(f"{rep.alternation}-page alternation")
             block.artifact = ArtifactClassification(

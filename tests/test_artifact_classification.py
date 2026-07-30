@@ -9,7 +9,7 @@ import fitz
 
 from src.models.bounding_box import BoundingBox
 from src.models.contracts import ArtifactClass, TextBlock
-from src.models.text_block import PhysicalZone
+from src.models.text_block import PhysicalZone, RepetitionEvidence
 from src.parser.pdf_parser import parse_pdf
 from src.structure.layout_signals import annotate_repetition, classify_artifacts
 from src.structure.structure_detector import detect_structure
@@ -93,3 +93,70 @@ class TestStructureDetectorWiring:
         assert headers[0].artifact.artifact_class == ArtifactClass.RUNNING_HEADER
         body = next(b for b in document.blocks if b.text.strip().startswith("Unique body"))
         assert body.artifact is None
+
+
+def _blk_rep(text, zone, pages, stability):
+    """A block carrying a hand-built RepetitionEvidence, so a test can pin an
+    exact positional_stability rather than reverse-engineer y-positions."""
+    b = TextBlock(page_number=pages[0], text=text, bbox=BoundingBox(x0=72, y0=400, x1=300, y1=412), order=0)
+    b.physical_zone = zone
+    b.repetition = RepetitionEvidence(
+        signature=" ".join(text.lower().split()).strip(),
+        recurrence_count=len(pages),
+        page_numbers=sorted(pages),
+        recurrence_ratio=round(len(pages) / max(pages), 4),
+        positional_stability=stability,
+        alternation=None,
+    )
+    return b
+
+
+class TestRunningTitleClassification:
+    """L2.1 — recurring running titles the tight-band stability gate misses.
+
+    A multi-word phrase recurring across several pages is a running artifact
+    even when its y-band is looser than _ARTIFACT_MIN_STABILITY (0.5); the
+    recurrence compensates. The per-block zone still names the class, so the
+    same title is caught on every page whichever zone that occurrence lands in.
+    Thresholds derived from the benchmark distribution (running titles: stability
+    0.29-0.40, multi-word; noise: <= 0.19 or single tokens).
+    """
+
+    def test_body_low_stability_multiword_is_running_title(self):
+        b = _blk_rep("The Culture of Education", PhysicalZone.BODY, [1, 4, 6, 8], 0.40)
+        classify_artifacts([b], {})
+        assert b.artifact is not None
+        assert b.artifact.artifact_class == ArtifactClass.RUNNING_TITLE
+        assert any("multi-word" in e for e in b.artifact.evidence)
+
+    def test_header_low_stability_multiword_is_running_header(self):
+        # The same title on pages where it lands in the HEADER band must also
+        # be caught (as RUNNING_HEADER), so every occurrence is classified.
+        b = _blk_rep("The Culture of Education", PhysicalZone.HEADER, [2, 3, 5], 0.30)
+        classify_artifacts([b], {})
+        assert b.artifact.artifact_class == ArtifactClass.RUNNING_HEADER
+
+    def test_single_word_recurrence_not_classified(self):
+        # 'professional' recurs but is a single token (body-word noise).
+        b = _blk_rep("professional", PhysicalZone.BODY, [1, 2, 3, 4, 5], 0.30)
+        classify_artifacts([b], {})
+        assert b.artifact is None
+
+    def test_below_stability_floor_not_classified(self):
+        # Scattered repeat (stability below the 0.25 noise floor).
+        b = _blk_rep("of professionalism", PhysicalZone.BODY, [1, 2, 3], 0.15)
+        classify_artifacts([b], {})
+        assert b.artifact is None
+
+    def test_two_page_recurrence_not_classified(self):
+        # Needs >= 3 distinct pages; a 2-page repeat is not pervasive enough.
+        b = _blk_rep("the teacher as a person", PhysicalZone.BODY, [1, 2], 0.40)
+        classify_artifacts([b], {})
+        assert b.artifact is None
+
+    def test_high_stability_body_still_decorative_repeated(self):
+        # Existing behaviour is unchanged: a tightly-banded (>=0.5) BODY repeat
+        # is DECORATIVE_REPEATED, not RUNNING_TITLE.
+        b = _blk_rep("Confidential Draft Watermark", PhysicalZone.BODY, [1, 2, 3], 0.80)
+        classify_artifacts([b], {})
+        assert b.artifact.artifact_class == ArtifactClass.DECORATIVE_REPEATED

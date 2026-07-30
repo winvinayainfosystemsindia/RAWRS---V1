@@ -69,6 +69,13 @@ class ArtifactClass(str, Enum):
     RUNNING_FOOTER = "running_footer"
     PAGE_NUMBER = "page_number"
     DECORATIVE_REPEATED = "decorative_repeated"
+    # L2.1: a book/section/chapter masthead repeated across pages that lands
+    # in the BODY zone (reflowed / two-column PDFs) and wanders enough
+    # vertically to fall below the running-artifact stability gate, so the
+    # RUNNING_HEADER/FOOTER/DECORATIVE branch cannot see it. Classified from
+    # strong cross-page recurrence of a multi-word phrase rather than a tight
+    # y-band. See src/structure/layout_signals.py::classify_artifacts.
+    RUNNING_TITLE = "running_title"
 
 
 class ArtifactClassification(BaseModel):

@@ -605,6 +605,20 @@ class TestStructureDetectionDoesNotChangeExistingOutputs:
                 data = heading.model_dump()
                 if data["is_page_marker"]:
                     data = {**data, "text": None}
+                # Heading LEVEL is not compared: it depends on the document-wide
+                # H1 slot, which legitimately shifts when the "with" run rejects
+                # an artifact that occupied the slot (L2.1: a running title that
+                # was the document's first line - e.g. FolkPedagogy's masthead),
+                # promoting the next line to H1. That is detect_structure's
+                # artifact classification correctly reshaping levels through the
+                # heading detector, the same documented-consumer category as the
+                # role/artifact exclusions above - not "changing existing
+                # output". No other level is block-dependent (the H2/H3-H5 tiers
+                # read only text patterns and a separate PDF layout scan, never
+                # document.blocks), so relaxing level here masks nothing else.
+                # Heading identity - text, page, marker flag, source - is still
+                # compared exactly.
+                data = {**data, "level": None}
                 out.append({**data, "id": f"heading-{position}", "document_order": position})
             return out
 
