@@ -160,6 +160,30 @@ class TextBlock(BaseModel):
     # decorative); additive, evidence-driven, no consumer/suppression yet.
     # None = content (or not analysed).
     artifact: Optional[ArtifactClassification] = None
+    @property
+    def block_id(self) -> str:
+        """Stable identity for this line within its document.
+
+        Every other renderable object carries an id (Heading.id,
+        Table.table_id, Footnote.footnote_id, and Image/List/Callout/
+        Paragraph via SemanticObject); TextBlock was the one that did not,
+        so it could only ever be referred to positionally. ContentNode
+        needs to point at it by identity, and a correction needs to name it.
+
+        Computed rather than stored: (page_number, order) is already this
+        line's natural key — ``order`` is documented as its position among
+        its own page's blocks — so deriving keeps it automatically
+        consistent and needs no migration for documents persisted before
+        this existed. Deliberately not the text: identical text recurring
+        across pages is the running-header signature, so a text key would
+        collapse exactly the lines that must stay distinct.
+
+        This is the scheme src/verification/artifacts.py has used for
+        suppression corrections since L2.2, promoted here so it has one
+        definition rather than two.
+        """
+        return f"p{self.page_number}:b{self.order}"
+
     # L2.2 live suppression state: True = this line is an artifact that has
     # been suppressed from rendered output. Set ONLY by
     # src/verification/artifacts.py::ArtifactSuppressionVerifier.apply()

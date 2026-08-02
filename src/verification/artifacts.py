@@ -112,15 +112,13 @@ _POLICY: Dict[ArtifactClass, SuppressionPolicy] = {
 def block_id(block: TextBlock) -> str:
     """Stable identity for one TextBlock within its Document.
 
-    TextBlock is not a SemanticObject and has no id field of its own;
-    (page_number, order) is its natural key — ``order`` is already
-    documented as a block's position among its own page's blocks. Used as
-    CorrectionRecord.object_id so apply()/revert() can find the block
-    again, and deliberately *not* the block's text: identical text
-    recurring across pages is the artifact signature itself, so a
-    text-keyed id would collapse exactly the rows that must stay distinct.
+    Delegates to ``TextBlock.block_id``, where this scheme now lives — it
+    was defined here first (L2.2), and P1 promoted it to the model so
+    ContentNode and CorrectionRecord.object_id name blocks the same way
+    rather than two modules agreeing by coincidence. Kept as a function
+    because it is this module's documented call shape.
     """
-    return f"p{block.page_number}:b{block.order}"
+    return block.block_id
 
 
 def propose_suppressions(blocks: List[TextBlock]) -> Dict[SuppressionPolicy, List[Finding]]:
