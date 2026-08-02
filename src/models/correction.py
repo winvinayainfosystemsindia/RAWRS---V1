@@ -60,6 +60,25 @@ class CorrectionStatus(str, Enum):
     REVERTED = "reverted"
 
 
+# The only non-terminal statuses: a correction in one of these is still
+# awaiting a human. Their union with the terminal set {ACCEPTED, EDITED,
+# REJECTED, IGNORED, AUTO_APPLIED} is the complete enum.
+#
+# Lives here, next to the enum it partitions, because two independent
+# consumers need the same answer: CorrectionTerminalRule (REVIEW_001)
+# gates export on it, and the verification engine uses it to decide
+# whether a finding belongs in the reviewer's queue at all. Defining it
+# twice would let those two drift into disagreeing about what "resolved"
+# means.
+NON_TERMINAL_STATUSES = frozenset(
+    {
+        CorrectionStatus.PROPOSED,
+        CorrectionStatus.PENDING_REVIEW,
+        CorrectionStatus.REVERTED,
+    }
+)
+
+
 class CorrectionTelemetryAction(str, Enum):
     """M-4.4 — minimal telemetry vocabulary. Collection only: no
     dashboards/analytics/reports read this yet; a future benchmark report

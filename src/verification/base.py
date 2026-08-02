@@ -104,6 +104,23 @@ class SemanticVerifier(ABC):
         build on this instead of re-deriving matched/unmatched semantics."""
         return compute_merge_decisions(match_result, is_mismatch)
 
+    def inspect(self, document: Any) -> List[Finding]:
+        """Findings this asset type can derive from the document alone.
+
+        The single-source counterpart to ``classify()``. ``classify()``
+        answers "does source A agree with source B", which only exists on
+        an import path that has two sources; ``inspect()`` answers "what
+        is wrong with this document", which every path has.
+
+        Default is empty, so a verifier that only does cross-source work
+        is unaffected. Implementing it is how an asset type joins the
+        correction rail on *every* ingestion path — the engine calls it
+        for every registered verifier (see
+        CrossSourceVerificationEngine.run_inspection), so no pipeline
+        branch decides which types participate.
+        """
+        return []
+
     def revert(self, document: Any, correction: CorrectionRecord) -> None:
         """Generic undo: replays apply() with proposed/original swapped.
 

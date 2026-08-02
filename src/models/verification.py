@@ -79,6 +79,14 @@ class Finding(BaseModel):
     # src/verification/evidence.py's EvidenceBundle aggregates for
     # cross-signal confidence fusion (FEATURE_019).
     evidence_items: List[EvidenceSignal] = Field(default_factory=list)
+    # Whether the producer considers this finding confident enough to apply
+    # without asking. The producer decides — it is the only party holding the
+    # evidence — but the *engine* acts on it (see
+    # CrossSourceVerificationEngine.record_findings), so autonomy policy is
+    # expressed once, on the finding, rather than re-implemented by whichever
+    # pipeline stage happens to call the rail. Default False keeps every
+    # existing producer's findings reviewer-gated exactly as before.
+    auto_apply: bool = False
 
 
 class RuleSpec(BaseModel):

@@ -277,35 +277,15 @@ def run_pipeline(
         # REVIEW_001 does not block export); PROPOSE findings are recorded and
         # left for a reviewer. Either way the CorrectionRecord is the audit
         # trail, and reject/undo through the corrections API restores the line.
-        from src.models.correction import CorrectionStatus
-        from src.verification.artifacts import SuppressionPolicy, propose_suppressions
         from src.verification.engine import engine
         import src.verification.artifacts  # noqa: F401 - registers ArtifactSuppressionVerifier
 
-        suppressions = propose_suppressions(document.blocks)
-        auto_findings = suppressions[SuppressionPolicy.AUTO]
-        proposed_findings = suppressions[SuppressionPolicy.PROPOSE]
-        # Only PROPOSE findings reach verification_findings: the validator
-        # turns that list into ValidationIssues (see validator.py's
-        # _verification_issues), i.e. the reviewer's "needs attention" queue.
-        # An auto-applied suppression needs no attention — it is already
-        # decided, and its AUTO_APPLIED CorrectionRecord is the audit trail
-        # and the undo handle. Listing all 161 corpus-wide auto-suppressions
-        # as INFO issues would bury the handful that genuinely want a human.
-        document.verification_findings.extend(proposed_findings)
-        corrections_before = len(document.corrections)
-        engine.findings_to_corrections(
-            document, auto_findings, provider="rawrs_native", status=CorrectionStatus.AUTO_APPLIED
-        )
-        for correction in document.corrections[corrections_before:]:
-            engine.apply_correction(document, correction)
-        engine.findings_to_corrections(
-            document, proposed_findings, provider="rawrs_native", status=CorrectionStatus.PROPOSED
-        )
+        inspection_findings = engine.run_inspection(document)
+        engine.record_findings(document, inspection_findings, provider="rawrs_native")
         logger.info(
-            "Artifact suppression: {} auto-applied, {} proposed for review",
-            len(auto_findings),
-            len(proposed_findings),
+            "Document inspection: {} finding(s) recorded ({} auto-applied)",
+            len(inspection_findings),
+            sum(1 for f in inspection_findings if f.auto_apply),
         )
 
         if not _mathpix_path:
@@ -329,8 +309,7 @@ def run_pipeline(
             import src.verification.footnotes  # noqa: F401 - registers FootnoteVerifier
 
             footnote_findings = engine.run_pdf_verification("footnote", document.footnotes, pdf_footnotes)
-            document.verification_findings.extend(footnote_findings)
-            engine.findings_to_corrections(document, footnote_findings)
+            engine.record_findings(document, footnote_findings)
 
             # Tables: document.tables was already populated in Stage 2 from
             # the imported package (authoritative). extract_tables() is the
@@ -349,8 +328,7 @@ def run_pipeline(
             import src.verification.tables  # noqa: F401 - registers TableVerifier
 
             table_findings = engine.run_pdf_verification("table", document.tables, pdf_tables)
-            document.verification_findings.extend(table_findings)
-            engine.findings_to_corrections(document, table_findings)
+            engine.record_findings(document, table_findings)
         logger.info(
             "Stage 3/8 (Detect Structure) complete: {} block(s), {} footnote(s)/endnote(s), "
             "title {}, {} table(s)",
@@ -397,8 +375,7 @@ def run_pipeline(
             import src.verification.figures  # noqa: F401 - registers FigureAssetVerifier
 
             findings = engine.run_pdf_verification("figure", document.images, pdf_images)
-            document.verification_findings.extend(findings)
-            engine.findings_to_corrections(document, findings)
+            engine.record_findings(document, findings)
         else:
             document = extract_images(document, output_dir=output_root / "images")
         document.metadata.image_count = len(document.images)
@@ -445,8 +422,7 @@ def run_pipeline(
             findings = engine.run_pdf_verification(
                 "heading", content_headings, pdf_headings, pdf_path=document.source_pdf_path
             )
-            document.verification_findings.extend(findings)
-            engine.findings_to_corrections(document, findings)
+            engine.record_findings(document, findings)
 
             # Lists: document.lists was already populated in Stage 2 from
             # the imported package's own list markup (see
@@ -460,8 +436,7 @@ def run_pipeline(
             import src.verification.lists  # noqa: F401 - registers ListVerifier
 
             list_findings = engine.run_pdf_verification("list", document.lists, pdf_lists)
-            document.verification_findings.extend(list_findings)
-            engine.findings_to_corrections(document, list_findings)
+            engine.record_findings(document, list_findings)
 
             # Callouts: document.callouts was already populated in Stage 2
             # from the imported package's own label-pattern classification
@@ -479,8 +454,7 @@ def run_pipeline(
                 callout_findings = engine.run_pdf_verification(
                     "callout", document.callouts, [], document=document
                 )
-                document.verification_findings.extend(callout_findings)
-                engine.findings_to_corrections(document, callout_findings)
+                engine.record_findings(document, callout_findings)
         else:
             document = detect_headings(document, page_numbering_policy=page_numbering_policy)
             # Detect Headings re-sets OCR_COMPLETE; harmless no-op now that

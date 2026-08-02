@@ -157,6 +157,10 @@ def propose_suppressions(blocks: List[TextBlock]) -> Dict[SuppressionPolicy, Lis
                 ),
                 original_value=VISIBLE,
                 proposed_value=SUPPRESSED,
+                # Autonomy travels on the finding: the engine records
+                # AUTO ones AUTO_APPLIED and applies them, and leaves the
+                # rest for a reviewer. See engine.record_findings.
+                auto_apply=policy is SuppressionPolicy.AUTO,
             )
         )
     return grouped
@@ -200,6 +204,18 @@ class ArtifactSuppressionVerifier(SemanticVerifier):
         empty so a caller that drives every verifier generically gets
         nothing rather than an error."""
         return []
+
+    def inspect(self, document: Any) -> List[Finding]:
+        """Every suppression this document's own layout evidence supports.
+
+        The single-source producer hook (see SemanticVerifier.inspect).
+        Living here rather than being called directly from the pipeline is
+        what makes artifact suppression path-agnostic: the engine asks
+        every registered verifier, so no pipeline branch decides whether
+        this asset type participates.
+        """
+        grouped = propose_suppressions(getattr(document, "blocks", []))
+        return grouped[SuppressionPolicy.AUTO] + grouped[SuppressionPolicy.PROPOSE]
 
     def rule_table(self) -> Dict[str, RuleSpec]:
         return {

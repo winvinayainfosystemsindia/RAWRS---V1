@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from loguru import logger
 
-from src.models.correction import CorrectionRecord, CorrectionStatus
+from src.models.correction import NON_TERMINAL_STATUSES, CorrectionRecord, CorrectionStatus
 from src.models.validation_issue import Severity, ValidationIssue
 from src.models.verification import BenchmarkOutcome, Finding, RepairSuggestion
 from src.verification.base import SemanticVerifier
@@ -167,6 +167,75 @@ class CrossSourceVerificationEngine:
                     status=status,
                 )
             )
+
+    def run_inspection(self, document: Any) -> List[Finding]:
+        """Single-source findings from every registered verifier.
+
+        Path-agnostic by construction: it asks each registered asset type
+        what it can tell from this document alone, so which types
+        participate is a property of the verifiers, not of a pipeline
+        ``if _mathpix_path`` branch. A verifier that has not implemented
+        ``inspect()`` contributes nothing (the base default), so adding
+        this changed no existing behaviour.
+        """
+        findings: List[Finding] = []
+        for asset_type, verifier in sorted(self._verifiers.items()):
+            try:
+                produced = verifier.inspect(document)
+            except Exception as exc:  # one bad verifier must not fail the pipeline
+                logger.warning("Inspection failed for asset type '{}': {}", asset_type, exc)
+                continue
+            findings.extend(produced)
+        return findings
+
+    def record_findings(
+        self,
+        document: Any,
+        findings: List[Finding],
+        provider: str = "mathpix",
+        status: CorrectionStatus = CorrectionStatus.PROPOSED,
+    ) -> None:
+        """The one way a finding enters the correction rail.
+
+        Every producer — cross-source verification, single-source
+        inspection, any future one — goes through here, so the rail's
+        semantics are defined once instead of being re-implemented at each
+        pipeline call site. It replaces the
+        ``verification_findings.extend(...)`` +
+        ``findings_to_corrections(...)`` pair that was repeated at seven
+        sites and had already drifted apart at one of them.
+
+        Two rules, both general:
+
+        - **Autonomy is per finding.** A finding marked ``auto_apply`` is
+          recorded AUTO_APPLIED and applied immediately; everything else
+          is recorded at ``status``. The producer decides, because it
+          holds the evidence; the engine acts, so the policy lives in one
+          place.
+        - **Only unresolved findings reach the reviewer queue.**
+          ``document.verification_findings`` is what the validator turns
+          into ValidationIssues, i.e. "needs attention". A correction that
+          is already terminal (auto-applied, or an edit a human just made)
+          needs none — its CorrectionRecord is the audit trail and the
+          undo handle. Terminality is read from the shared
+          NON_TERMINAL_STATUSES partition REVIEW_001 gates export on, so
+          the queue and the export gate can never disagree.
+        """
+        auto = [f for f in findings if f.auto_apply]
+        review = [f for f in findings if not f.auto_apply]
+
+        if auto:
+            first_new = len(document.corrections)
+            self.findings_to_corrections(
+                document, auto, provider=provider, status=CorrectionStatus.AUTO_APPLIED
+            )
+            for correction in document.corrections[first_new:]:
+                self.apply_correction(document, correction)
+
+        if review:
+            self.findings_to_corrections(document, review, provider=provider, status=status)
+            if status in NON_TERMINAL_STATUSES:
+                document.verification_findings.extend(review)
 
     def findings_to_validation_issues(
         self, document: Any, findings: List[Finding]

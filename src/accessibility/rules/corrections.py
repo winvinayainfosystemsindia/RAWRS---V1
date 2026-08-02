@@ -31,7 +31,7 @@ from src.accessibility.models import (
     RuleOutcome,
 )
 from src.accessibility.registry import registry
-from src.models.correction import CorrectionStatus
+from src.models.correction import NON_TERMINAL_STATUSES, CorrectionStatus
 from src.models.document import Document
 
 
@@ -75,13 +75,10 @@ class CorrectionTerminalRule(AccessibilityRule):
     # {ACCEPTED, EDITED, REJECTED, IGNORED, AUTO_APPLIED} is the complete
     # CorrectionStatus enum — asserted in the tests, so any future status must
     # be classified explicitly rather than silently treated as terminal.
-    _NON_TERMINAL = frozenset(
-        {
-            CorrectionStatus.PROPOSED,
-            CorrectionStatus.PENDING_REVIEW,
-            CorrectionStatus.REVERTED,
-        }
-    )
+    # Defined once in src/models/correction.py: the verification engine needs
+    # the identical partition to decide what belongs in the reviewer queue,
+    # and two copies could drift into disagreeing about "resolved".
+    _NON_TERMINAL = NON_TERMINAL_STATUSES
 
     def evaluate(self, document: Document) -> List[RuleEvaluation]:
         corrections = document.corrections
