@@ -160,6 +160,15 @@ class TextBlock(BaseModel):
     # decorative); additive, evidence-driven, no consumer/suppression yet.
     # None = content (or not analysed).
     artifact: Optional[ArtifactClassification] = None
+    # L2.2 live suppression state: True = this line is an artifact that has
+    # been suppressed from rendered output. Set ONLY by
+    # src/verification/artifacts.py::ArtifactSuppressionVerifier.apply()
+    # (and cleared by its revert()), never written directly by a detector -
+    # which is what makes every suppression reversible through the normal
+    # CorrectionRecord rail. Per src/models/correction.py's contract, this
+    # field is the *live* state and the CorrectionRecord in
+    # Document.corrections carries the reason/evidence/history.
+    suppressed: bool = False
     # 016B reading order correction. None = use `order` (PyMuPDF extraction
     # order). Set to an integer by the reading-order workspace when a human
     # manually reorders the page's blocks. markdown_builder.py sorts by

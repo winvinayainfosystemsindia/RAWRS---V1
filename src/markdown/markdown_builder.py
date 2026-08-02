@@ -972,6 +972,17 @@ def _render_page_body_with_paragraphs(
             flush_run()
             continue
 
+        # L2.2 artifact suppression: this line is a running header/footer or
+        # page number whose suppression was recorded as a CorrectionRecord and
+        # applied (see src/verification/artifacts.py). Keyed on the block, not
+        # its text, because artifact text repeats across pages by definition -
+        # a text-keyed skip would suppress a legitimate same-text body line
+        # elsewhere. Rejecting or undoing the correction clears the flag and
+        # the line renders again, with no change needed here.
+        if source_block is not None and source_block.suppressed:
+            flush_run()
+            continue
+
         if line in suppressed_body_lines:
             flush_run()
             continue

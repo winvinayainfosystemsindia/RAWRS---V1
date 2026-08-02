@@ -260,6 +260,54 @@ def run_pipeline(
     # same reason; it is noted there.
     try:
         document = detect_structure(document)
+
+        # L2.2 Artifact suppression — the first *consumer* of L2's
+        # ArtifactClassification that changes rendered output, and the first
+        # single-source asset type on the correction rail
+        # (src/verification/artifacts.py, seventh registered verifier).
+        #
+        # Runs on BOTH paths deliberately: detect_structure() always populates
+        # document.blocks regardless of extraction source, so a Mathpix import
+        # gets running-header/page-number suppression too — Mathpix does not
+        # remove them either.
+        #
+        # Classification stays in detect_structure (what a line *is*); the
+        # decision to act lives here (what to *do* about it). AUTO findings are
+        # applied immediately and recorded AUTO_APPLIED (terminal, so
+        # REVIEW_001 does not block export); PROPOSE findings are recorded and
+        # left for a reviewer. Either way the CorrectionRecord is the audit
+        # trail, and reject/undo through the corrections API restores the line.
+        from src.models.correction import CorrectionStatus
+        from src.verification.artifacts import SuppressionPolicy, propose_suppressions
+        from src.verification.engine import engine
+        import src.verification.artifacts  # noqa: F401 - registers ArtifactSuppressionVerifier
+
+        suppressions = propose_suppressions(document.blocks)
+        auto_findings = suppressions[SuppressionPolicy.AUTO]
+        proposed_findings = suppressions[SuppressionPolicy.PROPOSE]
+        # Only PROPOSE findings reach verification_findings: the validator
+        # turns that list into ValidationIssues (see validator.py's
+        # _verification_issues), i.e. the reviewer's "needs attention" queue.
+        # An auto-applied suppression needs no attention — it is already
+        # decided, and its AUTO_APPLIED CorrectionRecord is the audit trail
+        # and the undo handle. Listing all 161 corpus-wide auto-suppressions
+        # as INFO issues would bury the handful that genuinely want a human.
+        document.verification_findings.extend(proposed_findings)
+        corrections_before = len(document.corrections)
+        engine.findings_to_corrections(
+            document, auto_findings, provider="rawrs_native", status=CorrectionStatus.AUTO_APPLIED
+        )
+        for correction in document.corrections[corrections_before:]:
+            engine.apply_correction(document, correction)
+        engine.findings_to_corrections(
+            document, proposed_findings, provider="rawrs_native", status=CorrectionStatus.PROPOSED
+        )
+        logger.info(
+            "Artifact suppression: {} auto-applied, {} proposed for review",
+            len(auto_findings),
+            len(proposed_findings),
+        )
+
         if not _mathpix_path:
             document = detect_footnotes(document)
             document = extract_front_matter(document)

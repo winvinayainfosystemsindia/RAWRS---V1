@@ -737,9 +737,21 @@ class TestStructureDetectionDoesNotChangeExistingOutputs:
         # sockett_profession.pdf has a genuinely ambiguous page (the
         # same ambiguity feature_009's audit already documented), so
         # "with" correctly flags it and "without" never can.
+        # ARTIFACT_001 (L2.2 artifact suppression) joins for the same reason
+        # as every rule above: it is a real, deliberate consumer of Structure
+        # Detection actually running. propose_suppressions() reads
+        # TextBlock.artifact, which only exists when detect_structure()
+        # populated document.blocks — the "without" stub guarantees it never
+        # does, so a RUNNING_TITLE proposal can fire in "with" and can never
+        # fire in "without". Only PROPOSE-policy suppressions reach
+        # validation_issues at all (auto-applied ones are audit rows in
+        # document.corrections, not reviewer queue items), so this exception
+        # covers exactly the three corpus documents with a running title:
+        # FolkPedagogy, Calderhead, Fullan & Hargreaves.
         _EXCLUDED_RULE_IDS = {
             "PAGE_003", "PAGE_004", "PAGE_007", "PAGE_008",
             "DOC_004", "NOTE_001", "NOTE_002", "HEADING_004",
+            "ARTIFACT_001",
         }
         with_keys = [
             _issue_key(i) for i in result_with.validation_issues if i.rule_id not in _EXCLUDED_RULE_IDS

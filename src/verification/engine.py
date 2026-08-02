@@ -120,11 +120,29 @@ class CrossSourceVerificationEngine:
         if hasattr(document, "version"):
             document.version += 1
 
-    def findings_to_corrections(self, document: Any, findings: List[Finding]) -> None:
+    def findings_to_corrections(
+        self,
+        document: Any,
+        findings: List[Finding],
+        provider: str = "mathpix",
+        status: CorrectionStatus = CorrectionStatus.PROPOSED,
+    ) -> None:
         """Append one CorrectionRecord per finding to document.corrections.
 
         This is the first real writer of that field (it has existed since
         Phase M-1 but stayed empty — no verification pass ran until now).
+
+        ``provider`` and ``status`` default to the values this method used
+        to hardcode, so every pre-existing caller is unaffected. They are
+        parameters because both assumptions break for a producer that is
+        not a Mathpix cross-source comparison — the first being
+        single-source artifact suppression (src/verification/artifacts.py),
+        where the provider is RAWRS's own layout analysis and a
+        high-confidence decision is applied immediately rather than
+        proposed. ``status`` matters beyond bookkeeping: PROPOSED is
+        non-terminal, so CorrectionTerminalRule (REVIEW_001) blocks export
+        until a reviewer resolves it — correct for a suggestion, wrong for
+        a decision RAWRS already made and can undo.
         """
         for finding in findings:
             verifier = self._verifiers.get(finding.asset_type)
@@ -145,8 +163,8 @@ class CrossSourceVerificationEngine:
                     confidence=finding.confidence,
                     reason=finding.message,
                     reason_code=spec.reason_code,
-                    provider="mathpix",
-                    status=CorrectionStatus.PROPOSED,
+                    provider=provider,
+                    status=status,
                 )
             )
 
