@@ -596,6 +596,15 @@ class HeadingVerifier(SemanticVerifier):
                 reason_code="HEADING_POSITIONAL_ONLY",
                 severity="warning",
             ),
+            # A reviewer's own "this is not a heading". Recorded through the
+            # same rail as every machine-proposed removal so the decision
+            # actually reaches the document — before this it set a
+            # HeadingReviewStatus that nothing read.
+            "reviewer_rejected": RuleSpec(
+                rule_id="HEADING_VERIFY_007",
+                reason_code="HEADING_REJECTED_BY_REVIEWER",
+                severity="info",
+            ),
         }
 
     def apply(self, document: Any, correction: CorrectionRecord) -> None:
@@ -615,7 +624,7 @@ class HeadingVerifier(SemanticVerifier):
             heading.level = HeadingLevel(int(correction.proposed_value))
         elif correction.field == "text_correction" and correction.proposed_value:
             heading.text = correction.proposed_value
-        elif correction.field == "positional_only_h1":
+        elif correction.field in ("positional_only_h1", "reviewer_rejected"):
             # Reviewer confirmed the positional slot was wrong: this line is
             # not a heading. Removal only ever runs after an explicit Accept
             # (the finding is PROPOSED, never auto_apply), and revert()
@@ -638,7 +647,11 @@ class HeadingVerifier(SemanticVerifier):
         _encode_recovery()/_decode_recovery() already use for RECOVER —
         reused here rather than inventing a second format.
         """
-        if correction.field in ("likely_running_header", "positional_only_h1"):
+        if correction.field in (
+            "likely_running_header",
+            "positional_only_h1",
+            "reviewer_rejected",
+        ):
             if correction.proposed_value:
                 _insert_recovered_heading(document, _decode_recovery(correction.proposed_value))
             return

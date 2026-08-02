@@ -740,6 +740,30 @@ def review_heading(job_id: str, document_order: int, body: HeadingReviewRequest)
         if body.action == "approve":
             heading.review_status = HeadingReviewStatus.APPROVED
         elif body.action == "reject":
+            # "Not a real heading." Until now this set a review_status that
+            # nothing read — markdown, DOCX, validation and accessibility all
+            # ignored it — so the reviewer's decision stopped here and the
+            # line kept rendering as a heading forever.
+            #
+            # It now goes through the rail as a removal, the same machinery
+            # HeadingVerifier already uses for likely_running_header and
+            # positional_only_h1. Removing it from document.headings makes
+            # markdown_builder render the line as ordinary body text (it
+            # matches headings against document.headings as it walks the
+            # page), so the decision reaches Markdown, and DOCX follows from
+            # there. Undo restores it from the recovery payload.
+            from src.verification.headings import _encode_recovery
+
+            payload = _encode_recovery(heading)
+            _record_heading_edit(
+                document,
+                heading,
+                field="reviewer_rejected",
+                original_value=payload,
+                proposed_value=payload,
+                reason=f"Reviewer rejected {heading.text!r} as a false-positive heading",
+                reason_code="HEADING_REJECTED_BY_REVIEWER",
+            )
             heading.review_status = HeadingReviewStatus.REJECTED
         elif body.action is not None:
             raise HTTPException(status_code=422, detail=f"Unknown action '{body.action}'. Use 'approve' or 'reject'.")
