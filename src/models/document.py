@@ -73,6 +73,18 @@ class Document(BaseModel):
     """
 
     source_pdf_path: str = Field(..., min_length=1)
+    # Which external provider supplied this document's canonical objects,
+    # or None when RAWRS derived them itself from the PDF. Currently
+    # "mathpix"; the vocabulary is CorrectionRecord.provider's ("abbyy",
+    # "azure_doc_ai", "google_doc_ai", "docling", ...).
+    #
+    # This is what lets cross-source verification stop being a pipeline
+    # branch. "Is there a second, independent source to reconcile against"
+    # is a property of the document, not of which `if` the orchestrator
+    # happens to be inside — so a verifier can answer it for itself, and a
+    # new provider joins by setting this field rather than by adding
+    # another arm to `if _mathpix_path`.
+    import_provider: Optional[str] = None
     processing_status: ProcessingStatus = ProcessingStatus.UPLOADED
     metadata: Metadata
     pages: List[Page] = Field(default_factory=list)

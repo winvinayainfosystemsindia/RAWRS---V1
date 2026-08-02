@@ -104,20 +104,28 @@ class SemanticVerifier(ABC):
         build on this instead of re-deriving matched/unmatched semantics."""
         return compute_merge_decisions(match_result, is_mismatch)
 
-    def inspect(self, document: Any) -> List[Finding]:
-        """Findings this asset type can derive from the document alone.
+    def inspect(self, document: Any, **context: Any) -> List[Finding]:
+        """Everything this asset type has to say about this document.
 
-        The single-source counterpart to ``classify()``. ``classify()``
-        answers "does source A agree with source B", which only exists on
-        an import path that has two sources; ``inspect()`` answers "what
-        is wrong with this document", which every path has.
+        **The** producer hook — not a single-source variant of one. A
+        verifier may answer from the document alone, or by reconciling it
+        against a second source it derives itself; that choice is an
+        implementation strategy, and the correction rail does not care
+        which was used. ``classify()`` is one such strategy (it turns an
+        already-built MatchResult into findings), reached from inside
+        ``inspect()`` rather than being driven by the orchestrator.
 
-        Default is empty, so a verifier that only does cross-source work
-        is unaffected. Implementing it is how an asset type joins the
-        correction rail on *every* ingestion path — the engine calls it
-        for every registered verifier (see
-        CrossSourceVerificationEngine.run_inspection), so no pipeline
-        branch decides which types participate.
+        Whether a second source exists is read from
+        ``Document.import_provider``, never from the caller: a verifier
+        that needs a provider to reconcile against returns [] without one.
+        That is what keeps ingestion paths out of the pipeline — the
+        engine calls this for every registered verifier
+        (``run_inspection``), so no branch decides who participates.
+
+        ``context`` carries pipeline-level facts a verifier cannot derive
+        from the document, such as where generated files may be written.
+        Default returns [], so a verifier that has not implemented this
+        contributes nothing.
         """
         return []
 

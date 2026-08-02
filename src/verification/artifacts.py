@@ -205,7 +205,7 @@ class ArtifactSuppressionVerifier(SemanticVerifier):
         nothing rather than an error."""
         return []
 
-    def inspect(self, document: Any) -> List[Finding]:
+    def inspect(self, document: Any, **context: Any) -> List[Finding]:
         """Every suppression this document's own layout evidence supports.
 
         The single-source producer hook (see SemanticVerifier.inspect).

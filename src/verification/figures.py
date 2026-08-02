@@ -501,9 +501,33 @@ class FigureVerifier(SemanticVerifier):
             image.page_number = int(correction.proposed_value)
 
 
+    def inspect(self, document, **context):
+        """Reconcile provider figures against images extracted from the PDF.
+
+        ``output_root`` arrives as inspection context because extracting
+        the PDF-side images writes files; it is pipeline-level context, not
+        asset knowledge, which is why it is passed rather than derived
+        here. Without it there is nowhere to put the extracted images, so
+        the verifier declines rather than guessing a path.
+        """
+        output_root = context.get("output_root")
+        if not getattr(document, "import_provider", None) or output_root is None:
+            return []
+        from pathlib import Path
+
+        from src.images.image_extractor import _extract_images_from_pdf
+        from src.verification.engine import engine
+
+        pdf_images = _extract_images_from_pdf(
+            document, output_dir=Path(output_root) / "images"
+        )
+        return engine.run_pdf_verification("figure", document.images, pdf_images)
+
+
 # Backward-compatible alias — existing tests import/instantiate this name
 # directly (pre-dating the SemanticVerifier base class migration).
 FigureAssetVerifier = FigureVerifier
+
 
 
 def _register() -> None:

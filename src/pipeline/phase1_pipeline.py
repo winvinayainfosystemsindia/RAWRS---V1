@@ -213,6 +213,11 @@ def run_pipeline(
             document = MathpixImportProvider().import_document(
                 document, mmd_path=mmd_path, image_dir=image_dir
             )
+            # Record WHO supplied the canonical objects, once. Every later
+            # stage reads this instead of re-deriving "am I on the Mathpix
+            # path" — it is the fact that lets verification stop being a
+            # branch (see Document.import_provider).
+            document.import_provider = "mathpix"
         else:
             document = extract_text(document)
             document = route_pages(document)
@@ -277,58 +282,10 @@ def run_pipeline(
         # REVIEW_001 does not block export); PROPOSE findings are recorded and
         # left for a reviewer. Either way the CorrectionRecord is the audit
         # trail, and reject/undo through the corrections API restores the line.
-        from src.verification.engine import engine
-        import src.verification.artifacts  # noqa: F401 - registers ArtifactSuppressionVerifier
-
-        inspection_findings = engine.run_inspection(document)
-        engine.record_findings(document, inspection_findings, provider="rawrs_native")
-        logger.info(
-            "Document inspection: {} finding(s) recorded ({} auto-applied)",
-            len(inspection_findings),
-            sum(1 for f in inspection_findings if f.auto_apply),
-        )
-
         if not _mathpix_path:
             document = detect_footnotes(document)
             document = extract_front_matter(document)
             document.tables = extract_tables(document, pdf_path)
-        else:
-            # Footnotes: document.footnotes was already populated in Stage 2
-            # from the imported package (authoritative). detect_footnote_pdf_candidates()
-            # independently re-derives footnotes from document.blocks (already
-            # populated above by detect_structure(), regardless of extraction
-            # source) purely as verification evidence — via the same generic
-            # cross-source verification engine figures/headings/lists/callouts
-            # use (src/verification/) — never to replace Mathpix's footnotes.
-            # This is FootnoteVerifier (src/verification/footnotes.py), the
-            # fifth registered asset type, and the mechanism that resolves
-            # _p2footnote_to_footnote()'s anchor_page_number=1 placeholder
-            # (src/mathpix/ingestor.py) into a real, PDF-confirmed page.
-            pdf_footnotes = detect_footnote_pdf_candidates(document)
-            from src.verification.engine import engine
-            import src.verification.footnotes  # noqa: F401 - registers FootnoteVerifier
-
-            footnote_findings = engine.run_pdf_verification("footnote", document.footnotes, pdf_footnotes)
-            engine.record_findings(document, footnote_findings)
-
-            # Tables: document.tables was already populated in Stage 2 from
-            # the imported package (authoritative). extract_tables() is the
-            # existing, unmodified table-detection pipeline (4 evidence-fusion
-            # detectors) — already a pure function returning a list rather
-            # than mutating document.tables, so calling it here for
-            # verification evidence only requires no refactor (unlike
-            # footnotes/headings, which needed a pure "_from_pdf" split).
-            # Reuses the exact same fitz.open(pdf_path) call this stage
-            # already makes no other PDF scan; extract_tables() now accepts
-            # MATHPIX_IMPORT pages alongside DIRECT_TEXT_EXTRACTION (see
-            # table_extractor.py) since it never depends on which extraction
-            # method produced a page's text. This is TableVerifier
-            # (src/verification/tables.py), the sixth registered asset type.
-            pdf_tables = extract_tables(document, pdf_path)
-            import src.verification.tables  # noqa: F401 - registers TableVerifier
-
-            table_findings = engine.run_pdf_verification("table", document.tables, pdf_tables)
-            engine.record_findings(document, table_findings)
         logger.info(
             "Stage 3/8 (Detect Structure) complete: {} block(s), {} footnote(s)/endnote(s), "
             "title {}, {} table(s)",
@@ -369,14 +326,7 @@ def run_pipeline(
     # PDF that fails to open or extract anything simply yields fewer
     # verification signals; it can never remove a package-derived figure.
     try:
-        if _mathpix_path:
-            pdf_images = _extract_images_from_pdf(document, output_dir=output_root / "images")
-            from src.verification.engine import engine
-            import src.verification.figures  # noqa: F401 - registers FigureAssetVerifier
-
-            findings = engine.run_pdf_verification("figure", document.images, pdf_images)
-            engine.record_findings(document, findings)
-        else:
+        if not _mathpix_path:
             document = extract_images(document, output_dir=output_root / "images")
         document.metadata.image_count = len(document.images)
         alt_text_dataset_path = _write_alt_text_dataset(
@@ -413,53 +363,40 @@ def run_pipeline(
     # never to replace Mathpix's headings. This is HeadingVerifier
     # (src/verification/headings.py), the second registered asset type.
     try:
-        if _mathpix_path:
-            pdf_headings = detect_headings_from_pdf(document.source_pdf_path)
-            content_headings = [h for h in document.headings if not h.is_page_marker]
-            from src.verification.engine import engine
-            import src.verification.headings  # noqa: F401 - registers HeadingVerifier
-
-            findings = engine.run_pdf_verification(
-                "heading", content_headings, pdf_headings, pdf_path=document.source_pdf_path
-            )
-            engine.record_findings(document, findings)
-
-            # Lists: document.lists was already populated in Stage 2 from
-            # the imported package's own list markup (see
-            # _group_list_items_to_lists() in src/mathpix/ingestor.py).
-            # detect_lists_from_pdf() independently re-derives lists from
-            # PDF geometry, purely to recover a real list Mathpix didn't
-            # even tag as one at all (flattened to plain paragraphs) —
-            # ListVerifier (src/verification/lists.py), the third
-            # registered asset type.
-            pdf_lists = detect_lists_from_pdf(document.source_pdf_path)
-            import src.verification.lists  # noqa: F401 - registers ListVerifier
-
-            list_findings = engine.run_pdf_verification("list", document.lists, pdf_lists)
-            engine.record_findings(document, list_findings)
-
-            # Callouts: document.callouts was already populated in Stage 2
-            # from the imported package's own label-pattern classification
-            # (src/mathpix/mmd_parser.py::classify_callout_type()). No
-            # independent PDF-side box detector exists yet (see
-            # src/verification/callouts.py's module docstring) — this
-            # verifier's job is evaluating the classification's own
-            # confidence (label specificity, anchoring-heading integrity),
-            # not cross-source matching. FEATURE_019 — the fourth
-            # registered asset type, and the first proving the framework
-            # generalizes beyond Heading/List/Table.
-            if document.callouts:
-                import src.verification.callouts  # noqa: F401 - registers CalloutVerifier
-
-                callout_findings = engine.run_pdf_verification(
-                    "callout", document.callouts, [], document=document
-                )
-                engine.record_findings(document, callout_findings)
-        else:
+        if not _mathpix_path:
             document = detect_headings(document, page_numbering_policy=page_numbering_policy)
             # Detect Headings re-sets OCR_COMPLETE; harmless no-op now that
             # Stage 2 already sets it correctly for its own (real) reason.
             document.processing_status = ProcessingStatus.OCR_COMPLETE
+        # Stage 5b: Inspection — the one and only correction stage.
+        #
+        # Runs unconditionally and names no asset type. Every registered
+        # verifier is asked what it has to say about this document; whether
+        # it reconciles against a provider is its own business, read from
+        # Document.import_provider. Adding an asset type, or a new import
+        # provider, therefore needs no edit here at all.
+        #
+        # Placed after detection so every canonical object exists, and
+        # before Markdown so applied corrections reach the output.
+        from src.verification.engine import engine
+        import src.verification.artifacts  # noqa: F401 - registers ArtifactSuppressionVerifier
+        import src.verification.callouts  # noqa: F401 - registers CalloutVerifier
+        import src.verification.figures  # noqa: F401 - registers FigureAssetVerifier
+        import src.verification.footnotes  # noqa: F401 - registers FootnoteVerifier
+        import src.verification.headings  # noqa: F401 - registers HeadingVerifier
+        import src.verification.lists  # noqa: F401 - registers ListVerifier
+        import src.verification.tables  # noqa: F401 - registers TableVerifier
+
+        findings = engine.run_inspection(document, output_root=output_root)
+        engine.record_findings(
+            document, findings, provider=document.import_provider or "rawrs_native"
+        )
+        logger.info(
+            "Inspection complete: {} finding(s) recorded ({} auto-applied)",
+            len(findings),
+            sum(1 for f in findings if f.auto_apply),
+        )
+
         logger.info("Stage 5/8 (Detect Headings) complete: {} heading(s)", len(document.headings))
         if on_stage_complete: on_stage_complete("detect_headings")
     except Exception as exc:

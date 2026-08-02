@@ -168,22 +168,37 @@ class CrossSourceVerificationEngine:
                 )
             )
 
-    def run_inspection(self, document: Any) -> List[Finding]:
-        """Single-source findings from every registered verifier.
+    def run_inspection(self, document: Any, **context: Any) -> List[Finding]:
+        """Ask every registered asset type what it has to say.
 
-        Path-agnostic by construction: it asks each registered asset type
-        what it can tell from this document alone, so which types
-        participate is a property of the verifiers, not of a pipeline
-        ``if _mathpix_path`` branch. A verifier that has not implemented
-        ``inspect()`` contributes nothing (the base default), so adding
-        this changed no existing behaviour.
+        The whole verification stage. Path-agnostic by construction: it
+        names no asset type and knows nothing about how the document was
+        ingested, so which types participate — and whether any of them
+        reconciles against a provider — is decided by the verifiers
+        reading ``Document.import_provider`` themselves.
+
+        Deterministic order (sorted by asset type) so a document's
+        corrections land in a stable sequence run to run. ``context``
+        is forwarded unchanged to every verifier.
         """
         findings: List[Finding] = []
         for asset_type, verifier in sorted(self._verifiers.items()):
             try:
-                produced = verifier.inspect(document)
-            except Exception as exc:  # one bad verifier must not fail the pipeline
-                logger.warning("Inspection failed for asset type '{}': {}", asset_type, exc)
+                produced = verifier.inspect(document, **context)
+            except Exception as exc:
+                # One misbehaving detector must not cost the document every
+                # other asset type's findings — but this is never routine.
+                # Logged at ERROR because the failure mode it hides is
+                # severe: an inspect() whose signature has drifted returns
+                # silently empty, and "no findings" is indistinguishable
+                # from "nothing wrong". tests/test_correction_rail_primitive
+                # pins every registered verifier's signature for that reason.
+                logger.error(
+                    "Inspection failed for asset type '{}' ({}): {}",
+                    asset_type,
+                    type(exc).__name__,
+                    exc,
+                )
                 continue
             findings.extend(produced)
         return findings

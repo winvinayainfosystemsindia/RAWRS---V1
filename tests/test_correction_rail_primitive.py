@@ -173,6 +173,54 @@ class TestPathAgnosticProducers:
         assert engine.run_inspection(document) == []
 
 
+class TestEveryRegisteredVerifierHonoursTheHook:
+    """Signature drift here fails silently in production.
+
+    run_inspection() catches per-verifier exceptions so one broken
+    detector cannot cost a document every other asset type's findings.
+    That safety net also means an inspect() whose signature no longer
+    accepts the context the pipeline passes returns *silently empty* —
+    caught here instead, where it is a visible failure. This is not
+    hypothetical: it happened while this milestone was being written.
+    """
+
+    def test_all_registered_verifiers_accept_pipeline_context(self) -> None:
+        from src.models.contracts import Document, Metadata
+        from src.verification.engine import engine as real_engine
+
+        # Import the modules so every verifier is registered, exactly as
+        # the pipeline does before inspecting.
+        import src.verification.artifacts  # noqa: F401
+        import src.verification.callouts  # noqa: F401
+        import src.verification.figures  # noqa: F401
+        import src.verification.footnotes  # noqa: F401
+        import src.verification.headings  # noqa: F401
+        import src.verification.lists  # noqa: F401
+        import src.verification.tables  # noqa: F401
+
+        document = Document(
+            source_pdf_path="x.pdf", metadata=Metadata(filename="x.pdf", page_count=1)
+        )
+        assert real_engine._verifiers, "no verifiers registered"
+        for asset_type, verifier in real_engine._verifiers.items():
+            # The exact context run_pipeline passes. A TypeError here is
+            # the silent-empty bug; let it raise.
+            verifier.inspect(document, output_root="/tmp/out")
+
+    def test_provider_gated_verifiers_stay_silent_without_a_provider(self) -> None:
+        # A native document has no second source, so every cross-source
+        # verifier must decline — this is the condition that replaced
+        # `if _mathpix_path`.
+        from src.models.contracts import Document, Metadata
+        from src.verification.headings import HeadingVerifier
+
+        document = Document(
+            source_pdf_path="x.pdf", metadata=Metadata(filename="x.pdf", page_count=1)
+        )
+        assert document.import_provider is None
+        assert HeadingVerifier().inspect(document, output_root="/tmp/out") == []
+
+
 class TestArtifactSuppressionJoinsViaTheHook:
     """The real producer, proving the hook is used rather than decorative."""
 

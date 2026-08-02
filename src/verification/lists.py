@@ -208,6 +208,22 @@ class ListVerifier(SemanticVerifier):
         # List workspace UI exists to let a reviewer pick which items.
 
 
+    def inspect(self, document, **context):
+        """Recover lists a provider flattened into plain paragraphs.
+
+        detect_lists_from_pdf() re-derives lists from PDF geometry
+        independently of the provider's own list markup. Native-path
+        documents have no second source (see Document.import_provider).
+        """
+        if not getattr(document, "import_provider", None):
+            return []
+        from src.lists.list_detector import detect_lists_from_pdf
+        from src.verification.engine import engine
+
+        pdf_lists = detect_lists_from_pdf(document.source_pdf_path)
+        return engine.run_pdf_verification("list", document.lists, pdf_lists)
+
+
 def _register() -> None:
     from src.verification.engine import engine
 

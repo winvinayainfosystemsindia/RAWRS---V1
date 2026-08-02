@@ -240,6 +240,28 @@ class FootnoteVerifier(SemanticVerifier):
         # "unconfirmed" is informational only — no proposed_value, no-op.
 
 
+    def inspect(self, document, **context):
+        """Reconcile provider footnotes against PDF-derived candidates.
+
+        Only meaningful when a provider supplied document.footnotes: on the
+        RAWRS-native path both sides would come from the same detector, so
+        the comparison would be a tautology. That condition is read from
+        the document, not from a pipeline branch — see
+        Document.import_provider.
+
+        Also the mechanism that resolves _p2footnote_to_footnote()'s
+        anchor_page_number=1 placeholder (src/mathpix/ingestor.py) into a
+        real, PDF-confirmed page.
+        """
+        if not getattr(document, "import_provider", None):
+            return []
+        from src.footnotes.footnote_detector import detect_footnote_pdf_candidates
+        from src.verification.engine import engine
+
+        pdf_footnotes = detect_footnote_pdf_candidates(document)
+        return engine.run_pdf_verification("footnote", document.footnotes, pdf_footnotes)
+
+
 def _register() -> None:
     from src.verification.engine import engine
 

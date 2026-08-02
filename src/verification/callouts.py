@@ -147,6 +147,22 @@ class CalloutVerifier(SemanticVerifier):
         document.callouts = [c for c in document.callouts if c.id != correction.object_id]
 
 
+    def inspect(self, document, **context):
+        """Evaluate the provider's callout classification on its own terms.
+
+        No independent PDF-side box detector exists (see this module's
+        docstring), so the empty matcher sends every callout through
+        classify() as unmatched_a, judged on label specificity and
+        anchoring-heading integrity. Still provider-gated: a native
+        document has no provider classification to evaluate.
+        """
+        if not getattr(document, "import_provider", None) or not document.callouts:
+            return []
+        from src.verification.engine import engine
+
+        return engine.run_pdf_verification("callout", document.callouts, [], document=document)
+
+
 def _register() -> None:
     from src.verification.engine import engine
 

@@ -629,6 +629,27 @@ class HeadingVerifier(SemanticVerifier):
         super().revert(document, correction)
 
 
+    def inspect(self, document, **context):
+        """Reconcile provider headings against PDF-derived candidates.
+
+        Content headings only — H6 page markers are the page-label
+        concern, not this one. Native-path documents have no second source
+        (see Document.import_provider): detect_headings_from_pdf() shares
+        its classifier with detect_headings(), so comparing them would
+        compare a thing to itself.
+        """
+        if not getattr(document, "import_provider", None):
+            return []
+        from src.headings.heading_detector import detect_headings_from_pdf
+        from src.verification.engine import engine
+
+        content_headings = [h for h in document.headings if not h.is_page_marker]
+        pdf_headings = detect_headings_from_pdf(document.source_pdf_path)
+        return engine.run_pdf_verification(
+            "heading", content_headings, pdf_headings, pdf_path=document.source_pdf_path
+        )
+
+
 def _register() -> None:
     from src.verification.engine import engine
 

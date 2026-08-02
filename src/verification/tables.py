@@ -318,6 +318,24 @@ class TableVerifier(SemanticVerifier):
         # "missing_from_pdf"/"low_confidence" are informational only — no-op.
 
 
+    def inspect(self, document, **context):
+        """Reconcile provider tables against RAWRS's own table detection.
+
+        extract_tables() is the existing, unmodified 4-detector
+        evidence-fusion pipeline, already a pure function returning a list
+        rather than mutating document.tables, so reusing it as verification
+        evidence needs no refactor. Native-path documents have no second
+        source (see Document.import_provider) and yield nothing.
+        """
+        if not getattr(document, "import_provider", None):
+            return []
+        from src.tables.table_extractor import extract_tables
+        from src.verification.engine import engine
+
+        pdf_tables = extract_tables(document, document.source_pdf_path)
+        return engine.run_pdf_verification("table", document.tables, pdf_tables)
+
+
 def _register() -> None:
     from src.verification.engine import engine
 
