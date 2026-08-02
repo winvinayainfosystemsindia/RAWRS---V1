@@ -4,11 +4,12 @@ See docs/HEADING_RULES.md for the canonical hierarchy and validation rules.
 """
 
 from enum import Enum, IntEnum
-from typing import Optional
+from typing import List, Optional
 
 from pydantic import Field, field_validator, model_validator
 
 from src.models.semantic_object import SemanticObject
+from src.verification.evidence import EvidenceSignal
 
 
 class HeadingLevel(IntEnum):
@@ -79,6 +80,24 @@ class Heading(SemanticObject):
     # "rawrs_recovery" (RAWRS found it; provider missed it), "pdf_native"
     # (a PDF-side verification candidate — see detect_headings_from_pdf()).
     source: str = "rawrs"
+    # L3.1 — the heading signals that argued for this detection, from
+    # src/headings/heading_signals.py::evaluate_heading(). Same field name,
+    # type, and purpose as CorrectionRecord.evidence_items: the shared
+    # EvidenceSignal primitive (FEATURE_019), not a heading-specific
+    # vocabulary. ``confidence`` (inherited from SemanticObject) is this
+    # bundle's weighted mean. Additive: empty for headings produced outside
+    # the native detector (Mathpix import, page markers, fixtures), so an
+    # empty list always means "no evidence recorded", never "no support".
+    #
+    # Read THIS, not ``confidence``, when you need detection strength:
+    # ``confidence`` is shared with the cross-source verifier, which
+    # overwrites it with match confidence ("is this the same heading the
+    # PDF found?") at src/verification/headings.py's merge step - a
+    # different question with the same field name (a pre-existing
+    # SemanticObject ambiguity, not one this field introduces). Signals
+    # here are individually named and carry ``source_module``, so their
+    # provenance is never ambiguous.
+    evidence_items: List[EvidenceSignal] = Field(default_factory=list)
     # FEATURE_020 — P2Block.source_line (src/mathpix/mmd_parser.py), the
     # position in the source .mmd this heading came from. Mathpix-path
     # only; None for RAWRS-native headings (document_order already

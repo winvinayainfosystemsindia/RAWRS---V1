@@ -618,7 +618,19 @@ class TestStructureDetectionDoesNotChangeExistingOutputs:
                 # document.blocks), so relaxing level here masks nothing else.
                 # Heading identity - text, page, marker flag, source - is still
                 # compared exactly.
-                data = {**data, "level": None}
+                #
+                # L3.1: confidence/evidence_items are neutralised for exactly
+                # the same reason, and only that reason - they ARE the level's
+                # supporting evidence, so wherever the H1 slot legitimately
+                # shifts above, the positional_h1_slot signal fires in one run
+                # and not the other and the bundle diverges with it (e.g.
+                # FolkPedagogy's 'HARVARD UNIVERSITY PRESS': positional + bold
+                # in the "with" run, bold alone in the "without" one).
+                # Comparing them would assert the absence of a divergence this
+                # test already documents as intended. They carry no identity
+                # information of their own - every field that does is still
+                # compared exactly - so excluding them masks nothing.
+                data = {**data, "level": None, "confidence": None, "evidence_items": []}
                 out.append({**data, "id": f"heading-{position}", "document_order": position})
             return out
 

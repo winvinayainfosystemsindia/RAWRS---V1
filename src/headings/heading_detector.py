@@ -19,87 +19,35 @@ src/docx/docx_generator.py - the Document/Page models are unchanged.
 Detection strategy (see BENCHMARK_RECONCILIATION_AND_PHASE1_PLAN.md
 Phase B for the full taxonomy this was derived from):
 
-1. Numbering patterns (H3/H4/H5 dot-depth) - most specific, checked first.
-2. The positional H1 slot (first *productive* non-blank line of the
-   whole document - see _is_productive_h1_candidate()) - checked before
-   the H2 keyword/chapter pattern, so a short excerpt whose first line is
-   "Chapter 9" gets H1 (it IS this excerpt's title), while a full book
-   whose first line is the book title still leaves "Chapter 1" further
-   down to fall through to the H2 rule correctly. H1-slot Robustness
-   Repair: the slot stays open across unproductive lines - a bare footer
-   page number or a lone decorative drop-cap glyph extracted as its own
-   line - rather than being permanently spent on whichever line happens
-   to come first in the PDF's raw (not necessarily visual-order)
-   extraction order. Confirmed against the benchmark corpus: two
-   born-digital PDFs ("1. Nature of Enquiry.pdf", "1.Aims of Education
-   and the teacher...pdf") have a footer page number as their literal
-   first extracted line, which previously disabled H1 detection for the
-   entire document even though a real chapter/title line existed just a
-   few lines later on the same page.
-3. "Unit N"/"Chapter N" and a fixed structural-keyword list
-   (Introduction/Conclusion/References/...) -> H2.
-4. Bold-relative-to-body-text layout signal -> H2. This is the
-   primary fix for real benchmark headings like "Teaching as an Art" or
-   "Teaching as a Common-sense Activity", which are plain Title-Case
-   phrases with no numbering at all - the old rule set caught none of
-   these. Font SIZE alone was tried and rejected: in 2 of 3 born-digital
-   benchmark PDFs, the largest text on the page is a non-bold subtitle
-   that must NOT become a heading, while the actual heading line is
-   smaller but bold - so bold is the gate, not size. Multi-tier bold
-   *sizes* are not used to differentiate H2 vs H3+, since no benchmark
-   document exercises more than one bold-heading level. Tier 4
-   Recurrence Guard: two additional, content-only conditions (no new
-   document pass, no position/geometry signal) confirmed necessary by
-   the Running Header/Footer Heading Pollution Audit: (a) declines on a
-   line whose exact text already produced a heading earlier in the
-   document - the running-header/running-title signature, since a
-   repeating bold masthead line satisfies this tier's only other
-   condition on every page it appears on, with the first occurrence
-   unaffected (it hasn't been emitted yet) and only later repeats
-   declined; (b) declines on a bare digit-only line - the running
-   page-number signature, which (a) cannot catch since consecutive page
-   numbers are never identical text. See _classify_line()'s tier 4
-   branch.
-5. NEW (bug_002): a last-resort fallback tier for headings whose PDF
-   producer renders "bold-looking" section headings via a distinct
-   embedded font subset that signal 4 cannot see - the font name has no
-   "bold" substring and PyMuPDF sets no bold flag bit (confirmed via
-   direct span dump on the Brinkman regression PDF: heading font
-   AdvP7D0F vs. body AdvTimes, neither bold-flagged). Reached only when
-   tiers 1-4 have all already declined. Fires only when ALL of: the
-   line's font differs from the document's dominant body font; that
-   (font, size) pair recurs at least twice across the document (a
-   one-off title/byline in a distinct font, e.g. Calderhead's 18pt
-   "Teaching as a professional activity", is not a reused heading
-   style); the line did not already consume the H1 slot; the line has
-   at least one alphabetic character; and - this is the part that keeps
-   recurring non-body-font elements like running headers/journal
-   metadata out - the line is the *sole* line in its own PyMuPDF block
-   (a real heading is reliably emitted as a 1-line block in every
-   sampled instance; a running header sharing a block with its page
-   number, e.g. "Brinkmann" + "343" on the same baseline, is not). See
-   notes_md/heading_isolation_signal_review.md (design review) for the
-   audit this implements, including why "Chapter 9"/"Chapter 7" (which
-   are NOT sole-line blocks - they share a 3-line masthead block with
-   the chapter title) are unaffected: both are already resolved by the
-   higher-priority H1-slot rule (tier 2) before this tier is ever
-   reached, so sole-line-block is enforced only within this tier, never
-   as a global heading requirement. A seventh condition, found during
-   verification (not part of the original six-condition audit): the
-   candidate's font size must be at least the document's body size.
-   Table/figure captions and table-footnote lines turned out to satisfy
-   all six original gates just as real section headings do - all of
-   Brinkman's 12 real headings are 12pt against a 10pt body, while every
-   caption/footnote false positive found was 8-9pt, smaller than body.
+**The per-line signals themselves live in
+src/headings/heading_signals.py** (L3.1), which owns the signal set, the
+precedence between them, and the audit trail behind each one (numbering
+depth, the positional H1 slot, structural keywords, bold-vs-body
+contrast, and the bug_002 recurring-heading-font last resort). This
+module owns everything around that decision: reading the PDF's layout
+and font indices, walking pages and lines, the H1-slot lifecycle,
+front-matter and artifact pre-filters, continuation absorption, and page
+markers.
 
-bug_002 also required one correction to the recurrence count itself:
-a (font, size) pair only counts toward recurrence from sole-line
-contributions. Without this, "Chapter 9"/"Chapter 7" (non-sole, 14pt
-Helvetica, same masthead block as the chapter title) inflated recurrence
-for the unrelated, separately-blocked, sole-line byline beneath them
-("James Calderhead" / "Michael Fullan and Andy Hargreaves", also 14pt
-Helvetica) enough to wrongly satisfy the threshold - a real regression
-caught by the benchmark suite, not a hypothetical.
+Each detected heading now carries the evidence behind it -
+``Heading.evidence_items`` (the signals that fired) and
+``Heading.confidence`` (their weighted mean), both produced by
+``heading_signals.evaluate_heading()``. The decision itself is unchanged
+by that split: heading_signals reproduces the historical tier precedence
+exactly, so the same input yields the same level as before it existed.
+
+The H1 slot's own robustness rule stays here because it is a property of
+walking the document, not of classifying a line: the slot stays open
+across unproductive lines - a bare footer page number or a lone
+decorative drop-cap glyph extracted as its own line - rather than being
+permanently spent on whichever line happens to come first in the PDF's
+raw (not necessarily visual-order) extraction order. Confirmed against
+the benchmark corpus: two born-digital PDFs ("1. Nature of Enquiry.pdf",
+"1.Aims of Education and the teacher...pdf") have a footer page number as
+their literal first extracted line, which previously disabled H1
+detection for the entire document even though a real chapter/title line
+existed just a few lines later on the same page. See
+_is_productive_h1_candidate().
 
 Hierarchy validation (e.g. detecting an H1 -> H3 skip) is explicitly
 out of scope here - see docs/VALIDATION_RULES.md. This module's only
@@ -124,7 +72,6 @@ window - to be the same heading, not a new one or body text. See
 _absorb_continuations()'s own docstring for the full gate list.
 """
 
-import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -138,20 +85,27 @@ from src.frontmatter.front_matter_roles import (
     classify_front_matter_line,
     is_heading_eligible,
 )
+from src.headings.heading_signals import (
+    _H2_CHAPTER_PATTERN,
+    _H2_KEYWORDS,
+    _H3_PATTERN,
+    _H4_PATTERN,
+    _H5_PATTERN,
+    FallbackFontSignal,
+    HeadingCandidate,
+    HeadingVerdict,
+    evaluate_heading,
+    font_signal_supports_heading,
+)
 from src.headings.page_markers import build_page_marker
-from src.models.contracts import Document, Heading, HeadingLevel, TextBlock
+from src.models.contracts import Document, Heading, TextBlock
 from src.structure.layout_signals import LineLayout, line_layout
 from src.utils.text_sanitization import sanitize_xml_text
 
-# Lines longer than this are treated as body text, not heading candidates.
-_MAX_HEADING_LENGTH = 120
-
-# bug_002 fallback tier: a (font, size) pair must recur at least this many
-# times across the document to be treated as a reused heading style rather
-# than a one-off title/byline line that merely happens to use a distinct
-# font (e.g. Calderhead's/Fullan & Hargreaves' non-bold 18pt chapter
-# titles, each of which occurs exactly once).
-_FALLBACK_MIN_RECURRENCE = 2
+# The per-line heading signals, their evidence, and the precedence that
+# decides between them all live in src/headings/heading_signals.py (L3.1).
+# Re-exported under its historical name for existing importers.
+_FallbackSignal = FallbackFontSignal
 
 # H1-slot Robustness Repair: a candidate line must contain at least this
 # many alphabetic characters to "productively" consume the H1 slot (see
@@ -166,50 +120,6 @@ _FALLBACK_MIN_RECURRENCE = 2
 # shortest genuine H1 (7), so it excludes the known-bad cases without
 # coming anywhere close to a real title.
 _MIN_H1_SLOT_ALPHA_CHARS = 2
-
-# Tier 4 Recurrence Guard: a bare page number (e.g. a running footer/
-# header digit) is bold in every benchmark PDF that has one, satisfying
-# tier 4's only other condition on every page - but it is never
-# identical text twice (each page number differs), so the
-# emitted_heading_texts recurrence check alone cannot catch it. No
-# legitimate bold heading anywhere in the benchmark corpus is
-# digit-only (every real one - "Chapter 9", "CHAPTER 1", "TABLE 1.1
-# ..." - contains at least one real word), so this is a safe,
-# content-only (not position-based) second condition for the same tier.
-_DIGIT_ONLY_PATTERN = re.compile(r"^\d+$")
-
-# H2: "Unit 1", "Chapter 3" (docs/HEADING_RULES.md)
-_H2_CHAPTER_PATTERN = re.compile(r"^(unit|chapter)\s+\d+\b", re.IGNORECASE)
-# H2: common structural section names. "references"/"bibliography" etc. are
-# kept as a fixed keyword list rather than relying on the bold layout
-# signal, because the benchmark's own ground truth disagrees with itself
-# on whether "REFERENCES" is a heading even though it has the identical
-# bold layout signal in every document that has it - a keyword rule is
-# the only way to be internally consistent here.
-_H2_KEYWORDS = {
-    "introduction",
-    "conclusion",
-    "summary",
-    "references",
-    "abstract",
-    "bibliography",
-    "appendix",
-    "acknowledgements",
-    "acknowledgments",
-    # Front-Matter Semantic Extraction follow-up: "Keywords" was
-    # previously absent from this list, so a PDF's "Keywords" line was
-    # never detected as a heading at all (unlike "Abstract"/
-    # "References" right next to it) - confirmed against the Brinkman
-    # benchmark, where it fell through into an ordinary, unsuppressed
-    # body paragraph merged with the keyword list itself.
-    "keywords",
-}
-
-# Numbering depth determines level: one dot -> H3, two dots -> H4, three -> H5
-# (docs/HEADING_RULES.md: "3.1 Overview" / "3.1.1 Learning Objectives").
-_H5_PATTERN = re.compile(r"^\d+(?:\.\d+){3}\s+\S")
-_H4_PATTERN = re.compile(r"^\d+(?:\.\d+){2}\s+\S")
-_H3_PATTERN = re.compile(r"^\d+\.\d+\s+\S")
 
 # Wrapped Heading Continuation Repair (feature_007): geometric continuity
 # window for the cross-block fallback path only (same-block continuations
@@ -288,10 +198,11 @@ def detect_headings(
     headings: List[Heading] = []
     order = 0
     h1_slot_open = True  # only the first non-blank line in the whole document is eligible for H1
-    # Tier 4 Recurrence Guard: texts that have already produced a heading
-    # (any tier), so tier 4 (the bold-layout signal) can decline on a
-    # repeat occurrence of the same exact text - see _classify_line()'s
-    # tier 4 branch and the Running Header/Footer Heading Pollution Audit.
+    # Texts that have already produced a heading, so the bold-contrast
+    # signal can decline on a repeat occurrence of the same exact text -
+    # see heading_signals.bold_contrast() and the Running Header/Footer
+    # Heading Pollution Audit. Document-scoped state, so it is tracked
+    # here and passed in rather than owned by the signal.
     emitted_heading_texts: Set[str] = set()
 
     for page in document.pages:
@@ -354,7 +265,7 @@ def detect_headings(
             # PDF's raw extraction order - see _is_productive_h1_candidate().
             line_claims_h1_slot = h1_slot_open and _is_productive_h1_candidate(line)
             layout = page_layouts.get(line)
-            level = _classify_line(
+            verdict = _evaluate_line(
                 line,
                 is_h1_slot=line_claims_h1_slot,
                 layout=layout,
@@ -364,6 +275,7 @@ def detect_headings(
                 signature_counts=signature_counts,
                 emitted_heading_texts=emitted_heading_texts,
             )
+            level = verdict.level
             if line_claims_h1_slot:
                 h1_slot_open = False  # consumed productively - never re-opens
 
@@ -403,6 +315,8 @@ def detect_headings(
                     page_number=page.page_number,
                     document_order=order,
                     is_page_marker=False,
+                    confidence=verdict.bundle.confidence,
+                    evidence_items=verdict.bundle.signals,
                 )
             )
             order += 1
@@ -429,10 +343,12 @@ def detect_headings_from_pdf(pdf_path: Path) -> List[Heading]:
     field holds Mathpix's text, not the PDF's own, so it cannot be reused
     as independent PDF evidence. Reuses the exact same classification
     helpers ``detect_headings()`` calls (``_build_layout_index``,
-    ``_build_fallback_tier_index``, ``_classify_line``,
+    ``_build_fallback_tier_index``, ``_evaluate_line``,
     ``_absorb_continuations``, ``_iter_candidate_lines``) — zero
     duplicated classification logic, and ``detect_headings()`` itself is
-    completely untouched by this addition.
+    completely untouched by this addition. Headings from this path carry
+    the same evidence bundle as the Document path (L3.1), since both
+    route their per-line decision through the same signal set.
 
     Content headings (H1-H5) only; H6 page markers are
     ``detect_headings()``'s/the Mathpix import's concern (see
@@ -478,7 +394,7 @@ def detect_headings_from_pdf(pdf_path: Path) -> List[Heading]:
             line = page_lines[line_index]
             line_claims_h1_slot = h1_slot_open and _is_productive_h1_candidate(line)
             layout = page_layouts.get(line)
-            level = _classify_line(
+            verdict = _evaluate_line(
                 line,
                 is_h1_slot=line_claims_h1_slot,
                 layout=layout,
@@ -488,6 +404,7 @@ def detect_headings_from_pdf(pdf_path: Path) -> List[Heading]:
                 signature_counts=signature_counts,
                 emitted_heading_texts=emitted_heading_texts,
             )
+            level = verdict.level
             if line_claims_h1_slot:
                 h1_slot_open = False
 
@@ -516,6 +433,8 @@ def detect_headings_from_pdf(pdf_path: Path) -> List[Heading]:
                     document_order=order,
                     is_page_marker=False,
                     source="pdf_native",
+                    confidence=verdict.bundle.confidence,
+                    evidence_items=verdict.bundle.signals,
                 )
             )
             order += 1
@@ -570,132 +489,69 @@ def _is_productive_h1_candidate(line: str) -> bool:
     return sum(1 for ch in line if ch.isalpha()) >= _MIN_H1_SLOT_ALPHA_CHARS
 
 
-def _classify_line(
+def _evaluate_line(
     line: str,
     is_h1_slot: bool,
     layout: Optional[LineLayout],
     body_profile: Optional[LineLayout],
-    fallback_signal: Optional["_FallbackSignal"] = None,
+    fallback_signal: Optional[FallbackFontSignal] = None,
     body_font_name: Optional[str] = None,
     signature_counts: Optional[Counter] = None,
     emitted_heading_texts: Optional[Set[str]] = None,
-) -> Optional[HeadingLevel]:
-    """Classify a single line as a heading level, or None if it is not one.
+) -> HeadingVerdict:
+    """Evaluate one line's heading signals (L3.1).
 
-    Numbering patterns first (most specific/unambiguous), then the
-    positional H1 slot, then the chapter/structural-keyword rules, then
-    the bold layout signal, then (bug_002) the distinct-recurring-font
-    isolation fallback as a last resort for headings none of the rules
-    above can see. Every tier above the new one is unchanged from before
-    bug_002 - the new tier is appended last and only ever reached when
-    all of them have already declined.
+    Assembles this detector's per-line inputs into a HeadingCandidate and
+    hands the decision to src/headings/heading_signals.py, which runs
+    every signal and returns both the level and the evidence bundle
+    behind it. The signal set, its precedence, and each signal's rationale
+    all live there; this function only marshals inputs.
 
-    Tier 4 Recurrence Guard (Running Header/Footer Heading Pollution
-    Repair): tier 4 (the bold-layout signal immediately below) declines
-    on a line whose exact text has already produced a heading earlier in
-    this document - confirmed by benchmark audit to be the running
-    header/footer/page-number signature (a repeating bold masthead line
-    or page number satisfies tier 4's only condition, "bold and larger
-    than body," on every page it appears on, with no recurrence check of
-    its own, unlike tier 5's signature_counts/is_sole_line guard a few
-    lines below). The first occurrence of a recurring bold title (e.g. a
-    book/chapter title that also happens to be a running header) is
-    unaffected - it has not yet been emitted when it is itself
-    classified, so it still becomes a heading exactly as before; only
-    its later repeats are declined here. Tiers 1, 2, 3, and 5 are not
-    consulted against emitted_heading_texts at all - confirmed safe
-    because tier 3's _H2_KEYWORDS entries (e.g. "References"/
-    "Conclusion") are expected to legitimately recur across a
-    multi-chapter document, and must keep doing so.
+    The returned verdict's level is identical to what the previous
+    inline tier cascade produced for the same inputs - the precedence in
+    heading_signals reproduces it exactly. What is new is
+    ``verdict.bundle``: every signal that fired, not just the winning
+    one, so a heading resting on a single weak assumption is now
+    distinguishable from a corroborated one.
     """
-    if len(line) > _MAX_HEADING_LENGTH:
-        return None
-
-    if _H5_PATTERN.match(line):
-        return HeadingLevel.H5
-    if _H4_PATTERN.match(line):
-        return HeadingLevel.H4
-    if _H3_PATTERN.match(line):
-        return HeadingLevel.H3
-
-    if is_h1_slot and any(ch.isalpha() for ch in line):
-        return HeadingLevel.H1
-
-    if _H2_CHAPTER_PATTERN.match(line) or line.lower() in _H2_KEYWORDS:
-        return HeadingLevel.H2
-
-    if layout is not None and body_profile is not None:
-        _, line_is_bold = layout
-        _, body_is_bold = body_profile
-        already_emitted = emitted_heading_texts is not None and line in emitted_heading_texts
-        is_bare_page_number = bool(_DIGIT_ONLY_PATTERN.match(line))
-        if line_is_bold and not body_is_bold and not already_emitted and not is_bare_page_number:
-            return HeadingLevel.H2
-
-    if _is_fallback_heading(
-        line,
+    candidate = HeadingCandidate(
+        text=line,
         is_h1_slot=is_h1_slot,
-        fallback_signal=fallback_signal,
+        layout=layout,
+        body_profile=body_profile,
+        font_signal=fallback_signal,
         body_font_name=body_font_name,
         signature_counts=signature_counts,
-        body_profile=body_profile,
-    ):
-        return HeadingLevel.H2
-
-    return None
+        already_emitted=emitted_heading_texts is not None and line in emitted_heading_texts,
+    )
+    return evaluate_heading(candidate)
 
 
 def _is_fallback_heading(
     line: str,
     is_h1_slot: bool,
-    fallback_signal: Optional["_FallbackSignal"],
+    fallback_signal: Optional[FallbackFontSignal],
     body_font_name: Optional[str],
     signature_counts: Optional[Counter],
     body_profile: Optional[LineLayout],
 ) -> bool:
-    """bug_002 last-resort fallback tier.
+    """Whether the bug_002 recurring-heading-font signal supports this line.
 
-    Every condition below is required (AND, not OR) - this is
-    deliberately conservative, since this tier has no text-pattern
-    signal to fall back on if the layout signal is wrong. Sole-line-block
-    is enforced here, and only here, never as a global heading
-    requirement (see module docstring point 5 and
-    notes_md/heading_isolation_signal_review.md): "Chapter 9"/"Chapter 7"
-    are real headings that are NOT sole-line blocks, but they are
-    resolved by the H1-slot tier above before this function is ever
-    called for them, so the restriction is safe.
-
-    One condition beyond the originally-audited six: the candidate's
-    font size must be at least the document's body size. Verification
-    against the real Brinkman PDF found that table/figure captions and
-    table-footnote lines (8-9pt, in a font distinct from body, sole-line,
-    and recurring across the document's several tables/figures) satisfy
-    every one of the original six gates just as the 12 real section
-    headings do - the six gates alone cannot tell "a font reused for
-    section headings" apart from "a font reused for captions." All 12
-    real Brinkman headings are 12pt against a 10pt body; every caption/
-    footnote false positive found was 8-9pt - smaller than body, not
-    larger. This reuses body_profile's already-computed body size (no
-    new PDF pass) and does not touch any of the six original conditions.
+    Thin adapter over
+    heading_signals.font_signal_supports_heading() - the conditions and
+    the audit trail behind each now live there. Kept at this name because
+    it is the unit-test entry point for that gate.
     """
-    if is_h1_slot:
-        return False
-    if fallback_signal is None or body_font_name is None or signature_counts is None:
-        return False
-    if not any(ch.isalpha() for ch in line):
-        return False
-    if fallback_signal.font_name == body_font_name:
-        return False
-    signature = (fallback_signal.font_name, fallback_signal.size)
-    if signature_counts.get(signature, 0) < _FALLBACK_MIN_RECURRENCE:
-        return False
-    if not fallback_signal.is_sole_line:
-        return False
-    if body_profile is not None:
-        body_size, _ = body_profile
-        if fallback_signal.size < body_size:
-            return False
-    return True
+    return font_signal_supports_heading(
+        HeadingCandidate(
+            text=line,
+            is_h1_slot=is_h1_slot,
+            body_profile=body_profile,
+            font_signal=fallback_signal,
+            body_font_name=body_font_name,
+            signature_counts=signature_counts,
+        )
+    )
 
 
 def _absorb_continuations(
