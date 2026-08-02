@@ -624,6 +624,61 @@ def get_headings(job_id: str) -> HeadingsResponse:
     return HeadingsResponse(headings=headings_out)
 
 
+def _record_heading_edit(
+    document: Any,
+    heading: Any,
+    field: str,
+    original_value: str,
+    proposed_value: str,
+    reason: str,
+    reason_code: str,
+) -> None:
+    """Route one reviewer heading edit through the correction rail.
+
+    The rail — not this handler — performs the mutation. ``field`` is the
+    kind ``HeadingVerifier.apply()`` dispatches on ("level_mismatch" sets
+    Heading.level, "text_correction" sets Heading.text), so a reviewer's
+    edit lands through exactly the same code path a Mathpix-derived
+    correction does, and ``engine.revert_correction()`` undoes it with no
+    heading-specific undo logic.
+
+    Before this, ``review_heading()`` mutated ``heading.level``/``.text``
+    directly and recorded only a per-object ``HeadingReviewStatus``. That
+    left the most consequential decisions in the system — the human's own
+    — with no audit row, no evidence link, and no undo, while
+    CorrectionStatus's contract states that "every current and future
+    verifier's reviewer step uses this same six-state lifecycle — no
+    per-object-type status enum is ever needed again".
+
+    ``reason_code`` is deliberately distinct from HeadingVerifier's own
+    HEADING_LEVEL_MISMATCH/HEADING_TEXT_OCR_ERROR: those mean "the PDF
+    disagrees with the provider", which is a different claim from "a human
+    changed it". ``field`` still carries the verifier's kind because that
+    is what drives apply().
+    """
+    import src.verification.headings  # noqa: F401 - registers HeadingVerifier
+
+    correction = CorrectionRecord(
+        object_type="heading",
+        object_id=heading.id,
+        field=field,
+        original_value=original_value,
+        proposed_value=proposed_value,
+        confidence=heading.confidence,
+        evidence_items=list(heading.evidence_items),
+        reason=reason,
+        reason_code=reason_code,
+        provider="manual_reviewer",
+        # EDITED is terminal, so REVIEW_001 does not block export on a
+        # decision the reviewer has already made.
+        status=CorrectionStatus.EDITED,
+        reviewed_at=datetime.now(timezone.utc),
+    )
+    document.corrections.append(correction)
+    # Bumps document.version, invalidating cached exports (FEATURE_020).
+    engine.apply_correction(document, correction)
+
+
 @router.patch("/documents/{job_id}/headings/{document_order}", response_model=HeadingOut)
 def review_heading(job_id: str, document_order: int, body: HeadingReviewRequest) -> HeadingOut:
     """Apply a human review action to a single heading.
@@ -633,6 +688,15 @@ def review_heading(job_id: str, document_order: int, body: HeadingReviewRequest)
       reject   → REJECTED; marks as false positive heading.
     level (1–5) + text may be updated independently of action.
     Page markers (H6) are excluded from review and return 404.
+
+    Level and text edits are applied through the correction rail (see
+    _record_heading_edit) so each is an undoable CorrectionRecord.
+    ``review_status`` is still maintained as a derived mirror for existing
+    API consumers; the CorrectionRecord is the audit trail. approve/reject
+    remain status-only annotations for now — they mutate nothing, and
+    consolidating them onto CorrectionStatus.ACCEPTED/REJECTED needs
+    heading *detection* to emit a PROPOSED correction for them to resolve,
+    which is its own milestone.
     """
     document = _require_document(job_id)
     if document is None:
@@ -648,13 +712,31 @@ def review_heading(job_id: str, document_order: int, body: HeadingReviewRequest)
         if body.level is not None:
             if body.level < 1 or body.level > 5:
                 raise HTTPException(status_code=422, detail="Heading level must be 1–5 (H6 reserved for page markers).")
-            heading.level = HeadingLevel(body.level)
+            if HeadingLevel(body.level) != heading.level:
+                _record_heading_edit(
+                    document,
+                    heading,
+                    field="level_mismatch",
+                    original_value=str(int(heading.level)),
+                    proposed_value=str(body.level),
+                    reason=f"Reviewer changed heading level from H{int(heading.level)} to H{body.level}",
+                    reason_code="HEADING_LEVEL_MANUAL_EDIT",
+                )
             if heading.review_status == HeadingReviewStatus.DETECTED:
                 heading.review_status = HeadingReviewStatus.LEVEL_CHANGED
         if body.text is not None:
             if not body.text.strip():
                 raise HTTPException(status_code=422, detail="Heading text must not be blank.")
-            heading.text = body.text.strip()
+            if body.text.strip() != heading.text:
+                _record_heading_edit(
+                    document,
+                    heading,
+                    field="text_correction",
+                    original_value=heading.text,
+                    proposed_value=body.text.strip(),
+                    reason="Reviewer edited heading text",
+                    reason_code="HEADING_TEXT_MANUAL_EDIT",
+                )
         if body.action == "approve":
             heading.review_status = HeadingReviewStatus.APPROVED
         elif body.action == "reject":
