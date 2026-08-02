@@ -153,7 +153,7 @@ _OVERLAP_GUARD_MIN_PT = 4.0
 class _MergedLine:
     """One same-baseline-merged line: Bug 1's fix output, Bug 2's input."""
 
-    __slots__ = ("page_number", "text", "bbox", "source_block_index", "source_orders")
+    __slots__ = ("page_number", "text", "bbox", "source_block_index", "source_block_ids")
 
     def __init__(
         self,
@@ -161,13 +161,13 @@ class _MergedLine:
         text: str,
         bbox: BoundingBox,
         source_block_index: Optional[int],
-        source_orders: List[int],
+        source_block_ids: List[str],
     ) -> None:
         self.page_number = page_number
         self.text = text
         self.bbox = bbox
         self.source_block_index = source_block_index
-        self.source_orders = source_orders
+        self.source_block_ids = source_block_ids
 
 
 def group_into_paragraphs(blocks: Sequence[TextBlock]) -> List[Paragraph]:
@@ -208,7 +208,7 @@ def _merge_same_baseline_fragments(blocks: Sequence[TextBlock]) -> List[_MergedL
         if current is not None and _is_same_baseline_continuation(current, block):
             current.text = _join_with_hyphen_repair(current.text, block.text)
             current.bbox = _union_bbox(current.bbox, block.bbox)
-            current.source_orders.append(block.order)
+            current.source_block_ids.append(block.block_id)
             continue
 
         if current is not None:
@@ -218,7 +218,7 @@ def _merge_same_baseline_fragments(blocks: Sequence[TextBlock]) -> List[_MergedL
             text=block.text,
             bbox=block.bbox,
             source_block_index=block.source_block_index,
-            source_orders=[block.order],
+            source_block_ids=[block.block_id],
         )
 
     if current is not None:
@@ -391,17 +391,17 @@ def _median_line_height(lines: List[_MergedLine]) -> float:
 def _build_paragraph(group: List[_MergedLine]) -> Paragraph:
     text = group[0].text
     bbox = group[0].bbox
-    source_orders: List[int] = list(group[0].source_orders)
+    source_block_ids: List[str] = list(group[0].source_block_ids)
     for line in group[1:]:
         text = _join_with_hyphen_repair(text, line.text)
         bbox = _union_bbox(bbox, line.bbox)
-        source_orders.extend(line.source_orders)
+        source_block_ids.extend(line.source_block_ids)
 
     return Paragraph(
         page_number=group[0].page_number,
         text=text,
         bbox=bbox,
-        source_orders=source_orders,
+        source_block_ids=source_block_ids,
     )
 
 

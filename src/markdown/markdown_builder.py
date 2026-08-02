@@ -31,11 +31,14 @@ markdown footnote syntax is ``[^label]`` inline plus a matching
 detected (Footnote.number) is not by itself a safe markdown label,
 because footnote numbering conventionally resets per page - two
 different footnotes from two different pages can share the same
-printed "1". _footnote_label() builds a page-qualified label
-(``p{page}-{number}``) that is unique across the whole document while
-keeping the original printed number visible inside it, so the
-human-meaningful number survives even though the underlying label
-isn't itself the bare number. Footnote definitions render immediately
+printed "1". ``Footnote.label`` (src/models/footnote.py) is the
+page-qualified label (``p{page}-{number}``) that is unique across the
+whole document while keeping the original printed number visible inside
+it, so the human-meaningful number survives even though the underlying
+label isn't itself the bare number. P2 moved that formula onto the model:
+what a note calls itself is a property of the note, not of Markdown, and
+this module previously owned it while the DOCX projection recovered it by
+parsing this module's output. Footnote definitions render immediately
 after the page that anchors them (print convention: a footnote belongs
 with its page); endnote definitions are collected into a single
 "## Endnotes" section at the end of the document, since by definition
@@ -51,31 +54,36 @@ H6 marker, deliberately not as a competing H1 heading - the existing
 H1 (e.g. a "Article"-style kicker line, unaffected by this module)
 still renders exactly as before. Their exact source lines are
 suppressed from page 1's ordinary body rendering the same way a
-footnote body's or a figure caption's source line already is (see
-``suppressed_body_lines`` below) - omitting that step would render
-them a second time, the same duplication class already fixed twice
-elsewhere in this module.
+footnote body's or a figure caption's source line already is -
+omitting that step would render them a second time, the same
+duplication class already fixed twice elsewhere in this module. P2
+moved that suppression into the model: on the paragraph path the
+absorbed lines simply never become part of a Paragraph (see
+src/structure/paragraph_assembly.py); the line-by-line fallback below
+still resolves them by text, since it has no blocks to key on.
 
 Design note on paragraph reconstruction (see
 samples/regressions/bug_001_brinkman_word_splitting/notes_md/ for the
-audit and design review this implements): when document.blocks
-(src/structure/structure_detector.py, Phase H) has entries for a page,
-_render_page_body_with_paragraphs reconstructs paragraphs from them via
-src/structure/paragraph_grouper.py instead of rendering one markdown
-block per raw PDF line. Heading/footnote detection still run their
-existing exact-line scan over page.cleaned_text first, unchanged; only
-the runs of plain body lines between those events are paragraph-joined.
-Pages with no blocks for them (e.g. OCR-recovered pages - Structure
-Detection only reads a PDF's native text layer, never Docling/Surya
-output, see structure_detector.py) fall back to
+audit and design review this implements): paragraphs are no longer
+reconstructed here. P2 moved grouping - and the "is this line prose?"
+rule it depends on - into src/structure/paragraph_assembly.py, which
+runs once in the pipeline (Stage 5c) and stores its result on
+Document.paragraphs. _render_page_body_with_paragraphs is now a
+projection of those objects: it emits a paragraph when it reaches the
+block that paragraph starts at. A Document that never ran Stage 5c gets
+them assembled on the way in (see build_markdown), so there is one
+implementation of the rule and not a render-time copy of it.
+Pages with no blocks (e.g. OCR-recovered pages - Structure Detection
+only reads a PDF's native text layer, never Docling/Surya output, see
+structure_detector.py) still fall back to
 _render_page_body_line_by_line, the original one-line-per-block
-behavior, unchanged - paragraph reconstruction is additive, not a
-replacement of that path, since there is no bbox data to ground it for
-those pages.
+behavior, unchanged - there is no bbox data to ground paragraph
+reconstruction in for those pages, so they keep their own text-keyed
+suppression sets.
 
-Design note on formatting fidelity (016G): when flush_run() produces a
-paragraph from a run of TextBlocks, it checks whether every contributing
-block's spans (TextBlock.spans, feature_005) are uniformly bold and/or
+Design note on formatting fidelity (016G): when a paragraph is emitted,
+_render_paragraph looks up its contributing TextBlocks by id
+(Paragraph.source_block_ids) and checks whether every one of their spans (TextBlock.spans, feature_005) are uniformly bold and/or
 italic — non-superscript spans only, since a footnote marker's
 superscript span is decoration, not body-text formatting. A uniformly
 bold paragraph wraps its text in ``**...**``; italic in ``*...*``; both
@@ -112,18 +120,24 @@ from src.models.contracts import (
     Table,
     TextBlock,
 )
-from src.structure.paragraph_grouper import group_into_paragraphs
+from src.structure.paragraph_assembly import (
+    NOTES_SECTION_HEADING_PATTERN,
+    absorbed_block_ids,
+    assemble_paragraphs,
+    headings_by_anchor,
+    paragraph_starts,
+)
 
 # Public so downstream stages (e.g. src/docx/docx_generator.py) that parse
 # this module's markdown output can match the exact same token rather than
 # duplicating it as an independent magic string.
 PAGE_BREAK_MARKER = "<!-- pagebreak -->"
 
-# Matches the literal section-heading line src/footnotes/footnote_detector.py
-# (Phase K) used to find the start of an endnotes section - same rule,
-# applied here only to suppress that one source line once this module
-# has already generated its own "## Endnotes" section to replace it.
-_NOTES_SECTION_HEADING_PATTERN = re.compile(r"^(notes|endnotes)$", re.IGNORECASE)
+# P2: the endnotes section-heading rule now lives in
+# src/structure/paragraph_assembly.py, where the paragraph assembler needs
+# the same answer. Aliased rather than duplicated - the line-by-line
+# fallback path below still applies it to raw text.
+_NOTES_SECTION_HEADING_PATTERN = NOTES_SECTION_HEADING_PATTERN
 
 
 def _group_tables_by_page(tables: List[Table]) -> Dict[int, List[Table]]:
@@ -134,8 +148,11 @@ def _group_tables_by_page(tables: List[Table]) -> Dict[int, List[Table]]:
 
 
 def _group_paragraphs_by_page(paragraphs: List[Paragraph]) -> Dict[int, List[Paragraph]]:
-    """FEATURE_020 — Mathpix-path only (see Paragraph's docstring);
-    empty dict for RAWRS-native documents."""
+    """Both paths since P2: the Mathpix import supplies its own Paragraphs
+    (with source_line positions), and Stage 5c assembles them for native
+    documents. Formerly Mathpix-only, which is why a non-empty list used to
+    be usable as a path discriminator - see build_markdown for what
+    replaced that."""
     grouped: Dict[int, List[Paragraph]] = {}
     for para in paragraphs:
         grouped.setdefault(para.page_number, []).append(para)
@@ -239,7 +256,12 @@ def build_markdown(
     blocks_by_page = _group_blocks_by_page(document.blocks)
     tables_by_page = _group_tables_by_page(document.tables)
     lists_by_page = _group_lists_by_page(document.lists)
-    paragraphs_by_page = _group_paragraphs_by_page(document.paragraphs)
+    # P2: paragraphs come from the model. Stage 5c stores them; a Document
+    # that never ran it (a direct build_markdown() call, a fixture) gets
+    # them assembled here rather than this module keeping its own grouping
+    # logic for that case — same function, same answer, one implementation.
+    paragraphs = document.paragraphs or assemble_paragraphs(document)
+    paragraphs_by_page = _group_paragraphs_by_page(paragraphs)
     has_endnotes = any(note.note_type == NoteType.ENDNOTE for note in document.footnotes)
     sorted_pages = sorted(document.pages, key=lambda page: page.page_number)
 
@@ -254,12 +276,32 @@ def build_markdown(
     # path (empty for RAWRS-native — see Paragraph's docstring), so its
     # presence is the signal; a document with real Mathpix headings but
     # zero paragraph blocks still counts via the second check.
-    is_mathpix_import = bool(document.paragraphs) or any(
-        h.source == "mathpix" for h in document.headings
+    # P2: ask the document who imported it. ``Document.import_provider`` is
+    # set by the ingestion path itself and is the same field the correction
+    # rail already reads, so a projection no longer infers provenance from
+    # the shape of the objects it was handed. The heuristic below stays as
+    # the fallback for a Document assembled without it (fixtures, direct
+    # build_markdown() calls), where inferring is still better than
+    # guessing wrong.
+    # P2: ``bool(document.paragraphs)`` is no longer a Mathpix signal —
+    # Stage 5c now assembles paragraphs on the native path too, which is the
+    # point of moving grouping into the model. The discriminator becomes the
+    # two things only an import can produce: a declared provider, or objects
+    # carrying a position in a source .mmd. ``import_provider`` alone is not
+    # enough on its own, because a Document built straight from the ingestor
+    # (unit tests, a re-render of stored objects) never passed through the
+    # pipeline line that sets it — and setting it on the *native* path is not
+    # an option, since six verifiers read a falsy import_provider as
+    # "single-source document, nothing to reconcile against".
+    is_mathpix_import = (
+        getattr(document, "import_provider", None) == "mathpix"
+        or any(h.source == "mathpix" for h in document.headings)
+        or any(p.source_line is not None for p in paragraphs)
     )
 
     sections = [
         _render_page(
+            document,
             page,
             document.headings,
             images_by_page.get(page.page_number, []),
@@ -446,12 +488,6 @@ def _group_notes_by_body_page(footnotes: List[Footnote]) -> Dict[int, List[Footn
     return grouped
 
 
-def _footnote_label(note: Footnote) -> str:
-    """A markdown footnote label unique across the whole document (see
-    module docstring) - the printed number stays visible inside it."""
-    return f"p{note.body_page_number}-{note.number}"
-
-
 def _substitute_markers(text: str, notes: List[Footnote]) -> str:
     """Replace every note's footnote/endnote marker in ``text`` with its
     markdown reference (``[^label]``).
@@ -462,10 +498,9 @@ def _substitute_markers(text: str, notes: List[Footnote]) -> str:
     source line each marker actually came from, since one joined
     paragraph can combine markers from several different lines, and a
     multi-paragraph run, src/markdown/markdown_builder.py's
-    ``flush_run()``, passes the *same* full note list to *every*
-    resulting paragraph even though each note belongs to exactly one of
-    them). A note whose ``anchor_text`` does not appear in ``text`` at
-    all is skipped entirely for this call - it belongs to a different
+    the line-by-line path, passes a note list that may include notes
+    belonging to a different block). A note whose ``anchor_text`` does
+    not appear in ``text`` at all is skipped entirely for this call - it belongs to a different
     paragraph from the same run, and must never touch this one.
 
     For a note whose anchor line *is* present, ``anchor_offset``
@@ -502,7 +537,7 @@ def _substitute_markers(text: str, notes: List[Footnote]) -> str:
 
     resolved.sort(key=lambda item: item[0] if item[0] is not None else -1, reverse=True)
     for absolute, note in resolved:
-        label = f"[^{_footnote_label(note)}]"
+        label = f"[^{note.label}]"
         if (
             absolute is not None
             and 0 <= absolute <= len(text) - len(note.marker)
@@ -524,6 +559,7 @@ def _substitute_markers(text: str, notes: List[Footnote]) -> str:
 
 
 def _render_page(
+    document: Document,
     page: Page,
     headings: List[Heading],
     page_images: List[Image],
@@ -576,6 +612,7 @@ def _render_page(
     blocks.extend(_render_front_matter_blocks(page_front_matter))
     blocks.extend(
         _render_page_body(
+            document,
             page,
             content_headings,
             anchor_notes,
@@ -665,6 +702,7 @@ def _find_page_marker(
 
 
 def _render_page_body(
+    document: Document,
     page: Page,
     content_headings: List[Heading],
     anchor_notes: List[Footnote],
@@ -707,15 +745,7 @@ def _render_page_body(
         )
     if page_blocks:
         return _render_page_body_with_paragraphs(
-            page,
-            content_headings,
-            anchor_notes,
-            body_notes,
-            has_endnotes,
-            page_blocks,
-            page_images,
-            front_matter,
-            page_tables,
+            document, page, content_headings, anchor_notes, page_blocks, page_paragraphs
         )
     return _render_page_body_line_by_line(
         page, content_headings, anchor_notes, body_notes, has_endnotes, page_images, front_matter
@@ -799,7 +829,7 @@ def _render_page_body_line_by_line(
 
     for note in sorted(anchor_notes, key=lambda n: n.number):
         if note.note_type == NoteType.FOOTNOTE:
-            blocks.append(f"[^{_footnote_label(note)}]: {note.body}")
+            blocks.append(f"[^{note.label}]: {note.body}")
 
     return blocks
 
@@ -876,61 +906,63 @@ def _render_page_semantic(
 
     for note in sorted(anchor_notes, key=lambda n: n.number):
         if note.note_type == NoteType.FOOTNOTE:
-            blocks.append(f"[^{_footnote_label(note)}]: {note.body}")
+            blocks.append(f"[^{note.label}]: {note.body}")
 
     return blocks
 
 
 def _render_page_body_with_paragraphs(
+    document: Document,
     page: Page,
     content_headings: List[Heading],
     anchor_notes: List[Footnote],
-    body_notes: List[Footnote],
-    has_endnotes: bool,
     page_blocks: List[TextBlock],
-    page_images: List[Image],
-    front_matter: Optional[FrontMatter],
-    page_tables: Optional[List[Table]] = None,
+    page_paragraphs: List[Paragraph],
 ) -> List[str]:
-    """Geometry-grounded counterpart to _render_page_body_line_by_line:
-    same heading/footnote/caption exact-line scan and suppression
-    (unchanged - see that function's docstring for the matching
-    assumption), but consecutive plain-body lines are accumulated into
-    a run and paragraph-joined (src/structure/paragraph_grouper.py)
-    instead of each becoming its own markdown block.
+    """Project a page whose lines the model has already grouped.
 
-    Matching a scanned text line back to its TextBlock is purely
-    positional (page_blocks is order-sorted; one non-blank text line
-    consumes exactly one TextBlock, in lockstep, regardless of whether
-    that line turns out to be a heading/suppressed/body line) - not
-    text-equality lookup, so duplicate-text lines can never be
-    mismatched. A defensive text-equality check still guards each
-    consumption; on the rare mismatch (positional drift between
-    page.cleaned_text and document.blocks for this page), the run is
-    flushed and that line renders standalone rather than risk grouping
-    it under the wrong bbox.
+    P2 turned this from a decision into a projection. It used to hold the
+    whole "is this line prose?" cascade — six suppression rules, four of
+    them keyed on text — accumulate the survivors into a run, and call
+    ``group_into_paragraphs`` on each run at render time, discarding the
+    Paragraphs immediately afterwards. All of that now lives in
+    src/structure/paragraph_assembly.py and runs once, in Stage 5c.
+
+    What is left is the projection's actual job: walk the page in order and
+    emit what the model already decided is there. Three cases, in order:
+
+      1. something already carries this line     -> emit nothing
+      2. a heading was detected from this block   -> emit the heading
+      3. a paragraph begins at this block         -> emit the paragraph
+      4. otherwise                                -> already emitted; skip
+
+    Case 1 keeps the precedence the renderer has always had — absorbed
+    beats heading — without naming the six rules that decide it; the model
+    hands over the resolved set. Case 4 is a line inside a paragraph that
+    was emitted at that paragraph's first block.
+
+    Headings are looked up by block, not taken from a queue. The old
+    "next pending heading" queue stalled permanently whenever a heading's
+    line was suppressed for some other reason, swallowing every later
+    heading on the page — two such cascades on the benchmark corpus.
+
+    The one remaining fallback is lockstep drift. Text lines are walked in
+    parallel with ``page_blocks``, one block consumed per non-blank line; if
+    a line and its block disagree, or the blocks run out, the line renders
+    standalone exactly as it did before P2 rather than being attributed to
+    the wrong block.
     """
-    if page_tables is None:
-        page_tables = []
-    pending = list(content_headings)
     notes_by_anchor_text: Dict[str, List[Footnote]] = {}
     for note in anchor_notes:
         notes_by_anchor_text.setdefault(note.anchor_text, []).append(note)
-    # Continuation-line absorption fix: suppress every line
-    # src/footnotes/footnote_detector.py absorbed into a note's body
-    # (not just its first line), or the absorbed continuation text
-    # would otherwise render twice - once as part of the note's proper
-    # [^label]: definition, once again as an orphaned plain-text line.
-    suppressed_body_lines = {note.body_source_text for note in body_notes}
-    suppressed_body_lines.update(
-        line for note in body_notes for line in note.body_continuation_source_texts
-    )
-    suppressed_body_lines.update(_caption_source_texts(page_images))
-    suppressed_body_lines.update(_front_matter_source_texts(front_matter))
-    # Table suppression: TextBlock indices whose bbox overlaps a detected
-    # table's bbox are skipped in the rendering loop below — their text
-    # already appears in the pipe-table rendering added by _render_tables().
-    table_suppressed_indices = _table_suppressed_blocks(page_tables, page_blocks)
+
+    starts = paragraph_starts(page_paragraphs)
+    blocks_by_id: Dict[str, TextBlock] = {b.block_id: b for b in page_blocks}
+    absorbed = absorbed_block_ids(document, page.page_number, page_blocks)
+    by_anchor = headings_by_anchor(document, page.page_number)
+    # Headings the model could not anchor to a block keep the pre-P2
+    # sequential text match, which is all that can place them.
+    pending = [h for h in content_headings if h.source_block_id is None]
 
     # 016B: When any block has a corrected_order set, derive text lines from
     # the already-sorted page_blocks instead of cleaned_text. The corrected
@@ -943,21 +975,7 @@ def _render_page_body_with_paragraphs(
         raw_text_lines = (page.cleaned_text or page.raw_text).splitlines()
 
     blocks: List[str] = []
-    run: List[TextBlock] = []
-    run_notes: List[Footnote] = []
     block_cursor = 0
-
-    def flush_run() -> None:
-        nonlocal run, run_notes
-        if not run:
-            return
-        blocks_by_order: Dict[int, TextBlock] = {b.order: b for b in run}
-        for paragraph in group_into_paragraphs(run):
-            contributing = [blocks_by_order[o] for o in paragraph.source_orders if o in blocks_by_order]
-            formatted = _apply_inline_format(paragraph.text, contributing)
-            blocks.append(_substitute_markers(formatted, run_notes))
-        run = []
-        run_notes = []
 
     for raw_line in raw_text_lines:
         line = raw_line.strip()
@@ -965,52 +983,51 @@ def _render_page_body_with_paragraphs(
             continue
 
         source_block = page_blocks[block_cursor] if block_cursor < len(page_blocks) else None
-        current_cursor = block_cursor
         block_cursor += 1
 
-        if current_cursor in table_suppressed_indices:
-            flush_run()
-            continue
-
-        # L2.2 artifact suppression: this line is a running header/footer or
-        # page number whose suppression was recorded as a CorrectionRecord and
-        # applied (see src/verification/artifacts.py). Keyed on the block, not
-        # its text, because artifact text repeats across pages by definition -
-        # a text-keyed skip would suppress a legitimate same-text body line
-        # elsewhere. Rejecting or undoing the correction clears the flag and
-        # the line renders again, with no change needed here.
-        if source_block is not None and source_block.suppressed:
-            flush_run()
-            continue
-
-        if line in suppressed_body_lines:
-            flush_run()
-            continue
-
-        if has_endnotes and _NOTES_SECTION_HEADING_PATTERN.match(line):
-            flush_run()
-            continue
-
-        if pending and line == pending[0].text:
-            flush_run()
-            blocks.append(_render_heading(pending.pop(0)))
-            continue
-
-        line_notes = notes_by_anchor_text.get(line, [])
         if source_block is not None and source_block.text == line:
-            run.append(source_block)
-            run_notes.extend(line_notes)
-        else:
-            flush_run()
-            blocks.append(_substitute_markers(line, line_notes))
+            if source_block.block_id in absorbed:
+                continue
+            heading = by_anchor.get(source_block.block_id)
+            if heading is None and pending and line == pending[0].text:
+                heading = pending.pop(0)
+            if heading is not None:
+                blocks.append(_render_heading(heading))
+                continue
+            paragraph = starts.get(source_block.block_id)
+            if paragraph is not None:
+                blocks.append(_render_paragraph(paragraph, blocks_by_id, notes_by_anchor_text))
+            continue
 
-    flush_run()
+        blocks.append(_substitute_markers(line, notes_by_anchor_text.get(line, [])))
 
     for note in sorted(anchor_notes, key=lambda n: n.number):
         if note.note_type == NoteType.FOOTNOTE:
-            blocks.append(f"[^{_footnote_label(note)}]: {note.body}")
+            blocks.append(f"[^{note.label}]: {note.body}")
 
     return blocks
+
+
+def _render_paragraph(
+    paragraph: Paragraph,
+    blocks_by_id: Dict[str, TextBlock],
+    notes_by_anchor_text: Dict[str, List[Footnote]],
+) -> str:
+    """One assembled paragraph as a markdown block.
+
+    Formatting fidelity (016G) and footnote markers both need the
+    paragraph's contributing lines, and ``source_block_ids`` names them, so
+    neither has to be recovered from the joined text. Only the notes
+    anchored to *this* paragraph's own lines are offered for substitution —
+    ``_substitute_markers`` would filter the rest out by anchor text
+    anyway, but not handing them over in the first place removes the chance
+    of a coincidental substring match from a neighbouring paragraph.
+    """
+    contributing = [
+        blocks_by_id[bid] for bid in paragraph.source_block_ids if bid in blocks_by_id
+    ]
+    notes = [note for block in contributing for note in notes_by_anchor_text.get(block.text, [])]
+    return _substitute_markers(_apply_inline_format(paragraph.text, contributing), notes)
 
 
 def _render_endnotes_section(footnotes: List[Footnote]) -> str:
@@ -1026,7 +1043,7 @@ def _render_endnotes_section(footnotes: List[Footnote]) -> str:
         return ""
 
     blocks = ["## Endnotes"]
-    blocks.extend(f"[^{_footnote_label(note)}]: {note.body}" for note in endnotes)
+    blocks.extend(f"[^{note.label}]: {note.body}" for note in endnotes)
     return "\n\n".join(blocks)
 
 
@@ -1058,38 +1075,6 @@ def _render_tables(tables: List[Table]) -> List[str]:
         if table.summary:
             blocks.append(f"<!-- table-summary: {table.summary} -->")
     return blocks
-
-
-def _table_suppressed_blocks(page_tables: List[Table], page_blocks: List[TextBlock]) -> Set[int]:
-    """Indices into page_blocks whose bbox overlaps with any table bbox.
-
-    When PyMuPDF detects a table, its bbox covers the table's page area.
-    Any TextBlock that falls inside (or overlaps) that area originally
-    came from the table cells, so it should be suppressed from body-text
-    rendering — otherwise cell text would appear twice: once as raw body
-    lines, once as the pipe-table rendering below.
-
-    Only tables with a non-None bbox participate (manually-created tables
-    have no source bbox to check against).
-
-    Returns a set of indices (into page_blocks) to skip.
-    """
-    if not page_tables:
-        return set()
-    suppressed: Set[int] = set()
-    for table in page_tables:
-        if table.bbox is None:
-            continue
-        tbx = table.bbox
-        for idx, block in enumerate(page_blocks):
-            b = block.bbox
-            if b is None:
-                continue
-            # Overlap check: rectangles intersect when neither is completely
-            # outside the other in either axis.
-            if b.x0 < tbx.x1 and b.x1 > tbx.x0 and b.y0 < tbx.y1 and b.y1 > tbx.y0:
-                suppressed.add(idx)
-    return suppressed
 
 
 def _render_images(images: List[Image]) -> List[str]:

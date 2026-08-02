@@ -62,6 +62,8 @@ from src.headings.heading_detector import detect_headings, detect_headings_from_
 from src.lists.list_detector import detect_lists_from_pdf
 from src.images.image_extractor import _extract_images_from_pdf, extract_images
 from src.markdown.markdown_builder import build_markdown
+from src.structure.paragraph_assembly import assemble_paragraphs
+from src.structure.relationships import link_document
 from src.models.contracts import Document, ProcessingStatus, Severity, ValidationIssue
 from src.ocr.docling_engine import OCRTimingMetrics, run_docling_ocr
 from src.ocr.extractor import extract_text
@@ -395,6 +397,31 @@ def run_pipeline(
             "Inspection complete: {} finding(s) recorded ({} auto-applied)",
             len(findings),
             sum(1 for f in findings if f.auto_apply),
+        )
+
+        # Stage 5c: Link — resolve the cross-object relationships that need
+        # every object to exist first (src/structure/relationships.py).
+        #
+        # Placed after inspection, not before: an applied correction can
+        # change what an object covers, and an edge resolved from stale
+        # state would be a second copy of the truth, free to drift - the
+        # defect this whole layer exists to remove.
+        #
+        # Path-agnostic like 5b, and for the same reason: it asks the
+        # document what it has, never who produced it.
+        document = link_document(document)
+
+        # Paragraph grouping is a semantic decision, so it happens here and
+        # is stored, not recomputed inside each projection. Guarded on
+        # emptiness because the Mathpix path already supplied its own
+        # paragraphs in Stage 2 (from the .mmd, with source_line positions);
+        # this step is what gives the native path the same thing.
+        if not document.paragraphs:
+            document.paragraphs = assemble_paragraphs(document)
+        logger.info(
+            "Stage 5c (Link) complete: {} paragraph(s), {} table-block link(s)",
+            len(document.paragraphs),
+            sum(len(t.source_block_ids) for t in document.tables),
         )
 
         logger.info("Stage 5/8 (Detect Headings) complete: {} heading(s)", len(document.headings))

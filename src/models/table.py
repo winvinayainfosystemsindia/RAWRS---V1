@@ -115,3 +115,15 @@ class Table(BaseModel):
     lifecycle_status: ObjectLifecycleStatus = ObjectLifecycleStatus.DETECTED
     # FEATURE_020 — see Heading.source_line's docstring (src/models/heading.py).
     source_line: Optional[int] = None
+    # P2 — the ``TextBlock.block_id`` of every body line whose text this
+    # table already contains, i.e. the lines a projection must NOT render
+    # again as prose. A containment relationship, resolved once by
+    # src/structure/relationships.py from the geometry that was previously
+    # re-derived on every render (markdown_builder's _table_suppressed_blocks
+    # recomputed bbox intersection per page, per output format).
+    #
+    # Empty means "no contributing lines resolved", never "this table has no
+    # text": manually-created tables have no source bbox to intersect, the
+    # Mathpix path has no PDF-side blocks for its tables, and any Document
+    # that never ran the linking step keeps its old behaviour.
+    source_block_ids: List[str] = []

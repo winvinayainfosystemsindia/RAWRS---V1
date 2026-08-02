@@ -5,7 +5,7 @@ That is not speculation about the future; the graph already exists:
 
   * ``Callout`` references its anchoring ``Heading`` by id (src/models/callout.py)
   * ``Footnote`` references its anchor by page + text
-  * ``Paragraph.source_orders`` references the ``TextBlock`` lines it contains
+  * ``Paragraph.source_block_ids`` references the ``TextBlock`` lines it contains
   * a ``Footnote`` renders at the page bottom and an endnote at the document
     end — the same node, two placements, chosen by ``note_type``
 

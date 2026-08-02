@@ -37,10 +37,20 @@ class Paragraph(SemanticObject):
     ``bbox`` is the union of every contributing TextBlock's bbox on the
     RAWRS-native path; unset on the Mathpix path (no PDF geometry to
     union there).
-    ``source_orders`` is the page-scoped ``TextBlock.order`` value of
-    every contributing line on the RAWRS-native path, in order - back-
-    reference provenance only. Empty on the Mathpix path; see
+    ``source_block_ids`` is the ``TextBlock.block_id`` of every
+    contributing line on the RAWRS-native path, in order - the
+    containment relationship "this paragraph is made of those lines".
+    Empty on the Mathpix path (no TextBlocks contributed); see
     ``source_line`` for that path's own ordering key.
+
+    P2 replaced the earlier ``source_orders: List[int]``, which held the
+    page-scoped ``TextBlock.order`` and was therefore only meaningful to
+    a caller that already knew which page it was looking at - the
+    positional-key idiom the projection architecture review identified
+    as one of five different ways this repository spelled the same kind
+    of edge. Same relationship, expressed the way every other edge now
+    is: by the target's own document-unique identity.
+
     ``document_order``/``source_line`` are optional (unlike Heading's
     required document_order) since the RAWRS-native construction path
     has no document-wide paragraph numbering to give them.
@@ -50,6 +60,6 @@ class Paragraph(SemanticObject):
     page_number: int = Field(..., ge=1)
     text: str = Field(..., min_length=1)
     bbox: Optional[BoundingBox] = None
-    source_orders: List[int] = Field(default_factory=list)
+    source_block_ids: List[str] = Field(default_factory=list)
     document_order: Optional[int] = None
     source_line: Optional[int] = None

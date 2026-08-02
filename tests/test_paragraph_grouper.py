@@ -206,13 +206,13 @@ class TestBug2ParagraphJoining:
 
 
 class TestProvenanceAndOrdering:
-    def test_paragraph_records_contributing_source_orders(self) -> None:
+    def test_paragraph_records_contributing_block_ids(self) -> None:
         blocks = [
             _block("Line one", 42.5, 100.0, 200.0, 110.0, 5, source_block_index=0),
             _block("line two", 42.5, 112.0, 220.0, 122.0, 6, source_block_index=0),
         ]
         paragraphs = group_into_paragraphs(blocks)
-        assert paragraphs[0].source_orders == [5, 6]
+        assert paragraphs[0].source_block_ids == ["p1:b5", "p1:b6"]
 
     def test_paragraph_bbox_is_union_of_contributing_lines(self) -> None:
         # x0 deliberately differs slightly (42.5 vs 44.0) to exercise

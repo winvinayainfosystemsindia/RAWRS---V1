@@ -113,3 +113,28 @@ class Footnote(BaseModel):
     # Import provenance: "rawrs" (span-based detector), "mathpix" (imported),
     # "rawrs_recovery" (RAWRS found it; provider missed it).
     source: str = "rawrs"
+
+    @property
+    def label(self) -> str:
+        """This note's rendering label — its printed number, made unique.
+
+        P2: note numbering is a semantic decision, not a Markdown one. Every
+        projection needs the same answer to "what does this note call
+        itself", and until now src/markdown/markdown_builder.py owned the
+        formula (``_footnote_label``) while the DOCX projection recovered it
+        by parsing the Markdown that formula produced — one decision, made
+        inside a format.
+
+        Printed note numbers conventionally reset per page, so ``number``
+        alone is not unique across a document: two different notes can both
+        be printed "1". Qualifying with the *body* page (where the definition
+        physically sits) keeps the human-meaningful printed number visible
+        inside a document-unique label.
+
+        Deliberately not ``footnote_id``: that is this object's *identity*
+        (``fn-{idx}`` from src/footnotes/footnote_detector.py, or
+        ``mathpix-{n}`` on the import path), which answers a different
+        question from what a reader sees. Identity must stay stable when a
+        reviewer renumbers; the label must not.
+        """
+        return f"p{self.body_page_number}-{self.number}"

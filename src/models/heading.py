@@ -108,6 +108,39 @@ class Heading(SemanticObject):
     # document_order alone can't do this, since it only orders within
     # one object type.
     source_line: Optional[int] = None
+    # P2 — the ``TextBlock.block_id`` of the line this heading was detected
+    # from. The first genuinely new *relationship* in the model: typed,
+    # directional, id-based (see docs/RAWRS_PROJECTION_ARCHITECTURE.md).
+    #
+    # Before this existed, every consumer that needed "where does this
+    # heading sit in the body flow?" recovered it by matching heading text
+    # against page text — src/markdown/markdown_builder.py's two body
+    # renderers and src/structure/content_stream.py, three independent
+    # reconstructions of a fact the detector knew and discarded. Text
+    # matching is exactly wrong for this: identical text recurring across
+    # pages is the running-header signature, and a wrapped heading's joined
+    # text (feature_007) matches no single line at all.
+    #
+    # None means "no block correspondence recorded", never "no block":
+    # Mathpix-path headings (which carry ``source_line`` instead), page
+    # markers (synthesized per page, not detected from a line),
+    # detect_headings_from_pdf() candidates (no Document, so no blocks), and
+    # fixtures predating this field. Every consumer must keep its existing
+    # fallback for that case.
+    source_block_id: Optional[str] = None
+    # P2 — the blocks feature_007 (Wrapped Heading Continuation Repair)
+    # absorbed into ``text`` after the anchor. A heading printed across two
+    # PDF lines is one heading whose text spans several blocks, so the
+    # continuation lines are this heading's, not the body's, and a
+    # projection must not render them again as prose.
+    #
+    # Before this existed nothing recorded them, and the omission was
+    # masked by the very text matching P2 removes: the joined text matched
+    # no single line, so the renderer silently dropped the whole heading
+    # and emitted every one of its lines as body instead. Two defects that
+    # happened to cancel - visible in the benchmark the moment placement
+    # became id-based.
+    continuation_block_ids: List[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _backfill_semantic_object_id(self) -> "Heading":

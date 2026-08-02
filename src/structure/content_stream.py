@@ -15,13 +15,11 @@ made twice inside two output formats. It belongs to the document.
 
 **Fidelity status.** This traversal is derived from what the model can
 state today: page markers, headings, body lines, lists, tables, images and
-note definitions, ordered per page. Two things still live in the renderer
-and move to the model in P2, and until they do this stream is a faithful
-*ordering* but not yet a complete rendering instruction:
-
-  * paragraph grouping — which body lines join into one paragraph
-    (``group_into_paragraphs`` currently runs at render time)
-  * note numbering/labelling — computed independently by each projection
+note definitions, ordered per page. P2 closed the two gaps that made it an
+ordering rather than a rendering instruction — paragraph grouping now lives
+in ``src/structure/paragraph_assembly.py`` and note labelling on
+``Footnote.label`` — so what remains for P3 is to emit ``PARAGRAPH`` nodes
+instead of ``BODY_LINE`` ones and have the projections read them.
 
 P3 is gated on rendering from this stream producing byte-identical
 markdown, which is what will prove the ordering correct rather than merely
@@ -49,23 +47,37 @@ def _page_numbers(document: Any) -> List[int]:
 def _heading_anchor_orders(document: Any, page_number: int) -> Dict[str, int]:
     """Place each content heading at the block it was detected from.
 
-    A heading has no direct link to its ``TextBlock`` — heading detection
-    consumed the line's text, not its identity — so the anchor is recovered
-    by matching text within the page, first unconsumed wins. That is the
-    same correspondence ``markdown_builder`` relies on today; recording it
-    here is what lets P2 replace it with a real edge
-    (``Heading.source_block_id``) in one place instead of two.
+    P2 made this a lookup. ``Heading.source_block_id`` is the recorded
+    relationship, written by the detector at the moment it read the line, so
+    the anchor is simply that block's position — no matching, no
+    first-unconsumed-wins tie-breaking, and no way for two headings sharing
+    text to be placed at each other's lines.
 
-    A heading with no matching block (a recovered heading, or a wrapped one
-    whose text was joined across lines) simply gets no anchor and is ordered
-    after the page's body — see ``build_content_stream``.
+    The text-equality fallback below is what this function used to do
+    entirely, kept for headings with no recorded block: Mathpix-path
+    headings (ordered by ``source_line`` instead), reviewer-created ones,
+    and fixtures. A heading that neither route resolves gets no anchor and
+    is ordered after the page's body — see ``build_content_stream``.
     """
     blocks = [b for b in (getattr(document, "blocks", []) or []) if b.page_number == page_number]
+    by_block_id = {b.block_id: b.order for b in blocks}
     consumed: set = set()
     anchors: Dict[str, int] = {}
+    unresolved: List[Any] = []
+
     for heading in getattr(document, "headings", []) or []:
         if heading.page_number != page_number or heading.is_page_marker:
             continue
+        order = by_block_id.get(heading.source_block_id) if heading.source_block_id else None
+        if order is None:
+            unresolved.append(heading)
+            continue
+        anchors[str(heading.id)] = order
+        consumed.add(order)
+
+    # Recorded anchors are claimed first, so a fallback text match can never
+    # steal the block another heading positively identified as its own.
+    for heading in unresolved:
         for block in blocks:
             if block.order in consumed or block.text != heading.text:
                 continue

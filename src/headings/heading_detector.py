@@ -195,6 +195,17 @@ def detect_headings(
     # in which case this pre-filter is a no-op and behaviour is unchanged.
     artifact_texts_by_page = _index_artifact_texts(document.blocks)
 
+    # P2 — the same page's TextBlocks, order-sorted, so each detected
+    # heading can record the block it came from (Heading.source_block_id).
+    # The correspondence is positional and exact: _iter_candidate_lines()
+    # yields the page's non-blank stripped text lines in order, and
+    # document.blocks holds one TextBlock per such line in the same order -
+    # the identical lockstep src/markdown/markdown_builder.py already walks
+    # to match a rendered line back to its block. Recording it here, where
+    # the detector already knows the answer, is what lets every downstream
+    # consumer stop rediscovering it by text equality.
+    blocks_by_page = _index_blocks_by_page(document.blocks)
+
     headings: List[Heading] = []
     order = 0
     h1_slot_open = True  # only the first non-blank line in the whole document is eligible for H1
@@ -229,6 +240,7 @@ def detect_headings(
         # can look ahead at subsequent lines and skip past any it absorbs -
         # a page is at most a few hundred lines, trivial cost.
         page_lines = list(_iter_candidate_lines(text))
+        page_blocks = blocks_by_page.get(page.page_number, [])
         line_index = 0
         while line_index < len(page_lines):
             line = page_lines[line_index]
@@ -317,6 +329,17 @@ def detect_headings(
                     is_page_marker=False,
                     confidence=verdict.bundle.confidence,
                     evidence_items=verdict.bundle.signals,
+                    source_block_id=_block_id_at(page_blocks, line_index, line),
+                    continuation_block_ids=[
+                        block_id
+                        for offset in range(1, lines_absorbed + 1)
+                        if (
+                            block_id := _block_id_at(
+                                page_blocks, line_index + offset, page_lines[line_index + offset]
+                            )
+                        )
+                        is not None
+                    ],
                 )
             )
             order += 1
@@ -471,6 +494,41 @@ def _index_artifact_texts(blocks: List[TextBlock]) -> Dict[int, Set[str]]:
         if block.artifact is not None:
             index[block.page_number].add(block.text)
     return index
+
+
+def _index_blocks_by_page(blocks: List[TextBlock]) -> Dict[int, List[TextBlock]]:
+    """P2: page_number -> that page's TextBlocks in extraction order.
+
+    Sorted by ``order`` alone, deliberately not by ``corrected_order``:
+    detection runs before any reviewer can reorder a page, and the
+    correspondence being recorded here is to the line the detector actually
+    read, which is the extraction sequence. A later reordering moves the
+    block, and ``source_block_id`` follows it because it names the block
+    rather than its position - which is the whole point of recording an id.
+    """
+    index: Dict[int, List[TextBlock]] = defaultdict(list)
+    for block in blocks:
+        index[block.page_number].append(block)
+    for page_blocks in index.values():
+        page_blocks.sort(key=lambda block: block.order)
+    return index
+
+
+def _block_id_at(page_blocks: List[TextBlock], line_index: int, line: str) -> Optional[str]:
+    """The block this candidate line came from, or None if unresolvable.
+
+    Positional (see _index_blocks_by_page's caller comment), with a text
+    equality check as a guard rather than as the lookup: if the lockstep has
+    drifted - a page whose blocks and cleaned_text disagree, or a Document
+    with no blocks at all (fixtures, the Mathpix path) - the honest answer is
+    "no correspondence recorded", not a confidently wrong block. Consumers
+    treat None as "fall back to the previous behaviour", so a drifted page
+    degrades to exactly what it did before this field existed.
+    """
+    if line_index >= len(page_blocks):
+        return None
+    block = page_blocks[line_index]
+    return block.block_id if block.text == line else None
 
 
 def _is_productive_h1_candidate(line: str) -> bool:

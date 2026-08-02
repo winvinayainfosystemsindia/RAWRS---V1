@@ -357,7 +357,7 @@ class TestFeature020ParagraphPromotionAndSourceLine:
             page_number=1,
             text="Some text.",
             bbox=BoundingBox(x0=0, y0=0, x1=10, y1=10),
-            source_orders=[0, 1],
+            source_block_ids=["p1:b0", "p1:b1"],
         )
         assert p.document_order is None
         assert p.source_line is None

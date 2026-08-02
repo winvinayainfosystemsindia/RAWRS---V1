@@ -630,7 +630,22 @@ class TestStructureDetectionDoesNotChangeExistingOutputs:
                 # test already documents as intended. They carry no identity
                 # information of their own - every field that does is still
                 # compared exactly - so excluding them masks nothing.
-                data = {**data, "level": None, "confidence": None, "evidence_items": []}
+                #
+                # P2: source_block_id/continuation_block_ids are neutralised
+                # because they are *derived from* document.blocks by
+                # construction — the "without" run has no blocks, so the
+                # detector correctly records no correspondence, and comparing
+                # them would assert that structure detection has no effect on
+                # a field whose whole purpose is to record one. The text they
+                # would have pointed at is still compared exactly.
+                data = {
+                    **data,
+                    "level": None,
+                    "confidence": None,
+                    "evidence_items": [],
+                    "source_block_id": None,
+                    "continuation_block_ids": [],
+                }
                 out.append({**data, "id": f"heading-{position}", "document_order": position})
             return out
 
