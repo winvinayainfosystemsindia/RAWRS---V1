@@ -78,7 +78,13 @@ class Projection(Protocol):
 | **no `parse()`** | projections are one-way; nothing reads a projection back |
 | purity | `render(doc)` is deterministic and side-effect free apart from asset files |
 
-`anchors` is the whole editing story: an edit in a surface maps to an `object_id`, never to a parse.
+`anchors` map a rendered range back to an `object_id`, never to a parse.
+
+**Demoted 2026-08-03** (`WORKSPACE_ARCHITECTURE_2026-08-03.md` §7.4). This line previously read *"anchors is the
+whole editing story"*, written when the assumption was that a reviewer edits inside a **rendered** surface. They do
+not: editing happens on the semantic surface, built from `ContentNode`s that already carry `object_id`. Anchors buy
+one thing — clicking inside a read-only Markdown/DOCX preview to reach the object behind it. **Optional, not
+foundational.**
 
 ## 5. MarkdownProjection owns
 
