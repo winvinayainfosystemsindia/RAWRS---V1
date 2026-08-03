@@ -48,12 +48,13 @@ _WORD = re.compile(r"\w+", re.UNICODE)
 # when it collects endnote definitions into one section.
 _GENERATED_LITERALS = ("Endnotes",)
 
-# Headings a projection creates that no model object holds. Exhaustive and
-# named on purpose: each entry is a renderer-owned semantic decision that
-# PI-6 says should eventually move into the model, so the list is the
-# outstanding-debt register, not an escape hatch. Every entry is reported as
-# a non-blocking finding on every document where it fires.
-_GENERATED_HEADINGS = {"Endnotes"}
+# Which headings a projection may generate, and which absences it may have,
+# now come from the projection's own declaration
+# (src/architecture/contract.py) rather than from a list maintained here. The
+# difference matters: a hardcoded allowance could be widened inside the
+# checker, where nobody reviewing the renderer would see it. A declaration
+# lives next to the code it excuses.
+from src.markdown.markdown_builder import PROJECTION_CONTRACT as _MARKDOWN_CONTRACT
 
 
 @dataclass(frozen=True)
@@ -131,23 +132,19 @@ def _words(texts: Iterable[str]) -> Counter:
 # what the model says exists
 # --------------------------------------------------------------------------- #
 
-def _authorized_absent_headings(document: Any) -> Set[str]:
-    """Headings a projection may legitimately not emit as a heading.
+def _authorized_absent_headings(document: Any) -> Dict[str, str]:
+    """Heading text -> the limitation code that explains its absence.
 
-    Two documented rules, both recorded in the model rather than decided at
-    render time:
-
-      * the front-matter title - rendered as the front-matter block instead,
-        so the H1 deliberately does not compete with it (FE-0-005);
-      * a heading whose anchor block some other object absorbed (a table cell,
-        the endnotes section line) - absorbed beats heading, by ADR §3.
-
-    Anything else missing is a lost object.
+    Never a bare set. Every unmaterialized object must name the declared
+    limitation permitting it, so "missing" and "missing for a stated reason"
+    can never be confused - PI-1 read strictly: *every semantic object is
+    either materialized or explicitly diagnosed*. A code the projection has
+    not declared is itself a violation (see check_projection).
     """
-    absent: Set[str] = set()
+    absent: Dict[str, str] = {}
     fm = getattr(document, "front_matter", None)
     if fm is not None and fm.title:
-        absent.add(_norm(fm.title))
+        absent[_norm(fm.title)] = "front_matter_title_rendered_as_block"
 
     blocks = getattr(document, "blocks", []) or []
     by_page: Dict[int, List[Any]] = {}
@@ -160,7 +157,7 @@ def _authorized_absent_headings(document: Any) -> Set[str]:
             if h.page_number != page_number or h.is_page_marker:
                 continue
             if h.source_block_id is not None and h.source_block_id in absorbed:
-                absent.add(_norm(h.text))
+                absent.setdefault(_norm(h.text), "absorbed_by_another_object")
     return absent
 
 
@@ -393,16 +390,51 @@ def _check_set(
     label: str,
     expected: Counter,
     realized: Counter,
-    authorized_absent: Optional[Set[str]] = None,
+    authorized_absent: Optional[Dict[str, str]] = None,
+    contract: Any = None,
 ) -> None:
-    """PI-1 / PI-2 / PI-5 for one object type, by identity."""
-    authorized_absent = authorized_absent or set()
+    """PI-1 / PI-2 / PI-5 for one object type, by identity.
+
+    An expected object that is absent is a **lost object** unless the
+    projection declared a limitation covering it, in which case a
+    ``diagnosed_absence`` finding is emitted naming that limitation. A
+    limitation code the projection has not declared is itself a violation -
+    the checker will not invent an excuse the projection did not make.
+
+    Read strictly, that is PI-1: every semantic object is either materialized
+    or explicitly diagnosed. There is no third state.
+    """
+    authorized_absent = authorized_absent or {}
+    declared = contract.limitation_codes() if contract is not None else frozenset()
+    generated = contract.generated_identities(label) if contract is not None else frozenset()
+
     for key, want in expected.items():
         got = realized.get(key, 0)
-        if got == 0 and key not in authorized_absent:
-            report.violations.append(
-                Violation("PI-1", "lost_object", f"{label} in model but not in projection: {key!r}")
-            )
+        if got == 0:
+            code = authorized_absent.get(key)
+            if code is None:
+                report.violations.append(
+                    Violation(
+                        "PI-1", "lost_object", f"{label} in model but not in projection: {key!r}"
+                    )
+                )
+            elif code not in declared:
+                report.violations.append(
+                    Violation(
+                        "PI-1",
+                        "undeclared_limitation",
+                        f"{label} {key!r} is absent under limitation {code!r}, which the "
+                        f"projection does not declare",
+                    )
+                )
+            else:
+                report.findings.append(
+                    Violation(
+                        "PI-1",
+                        "diagnosed_absence",
+                        f"{label} {key!r} not materialized - declared limitation {code!r}",
+                    )
+                )
         elif got > want:
             report.violations.append(
                 Violation(
@@ -411,18 +443,19 @@ def _check_set(
                     f"{label} realized {got}x for {want} model object(s): {key!r}",
                 )
             )
+
     for key, got in realized.items():
         if key in expected:
             continue
-        if label == "heading" and key in _GENERATED_HEADINGS:
-            # Authorized, but not free: the renderer is creating a semantic
+        if key in generated:
+            # Declared, but not free: the projection is creating a semantic
             # object the model has nowhere to hold. Recorded on every document
             # where it fires so the debt stays visible (PI-6).
             report.findings.append(
                 Violation(
                     "PI-6",
                     "renderer_generated_object",
-                    f"heading {key!r} is generated by the projection; no model object holds it",
+                    f"{label} {key!r} is generated by the projection; no model object holds it",
                 )
             )
             continue
@@ -431,7 +464,9 @@ def _check_set(
         )
 
 
-def check_projection(document: Any, markdown: str, name: str = "") -> ProjectionReport:
+def check_projection(
+    document: Any, markdown: str, name: str = "", contract: Any = None
+) -> ProjectionReport:
     """Verify a Markdown projection against the Semantic Document behind it.
 
     Returns a report; an empty ``violations`` list means every invariant in
@@ -439,6 +474,7 @@ def check_projection(document: Any, markdown: str, name: str = "") -> Projection
     violation - the caller decides whether a violation is a gate failure.
     """
     report = ProjectionReport(document=name or str(getattr(document, "source_pdf_path", "") or "?"))
+    contract = contract if contract is not None else _MARKDOWN_CONTRACT
     realized = _parse_markdown(markdown)
 
     headings = getattr(document, "headings", []) or []
@@ -451,6 +487,7 @@ def check_projection(document: Any, markdown: str, name: str = "") -> Projection
         content_headings,
         Counter(realized.headings),
         authorized_absent=_authorized_absent_headings(document),
+        contract=contract,
     )
     _check_set(report, "page marker", markers, Counter(realized.markers))
     _check_set(

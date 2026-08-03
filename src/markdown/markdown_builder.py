@@ -120,6 +120,7 @@ from src.models.contracts import (
     Table,
     TextBlock,
 )
+from src.architecture.contract import GeneratedObject, Limitation, ProjectionContract
 from src.structure.paragraph_assembly import (
     NOTES_SECTION_HEADING_PATTERN,
     absorbed_block_ids,
@@ -132,6 +133,55 @@ from src.structure.paragraph_assembly import (
 # this module's markdown output can match the exact same token rather than
 # duplicating it as an independent magic string.
 PAGE_BREAK_MARKER = "<!-- pagebreak -->"
+
+# What this projection cannot do, declared in advance (ADR-020 PI-1/PI-2/PI-6,
+# enforced by src/architecture/invariants.py AI-7 and read by
+# src/benchmark/projection.py). An absence or an invention that is not listed
+# here is a violation, not a quirk — which is the point: the pre-P2 renderer
+# discarded 20 headings precisely because nothing forced it to say so.
+#
+# Deliberately NOT listed: the synthesized page marker in _find_page_marker().
+# It fires on 0 of 161 corpus pages, and leaving it undeclared means the
+# checker reports it loudly as an invented object if it ever does.
+PROJECTION_CONTRACT = ProjectionContract(
+    format_id="markdown",
+    generates=(
+        GeneratedObject(
+            kind="heading",
+            identity="Endnotes",
+            reason=(
+                "Endnote definitions are collected into one section at the end of "
+                "the document, and the model has no object for that section's "
+                "heading. _render_endnotes_section() writes it. Retired when the "
+                "endnote section becomes a model object."
+            ),
+        ),
+    ),
+    limitations=(
+        Limitation(
+            code="front_matter_title_rendered_as_block",
+            kind="heading",
+            reason=(
+                "The document title is an H1 in document.headings and is also the "
+                "front matter's title. _render_front_matter_blocks() owns its "
+                "rendering (FE-0-005), so the heading deliberately does not render "
+                "a second time. The model records no 'this heading is the title' "
+                "fact, so the projection currently decides it."
+            ),
+        ),
+        Limitation(
+            code="absorbed_by_another_object",
+            kind="heading",
+            reason=(
+                "A heading whose anchor block a table, note body, caption, front "
+                "matter or the endnotes section already carries is not emitted: "
+                "absorbed beats heading (ADR-020 §3). The authorizing fact is a "
+                "recorded containment edge, so this is a model decision the "
+                "projection obeys, not one it makes."
+            ),
+        ),
+    ),
+)
 
 # P2: the endnotes section-heading rule now lives in
 # src/structure/paragraph_assembly.py, where the paragraph assembler needs
