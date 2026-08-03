@@ -70,6 +70,28 @@ class Image(SemanticObject):
     figure: Optional[Figure] = None
     extraction_failed: bool = False
     embedded_in_docx: Optional[bool] = None
+    # P-IMG — where this image sits in reading order, rather than "after
+    # everything else on its page", which is where every projection has put
+    # images because the model could not say otherwise.
+    #
+    # ``source_block_id`` is the TextBlock this image follows: the last line
+    # whose bottom edge is at or above the image's top. None means the image
+    # precedes all body text on its page - a real position, not a missing one.
+    # Resolved by src/structure/relationships.py at Stage 5c, from the bbox
+    # extraction already records (Phase F.1), because the edge needs both the
+    # image and the page's blocks to exist.
+    #
+    # ``document_order`` is the document-wide sequence position, matching the
+    # convention Heading.document_order and ListBlock.document_order already
+    # use. Image was the only ordered object type without one, which is why
+    # ContentStream had to emit IMAGE nodes after a page's body rather than
+    # at their real position.
+    #
+    # Both are None on the Mathpix path (no PDF-side blocks to anchor
+    # against) and for any Document that never ran Stage 5c; consumers keep
+    # their previous page-end placement in that case.
+    source_block_id: Optional[str] = None
+    document_order: Optional[int] = None
     # Legacy provenance + cross-source verification fields (src/verification/).
     import_source: ImportSource = ImportSource.PDF
     source_reference: Optional[str] = None

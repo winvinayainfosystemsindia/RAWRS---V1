@@ -95,11 +95,11 @@ def _is_endnote(note: Any) -> bool:
 def build_content_stream(document: Any) -> ContentStream:
     """Derive the document's reading-order traversal.
 
-    Per page: the page marker, then headings interleaved with body lines by
-    the block each heading was detected from, then lists, tables and images,
-    then the note definitions anchored to that page. Endnotes follow the
-    last page, matching the convention that they are detached from any one
-    page.
+    Per page: the page marker, then headings and images interleaved with
+    body lines by the block each was detected from or follows, then lists
+    and tables, then the note definitions anchored to that page. Endnotes
+    follow the last page, matching the convention that they are detached
+    from any one page.
 
     Suppressed blocks are omitted: a suppression is an applied decision
     (``TextBlock.suppressed``, set only through the correction rail), so the
@@ -149,6 +149,34 @@ def build_content_stream(document: Any) -> ContentStream:
             position = anchor if anchor is not None else len(blocks) + heading.document_order
             entries.append((position, 0, ContentKind.HEADING, str(heading.id)))
 
+        # Images sit at the block they follow (P-IMG). An unlinked Document —
+        # Mathpix, a fixture, anything that never ran Stage 5c — has no anchor
+        # to read, so those images keep the historical after-the-body slot.
+        page_end_images: List[str] = []
+        block_orders = {
+            b.block_id: (b.corrected_order if b.corrected_order is not None else b.order)
+            for b in blocks
+            if b.page_number == page_number
+        }
+        for image in sorted(
+            (i for i in (getattr(document, "images", []) or []) if i.page_number == page_number),
+            key=lambda i: i.document_order if i.document_order is not None else 10**9,
+        ):
+            image_id = str(getattr(image, "image_id", None) or image.id)
+            if image.document_order is None:
+                page_end_images.append(image_id)
+            elif image.source_block_id is None:
+                # A real position, not a missing one: the image precedes every
+                # body line on its page.
+                entries.append((-1, 2, ContentKind.IMAGE, image_id))
+            elif image.source_block_id in block_orders:
+                # Tie-break 2: after the body line it follows, never before it.
+                entries.append(
+                    (block_orders[image.source_block_id], 2, ContentKind.IMAGE, image_id)
+                )
+            else:
+                page_end_images.append(image_id)  # anchor block suppressed or gone
+
         for _, _, kind, object_id in sorted(entries, key=lambda e: (e[0], e[1])):
             emit(object_id, kind, page_number)
 
@@ -158,9 +186,8 @@ def build_content_stream(document: Any) -> ContentStream:
         for table in getattr(document, "tables", []) or []:
             if table.page_number == page_number:
                 emit(getattr(table, "table_id", None), ContentKind.TABLE, page_number)
-        for image in getattr(document, "images", []) or []:
-            if image.page_number == page_number:
-                emit(getattr(image, "image_id", None) or image.id, ContentKind.IMAGE, page_number)
+        for image_id in page_end_images:
+            emit(image_id, ContentKind.IMAGE, page_number)
 
         for note in footnotes:
             if _is_endnote(note):

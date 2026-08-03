@@ -20,10 +20,15 @@ synthesized here as a fallback so output remains valid, and a warning
 is logged.
 
 Design note on ordering: Heading.document_order is the source of truth
-for heading order. Image has no equivalent ordering field (see prior
-architectural review), so images are placed after all of a page's
-headings and body text, in document.images list order - the closest
-approximation available without adding a new field to the Image model.
+for heading order. P-IMG gave Image the same two facts - source_block_id
+(the line it follows) and document_order - resolved once in
+src/structure/relationships.py, so images now render where the model
+says they sit rather than after all of a page's body text. That page-end
+slot was never right; it was the only thing the model could express. It
+survives as the fallback for images the model cannot place: no bbox
+(the Mathpix path), an unlinked Document that never ran Stage 5c, or a
+page with no TextBlock data to anchor against (the OCR line-by-line
+path).
 
 Design note on footnotes/endnotes (Phase K): standard Pandoc-style
 markdown footnote syntax is ``[^label]`` inline plus a matching
@@ -685,7 +690,11 @@ def _render_page(
     if not is_mathpix_import:
         blocks.extend(_render_tables(page_tables))
         blocks.extend(_render_lists(page_lists))
-        blocks.extend(_render_images(page_images))
+        # Images are placed by the body renderer when it has blocks to anchor
+        # them to (Image.source_block_id). The line-by-line OCR fallback has
+        # none, so it keeps the historical page-end slot.
+        if not page_blocks:
+            blocks.extend(_render_images(page_images))
     blocks.append(PAGE_BREAK_MARKER)
 
     return "\n\n".join(blocks)
@@ -795,7 +804,8 @@ def _render_page_body(
         )
     if page_blocks:
         return _render_page_body_with_paragraphs(
-            document, page, content_headings, anchor_notes, page_blocks, page_paragraphs
+            document, page, content_headings, anchor_notes, page_blocks,
+            page_paragraphs, page_images,
         )
     return _render_page_body_line_by_line(
         page, content_headings, anchor_notes, body_notes, has_endnotes, page_images, front_matter
@@ -968,6 +978,7 @@ def _render_page_body_with_paragraphs(
     anchor_notes: List[Footnote],
     page_blocks: List[TextBlock],
     page_paragraphs: List[Paragraph],
+    page_images: Optional[List[Image]] = None,
 ) -> List[str]:
     """Project a page whose lines the model has already grouped.
 
@@ -1008,6 +1019,10 @@ def _render_page_body_with_paragraphs(
 
     starts = paragraph_starts(page_paragraphs)
     blocks_by_id: Dict[str, TextBlock] = {b.block_id: b for b in page_blocks}
+    # Images sit where the model says they sit (Image.source_block_id), not
+    # after everything else. An image whose anchor is None precedes all body
+    # text on its page — a real position, so it renders first.
+    images_after, images_first = _images_by_anchor(page_images or [])
     absorbed = absorbed_block_ids(document, page.page_number, page_blocks)
     by_anchor = headings_by_anchor(document, page.page_number)
     # Headings the model could not anchor to a block keep the pre-P2
@@ -1026,6 +1041,14 @@ def _render_page_body_with_paragraphs(
 
     blocks: List[str] = []
     block_cursor = 0
+    emitted_images: Set[str] = set()
+
+    def emit_images(bucket: List[Image]) -> None:
+        for image in bucket:
+            blocks.extend(_render_images([image]))
+            emitted_images.add(image.image_id)
+
+    emit_images(images_first)
 
     for raw_line in raw_text_lines:
         line = raw_line.strip()
@@ -1036,26 +1059,68 @@ def _render_page_body_with_paragraphs(
         block_cursor += 1
 
         if source_block is not None and source_block.text == line:
+            anchored = images_after.get(source_block.block_id)
             if source_block.block_id in absorbed:
+                if anchored:
+                    emit_images(anchored)
                 continue
             heading = by_anchor.get(source_block.block_id)
             if heading is None and pending and line == pending[0].text:
                 heading = pending.pop(0)
             if heading is not None:
                 blocks.append(_render_heading(heading))
-                continue
-            paragraph = starts.get(source_block.block_id)
-            if paragraph is not None:
-                blocks.append(_render_paragraph(paragraph, blocks_by_id, notes_by_anchor_text))
+            else:
+                paragraph = starts.get(source_block.block_id)
+                if paragraph is not None:
+                    blocks.append(
+                        _render_paragraph(paragraph, blocks_by_id, notes_by_anchor_text)
+                    )
+            # After whatever this block produced — a heading, a paragraph, or
+            # nothing — so an image anchored to a heading's line still lands.
+            if anchored:
+                emit_images(anchored)
             continue
 
         blocks.append(_substitute_markers(line, notes_by_anchor_text.get(line, [])))
+
+    # Everything the walk did not place: an unlinked image (the page-end slot
+    # it has always had), and any image whose anchor block was never reached —
+    # a suppressed line, a page whose lockstep ran out. PI-1 admits no third
+    # state between materialized and diagnosed, so nothing may be left here.
+    emit_images(
+        [
+            image
+            for image in (page_images or [])
+            if image.image_id not in emitted_images and not image.extraction_failed
+        ]
+    )
 
     for note in sorted(anchor_notes, key=lambda n: n.number):
         if note.note_type == NoteType.FOOTNOTE:
             blocks.append(f"[^{note.label}]: {note.body}")
 
     return blocks
+
+
+def _images_by_anchor(page_images: List[Image]) -> Tuple[Dict[str, List[Image]], List[Image]]:
+    """The page's placeable images, as (after-this-block, before-all-body).
+
+    Only images the model positioned appear here. One the model said nothing
+    about — no bbox to anchor from, or a Document that never ran Stage 5c —
+    is deliberately absent, and the caller's closing sweep gives it the
+    page-end slot it has always had. Within a bucket, ``document_order``
+    decides.
+    """
+    after: Dict[str, List[Image]] = {}
+    first: List[Image] = []
+    for image in sorted(page_images, key=lambda i: i.document_order or 0):
+        if image.extraction_failed or image.document_order is None:
+            continue
+        if image.source_block_id is None:
+            first.append(image)
+        else:
+            after.setdefault(image.source_block_id, []).append(image)
+    return after, first
 
 
 def _render_paragraph(

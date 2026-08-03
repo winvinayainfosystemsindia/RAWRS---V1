@@ -46,7 +46,9 @@ def link_document(document: Any) -> Any:
     Mutates and returns the same Document, matching the convention every
     other pipeline stage uses (``detect_structure``, ``detect_headings``).
     """
-    _link_table_blocks(getattr(document, "tables", []) or [], getattr(document, "blocks", []) or [])
+    blocks = getattr(document, "blocks", []) or []
+    _link_table_blocks(getattr(document, "tables", []) or [], blocks)
+    _link_image_anchors(getattr(document, "images", []) or [], blocks)
     return document
 
 
@@ -108,3 +110,55 @@ def _overlaps(first: BoundingBox, second: BoundingBox) -> bool:
         and first.y0 < second.y1
         and first.y1 > second.y0
     )
+
+
+def _link_image_anchors(images: List[Any], blocks: List[TextBlock]) -> None:
+    """Give every image a place in reading order.
+
+    Until this existed, ``Image`` was the only ordered object type with no
+    ordering field, so every consumer put images after a page's body text -
+    not because that was right, but because the model could not say anything
+    else. ``_render_images()`` said so in its own comment; ``build_content_stream``
+    inherited the same approximation.
+
+    The anchor is the last line whose bottom edge sits at or above the image's
+    top: the block the image follows. ``None`` is a real answer - the image
+    precedes all body text on its page - not a missing one, so a consumer must
+    place it first rather than last.
+
+    ``document_order`` is assigned across the whole document in (page, anchor,
+    vertical position) order, matching Heading.document_order's convention.
+    Ties break on the image's own list position, which keeps the result stable
+    for two images sharing a bbox.
+
+    Images with no bbox (Mathpix-path, or an extraction that failed before
+    geometry was known) get no anchor and no order, and consumers fall back to
+    their previous placement.
+    """
+    if not images:
+        return
+
+    blocks_by_page: Dict[int, List[TextBlock]] = {}
+    for block in blocks:
+        blocks_by_page.setdefault(block.page_number, []).append(block)
+    for page_blocks in blocks_by_page.values():
+        page_blocks.sort(
+            key=lambda b: b.corrected_order if b.corrected_order is not None else b.order
+        )
+
+    placed: List[tuple] = []
+    for index, image in enumerate(images):
+        image.source_block_id = None
+        image.document_order = None
+        if image.bbox is None:
+            continue
+        anchor, anchor_position = None, -1
+        for position, block in enumerate(blocks_by_page.get(image.page_number, [])):
+            if block.bbox is not None and block.bbox.y1 <= image.bbox.y0:
+                anchor, anchor_position = block.block_id, position
+        image.source_block_id = anchor
+        placed.append((image.page_number, anchor_position, image.bbox.y0, index, image))
+
+    placed.sort(key=lambda item: item[:4])
+    for order, item in enumerate(placed):
+        item[-1].document_order = order
