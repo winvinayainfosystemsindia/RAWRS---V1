@@ -150,9 +150,15 @@ src/markdown/
 
 Responsibilities:
 
-* Generate canonical markdown
+* Project the Semantic Document into Markdown
 * Preserve page structure
 * Preserve heading hierarchy
+
+Markdown is a **projection**, not the canonical artifact and not a source of
+truth. The Document Model owns every semantic decision; this stage chooses
+Markdown syntax for them and decides nothing else. Correctness is measured
+against the model, not against a previous rendering — see
+`ADR_PROJECTION_CORRECTNESS_2026-08-03.md` (ADR-020).
 
 Output:
 

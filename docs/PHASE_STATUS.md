@@ -356,7 +356,7 @@ FEATURE_016 makes RAWRS an enterprise accessibility remediation platform. Every 
 
 * `_all_blocks_bold()` / `_all_blocks_italic()` in `src/markdown/markdown_builder.py`: inspect non-superscript spans' `font_flags & 16/2`; bold falls back to `TextBlock.is_bold`.
 * `_apply_inline_format()`: wraps paragraph text in `**...**` / `*...*` / `***...***` when all contributing blocks share uniform formatting.
-* `flush_run()` in `_render_page_body_with_paragraphs()` calls `_apply_inline_format()` before `_substitute_markers()`, using `Paragraph.source_orders` to look up contributing blocks.
+* `_render_paragraph()` in `_render_page_body_with_paragraphs()` calls `_apply_inline_format()` before `_substitute_markers()`, using `Paragraph.source_block_ids` to look up contributing blocks. *(Updated by P2: `flush_run()` and `Paragraph.source_orders` no longer exist — grouping moved to `src/structure/paragraph_assembly.py` and the positional key became an id.)*
 * DOCX: `_INLINE_FORMAT_PATTERN` + `_parse_inline_format()` in `src/docx/docx_generator.py` splits `***...***`/`**...**`/`*...*` markers into `(text, is_bold, is_italic)` segments. `_add_plain_run()` gains `bold`/`italic` params; `_add_body_text_with_inline_format()` emits per-segment runs; `_add_body_paragraph()` routes through it.
 * Tests: 18 new tests in `tests/test_feature016_accessibility.py`. 2 existing `tests/test_docx.py` tests updated (`test_asterisk_line_without_preceding_image_is_plain_text` → now expects italic; `test_every_body_paragraph_complies_with_body_text_rules` → `bold in (True, False)` now allowed).
 
@@ -1055,3 +1055,79 @@ Already existed in `CorrectionHistoryList.tsx` — each `CorrectionRow` has a `r
 ### Cognitive Load Reduction (Task 11)
 
 Engine view replaces the "Awaiting Accessibility Rules Engine" stale placeholder with live data. Predicted score answers "is this worth fixing?" per rule. Fix Next CTA answers "what should I do next?" globally. Coverage metrics answer "how much is left?" per category.
+
+---
+
+## Phase AR — Autonomous Remediation Foundations (F0, L1–L3.1) · **VERIFIED COMPLETE**
+
+Implements `RAWRS_AUTONOMOUS_REMEDIATION_BLUEPRINT.md` §4 through L3.1. See that
+document's status table for per-item commits.
+
+| Layer | Module | What it added |
+|---|---|---|
+| F0 | `src/benchmark/differ.py`, `src/benchmark/profile.py` | Remediation-gap measurement: DOCX-vs-DOCX per-element diff + 9 corpus KPIs |
+| L1 | `src/structure/layout_signals.py::assign_physical_zone` | `TextBlock.physical_zone` (HEADER/FOOTER/BODY) from geometry alone |
+| L1.2 | `…::annotate_repetition` | `TextBlock.repetition` — cross-page recurrence, positional stability, odd/even alternation |
+| L2 | `…::classify_artifacts` | `TextBlock.artifact` — never one signal; every class requires two agreeing signals |
+| L2.1 | same | `RUNNING_TITLE` for mastheads that land in the BODY zone and miss the stability gate |
+| L2.2 | `src/verification/artifacts.py` | Suppression as a **reversible `CorrectionRecord`**, not a renderer skip. Seventh registered asset type and the first single-source one |
+| L3 | `src/headings/heading_detector.py` | An artifact-classified line is rejected from heading candidacy before any tier scores it |
+| L3.1 | `src/headings/heading_signals.py` | Five named, weighted signals replace the tier cascade; `Heading.evidence_items` + weighted-mean confidence. Proven decision-identical via a 248-row corpus dump diff |
+
+**Measured:** 161 artifact suppressions corpus-wide. Of 87 content headings, exactly 4 rested
+on `positional_h1_slot` alone and all 4 were wrong — emitted as `HEADING_VERIFY_006` findings
+rather than silently dropped (`8c335ca`).
+
+**Open:** L3.2 (retire the positional-H1 signal itself), L4–L8.
+
+---
+
+## Phase P — Projection Architecture (P1, P2) · **VERIFIED COMPLETE**
+
+Implements `RAWRS_PROJECTION_ARCHITECTURE.md` steps P1–P2. Decisions ratified as ADR-018 and
+ADR-019 in `ADR_2026-08-03.md`.
+
+| Step | Module | What it added |
+|---|---|---|
+| P1 | `src/models/content_stream.py`, `src/structure/content_stream.py` | `ContentStream` — one reading-order traversal, derived on demand and never stored. `TextBlock.block_id` gave the last renderable object an identity |
+| P2 | `src/structure/paragraph_assembly.py` | Paragraph grouping and prose segmentation move out of the renderer into pipeline Stage 5c |
+| P2 | `src/structure/relationships.py` | Stage 5c resolves cross-object edges; `Table.source_block_ids` replaces render-time bbox intersection |
+| P2 | `Footnote.label`, `Heading.source_block_id`, `Heading.continuation_block_ids`, `Paragraph.source_block_ids` | Typed, directional, id-based relationships; `Paragraph.source_orders` (a page-scoped positional key) retired |
+
+**Pipeline change:** Stage 5b (Inspection — the single correction stage) and Stage 5c (Link)
+now sit between heading detection and Markdown generation. See `ARCHITECTURE_CURRENT.md`.
+
+**Renderer:** `_render_page_body_with_paragraphs` 130 → 97 lines; it emits three things
+instead of deciding six. `flush_run()`, `_table_suppressed_blocks()` and `_footnote_label()`
+no longer exist.
+
+**Measured:** output changed on 3 of 10 benchmark documents with the word multiset identical
+in all three (0 lost, 0 gained); 20 headings appeared, 0 disappeared. `heading_f1`
+0.5540 → 0.5672; all eight other KPIs unchanged.
+
+**Open:** P3 (Markdown renders from the stream), P4 (DOCX stops parsing Markdown), P5
+(`Projection` registry).
+
+---
+
+## Phase PC — Projection Correctness · **VERIFIED COMPLETE**
+
+`src/benchmark/projection.py`, ADR-020. Replaces byte parity as the correctness gate for any
+projection.
+
+* **Invariants PI-1…PI-5** enforced mechanically; PI-6 by review.
+* **No ground truth required** — the Semantic Document is its own specification, so the check
+  applies to every document RAWRS processes, not only the 10-PDF corpus.
+* **Two channels:** violations block (renderer defects); findings are graded (detector defects
+  and model debt). Detector P/R/F1 remains a separate, independent metric.
+* **CLI:** `python -m src.benchmark --projection <pdf_dir>`; the existing DOCX-differ mode is
+  unchanged.
+* Tests: 19 in `tests/test_projection_correctness.py`, each invariant proved to fire.
+
+**Current corpus result:** ok=True, 0 violations; 4 non-blocking findings — 3
+`unbacked_authorization` (2 table bboxes over-capturing, 1 front-matter author split dropping
+a connective word) and 1 `renderer_generated_object` (the `## Endnotes` heading). All
+pre-existing; all previously invisible.
+
+**Retro-verified:** run against the pre-P2 renderer's own Markdown it reports exactly 20
+`lost_object` violations — the precise set the P2 investigation identified.

@@ -179,9 +179,13 @@ Capture:
 
 ## Markdown Generation
 
-Generate canonical structured markdown.
+Project the Semantic Document into structured Markdown.
 
-Markdown acts as the source of truth for downstream processing.
+**Superseded (2026-08-03).** This section originally read "Markdown acts as
+the source of truth for downstream processing." That is no longer true and is
+the premise the projection architecture removed: the Document Model is the
+single source of truth, and Markdown and DOCX are equal projections of it.
+See `ADR_PROJECTION_CORRECTNESS_2026-08-03.md` (ADR-020).
 
 ## Validation
 

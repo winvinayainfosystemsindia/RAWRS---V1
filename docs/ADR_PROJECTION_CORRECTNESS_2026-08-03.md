@@ -1,6 +1,7 @@
-# ADR — Projection Correctness
+# ADR-020 — Projection Correctness
 
 **Date:** 2026-08-03 · **Status:** Accepted · **Supersedes:** byte equality as a projection gate
+**Register:** `ADR_2026-08-03.md` (ADR-016 … ADR-020), continuing `ADR_2026-07-19.md` (ADR-001 … ADR-015)
 
 ## Context
 

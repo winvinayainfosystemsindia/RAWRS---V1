@@ -470,7 +470,7 @@ Only `DIRECT_TEXT_EXTRACTION` pages are processed by `find_tables()`. OCR pages 
 
 ### Table suppression in Markdown rendering
 
-When a table's bbox is known (auto-detected), `_table_suppressed_blocks()` in `markdown_builder.py` marks TextBlocks whose bbox overlaps the table's page-area bbox. These are skipped in `_render_page_body_with_paragraphs()`, preventing cell text from appearing twice (once as raw body lines and once as the pipe-table rendering). Suppression applies only to the paragraph path (born-digital pages); the line-by-line OCR path is unaffected since OCR pages never have PyMuPDF-detected tables.
+When a table's bbox is known (auto-detected), the TextBlocks whose bbox overlaps the table's page-area bbox are the table's own cell lines, and must not also render as prose — otherwise cell text appears twice (once as raw body lines, once as the pipe-table rendering). **Superseded by P2 (2026-08-03):** this was `_table_suppressed_blocks()` in `markdown_builder.py`, recomputing bbox intersection on every render, per output format. It is now a recorded containment edge, `Table.source_block_ids`, resolved once by `src/structure/relationships.py` at pipeline Stage 5c and consumed by `src/structure/paragraph_assembly.py`. The geometry is unchanged; only its owner moved. Suppression still applies only to the paragraph path (born-digital pages); the line-by-line OCR path is unaffected since OCR pages never have PyMuPDF-detected tables.
 
 ### Accessibility design
 

@@ -96,8 +96,9 @@ def annotate_repetition(blocks: List[TextBlock], page_count: int) -> None:
     normalized text recurs across >= _REPETITION_MIN_PAGES distinct pages.
 
     Mutates ``blocks`` in place and is purely additive - blocks below the
-    threshold keep ``repetition = None``. Evidence only: no classification, no
-    suppression, no consumer. The reusable, model-attached successor to the
+    threshold keep ``repetition = None``. Evidence only - this function
+    classifies nothing and suppresses nothing; ``classify_artifacts`` below is
+    its consumer. The reusable, model-attached successor to the
     per-interpreter recurrence heuristics scattered elsewhere (e.g.
     heading_detector's Tier-4 guard), which later stages will converge onto.
     """
@@ -160,7 +161,10 @@ def classify_artifacts(blocks: List[TextBlock], page_labels: Dict[int, str]) -> 
     on each block, plus the page's printed label (feature_009, reused via
     ``page_labels``). Multi-signal by construction: every class requires at
     least two agreeing signals, never one. Purely additive - content blocks
-    keep ``artifact = None``. Classification only: no suppression, no consumer.
+    keep ``artifact = None``. Classification only: what a line *is*. The
+    decision to act on it lives in src/verification/artifacts.py, which turns a
+    classification into a reversible CorrectionRecord; L3 heading candidacy is
+    the other consumer.
     """
     labels = {pn: " ".join((lbl or "").lower().split()).strip() for pn, lbl in page_labels.items()}
     for block in blocks:

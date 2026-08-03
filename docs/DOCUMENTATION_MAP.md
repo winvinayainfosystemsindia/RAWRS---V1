@@ -11,12 +11,13 @@ A single index of every document that governs or describes RAWRS, what each one 
 1. **The code itself, plus the test suite.** Always wins. If a doc disagrees with what `src/` does and `pytest` confirms, the doc is wrong, not the code (unless the code is the thing under deliberate review).
 2. **`CURRENT_STATE.md`, `PHASE_STATUS.md`, `ARCHITECTURE_CURRENT.md`** — the "what's actually true right now" layer. These three were written by reconciling every other document directly against source and tests, and should be kept current as the fastest-changing layer. **This is the new source of truth for "is X built."**
 3. **`KNOWN_LIMITATIONS.md`** — the "what's deliberately not built, and what's a confirmed gap" layer. Consult this before assuming a missing capability is a bug.
-4. **`DECISIONS_LOG.md`** — the "why is it this way" layer. Consult this before re-opening a decision that was already made and recorded (e.g., "should Surya output be HIGH confidence?" — no, see Decision history).
-5. **Behavioral rule docs** (`HEADING_RULES.md`, `PAGE_RULES.md`, `OCR_RULES.md`, `VALIDATION_RULES.md`) — the team's deliberated intent for how each subsystem should behave. Amended in place when found to contradict reality (this audit did this for `HEADING_RULES.md` and `VALIDATION_RULES.md`); not silently overridden.
-6. **Scope/constraint docs** (`PHASE1_SCOPE.md`, `RAWRS_PROJECT_CONTEXT.md`, `TECH_STACK.md`, `CLAUDE_INSTRUCTIONS.md`) — what's in/out of scope and which technologies are approved. High authority on *scope decisions* (these are stakeholder-level agreements, not casually overridden by a benchmark or a convenient implementation shortcut), but their *status claims* ("X is not supported") must match `PHASE_STATUS.md` — fixed where they didn't, in this audit.
-7. **`ARCHITECTURE.md`** — the canonical/target architecture. Authoritative on *intent*; `ARCHITECTURE_CURRENT.md` is authoritative on *fact* where the two differ.
-8. **Root-level planning/audit documents** (`BENCHMARK_GAP_ANALYSIS.md`, `BENCHMARK_RECONCILIATION_AND_PHASE1_PLAN.md`) — historical record of a specific past audit. Not maintained going forward; their durable conclusions have been folded into `DECISIONS_LOG.md` and `KNOWN_LIMITATIONS.md`. Keep them for the reasoning trail, but don't treat them as current.
-9. **`TASKS.md`** — lowest precedence. A coarse module checklist only; defers to `PHASE_STATUS.md` for anything beyond "does this file exist."
+4. **ADRs — `ADR_2026-07-19.md` (ADR-001…015), `ADR_2026-08-03.md` (ADR-016…020), `ADR_PROJECTION_CORRECTNESS_2026-08-03.md` (ADR-020 full text).** Formal accepted architecture decisions, each with problem, alternatives, trade-offs, risk, rollback and success criteria. **Where an ADR and `DECISIONS_LOG.md` disagree, the ADR wins** — the log is a running narrative, the ADR is the ratified decision. A later ADR supersedes an earlier one only where it says so explicitly (see ADR-020 superseding the byte-parity criteria of ADR-001 and ADR-014).
+5. **`DECISIONS_LOG.md`** — the "why is it this way" layer. Consult this before re-opening a decision that was already made and recorded (e.g., "should Surya output be HIGH confidence?" — no, see Decision history).
+6. **Behavioral rule docs** (`HEADING_RULES.md`, `PAGE_RULES.md`, `OCR_RULES.md`, `VALIDATION_RULES.md`) — the team's deliberated intent for how each subsystem should behave. Amended in place when found to contradict reality (this audit did this for `HEADING_RULES.md` and `VALIDATION_RULES.md`); not silently overridden.
+7. **Scope/constraint docs** (`PHASE1_SCOPE.md`, `RAWRS_PROJECT_CONTEXT.md`, `TECH_STACK.md`, `CLAUDE_INSTRUCTIONS.md`) — what's in/out of scope and which technologies are approved. High authority on *scope decisions* (these are stakeholder-level agreements, not casually overridden by a benchmark or a convenient implementation shortcut), but their *status claims* ("X is not supported") must match `PHASE_STATUS.md` — fixed where they didn't, in this audit.
+8. **`ARCHITECTURE.md`** — the canonical/target architecture. Authoritative on *intent*; `ARCHITECTURE_CURRENT.md` is authoritative on *fact* where the two differ.
+9. **Root-level planning/audit documents** (`BENCHMARK_GAP_ANALYSIS.md`, `BENCHMARK_RECONCILIATION_AND_PHASE1_PLAN.md`) — historical record of a specific past audit. Not maintained going forward; their durable conclusions have been folded into `DECISIONS_LOG.md` and `KNOWN_LIMITATIONS.md`. Keep them for the reasoning trail, but don't treat them as current.
+10. **`TASKS.md`** — lowest precedence. A coarse module checklist only; defers to `PHASE_STATUS.md` for anything beyond "does this file exist."
 
 ---
 
@@ -29,6 +30,15 @@ A single index of every document that governs or describes RAWRS, what each one 
 | `CURRENT_STATE.md` | One-page answer to "what does RAWRS actually do right now." Test counts, dependency reality, what doesn't exist yet (frontend/API). |
 | `PHASE_STATUS.md` | Per-phase (A, B, C, D.0–D.2, H, F.1–F.5, K, I.1) verdict — VERIFIED COMPLETE / PARTIALLY IMPLEMENTED / etc. — with file:line citations and test references. The detailed companion to `CURRENT_STATE.md`. |
 | `ARCHITECTURE_CURRENT.md` | Actual pipeline stage order, full current module/model inventory, the two tracked deviations from `ARCHITECTURE.md`. |
+
+### Architecture decisions (ratified)
+
+| Document | What it's for |
+|---|---|
+| `ADR_2026-07-19.md` | ADR-001…015. Canonical document model, object identity, artifact classification, physical zones, logical divisions, relationships, reading order, rule framework, evidence vocabulary, reviewer decision log, evaluation harness, persistence, concurrency, dual rendering path, and the register of outright rejections. |
+| `ADR_2026-08-03.md` | ADR-016…020. Correction rail as a universal pipeline primitive; detection produces evidence; `ContentStream` as a derived traversal; the Semantic Document owns semantics; projection correctness. Also records the amendments that superseded ADR-001's and ADR-014's byte-parity success criteria. |
+| `ADR_PROJECTION_CORRECTNESS_2026-08-03.md` | ADR-020 in full — what semantic parity means, which projection differences are acceptable vs forbidden, invariants PI-1…PI-6, detector quality vs renderer correctness, and the three benchmark layers. |
+| `RAWRS_PROJECTION_ARCHITECTURE.md` | The P1–P5 migration design the ADRs above implement. Carries per-step status; P1 and P2 shipped 2026-08-03. |
 
 ### Why things are the way they are
 
@@ -70,6 +80,26 @@ The Phase 2 Engineering Blueprint (`RAWRS_Phase2_Engineering_Blueprint.md`) and 
 |---|---|
 | `research/phase1/benchmark_gap_analysis.md` | A point-in-time audit comparing RAWRS output against a 4-PDF benchmark set. Durable conclusions folded into `DECISIONS_LOG.md`/`KNOWN_LIMITATIONS.md`. Kept for its reasoning detail; don't treat its "current state" framing as current. |
 | `research/phase1/benchmark_reconciliation_and_phase1_plan.md` | The plan that resolved the nine conflicts (C1–C9) found in the gap analysis, including the source-of-truth precedence rule this very map extends. Same status as above. |
+
+---
+
+## Terminology
+
+One concept had acquired three names. Use the first column; the others are
+synonyms you will meet in older documents and should not introduce in new ones.
+
+| Use this | Also written as | Means |
+|---|---|---|
+| **Semantic Document** | "Document Model", "canonical model", "canonical representation" | The `Document` object in `src/models/`. The single source of truth for every semantic decision. |
+| **Projection** | "renderer", "generator", "output format" | A one-way encoding of the Semantic Document into a format. Markdown and DOCX are projections; neither owns semantics. |
+| **Semantic parity** | — | A projection expresses its Semantic Document faithfully (ADR-020, PI-1…PI-6). **Not** byte equality with a previous run. |
+| **Correction rail** | "the rail" | `Finding` → `CorrectionRecord` → `apply()`/`revert()`. The only path by which a semantic decision changes a document. |
+| **Content stream** | — | One reading-order traversal of the Semantic Document. Derived on demand, never stored (ADR-018). |
+
+**Retired: "canonical" as a modifier for an output.** "Canonical markdown" and
+"canonical output format" are the premise the projection architecture removed —
+there is no canonical output. `ARCHITECTURE.md` remains "the canonical/target
+architecture", which is a different and still-valid use of the word.
 
 ---
 

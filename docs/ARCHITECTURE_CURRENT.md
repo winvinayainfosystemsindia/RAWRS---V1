@@ -31,8 +31,15 @@
 4. Extract Images (Phase C filtering, F.1 bbox, F.2 caption linking, F.3 alt-text placeholder)
                                                            (src/images/image_extractor.py)
 5. [PDF-native only] Detect Headings (Phase B)            (src/headings/heading_detector.py)
-6. Generate Markdown (paragraph reconstruction, bug_001)
-                                                           (src/markdown/markdown_builder.py, src/structure/paragraph_grouper.py)
+   5b. Inspection — the one and only correction stage. Runs unconditionally and
+       names no asset type; every registered verifier is asked what it has to
+       say about this document.                            (src/verification/engine.py)
+   5c. Link — resolve cross-object relationships that need every object to
+       exist first, then assemble paragraphs into Document.paragraphs.
+                                                           (src/structure/relationships.py,
+                                                            src/structure/paragraph_assembly.py)
+6. Generate Markdown — a projection; decides syntax only
+                                                           (src/markdown/markdown_builder.py)
 7. Generate DOCX                                          (src/docx/docx_generator.py)
 8. Run Validation (Phase I.1 reading-order check included) (src/validation/validator.py)
 ```
@@ -66,7 +73,7 @@ Both were identified during the benchmark reconciliation work and a realignment 
 | Footnotes | `src/footnotes/footnote_detector.py` | Phase K | Footnote/endnote detection and marker↔body linking. **Known gap:** only recognizes a literal Unicode superscript-digit glyph as a marker — see `KNOWN_LIMITATIONS.md` and `feature_005_span_level_text_model` |
 | Heading Detection | `src/headings/heading_detector.py` | original, re-signaled in benchmark reconciliation, fallback tier added in bug_002 | H1–H6 detection, layout-signal based, plus a last-resort distinct-recurring-font/sole-line-block fallback tier |
 | Image Extraction | `src/images/image_extractor.py` | original, filtering/caption/alt-text added Phases C/F | Extraction, filtering, figure/caption linking, alt-text placeholders. CMYK JPEG fix + embedding verification added FEATURE_016E (`Image.embedded_in_docx`, IMAGE_005). |
-| Markdown Generation | `src/markdown/markdown_builder.py` | original, paragraph reconstruction added in bug_001 | Canonical markdown, paragraph joining, footnote syntax, alt-text embedding |
+| Markdown Generation | `src/markdown/markdown_builder.py` | original; paragraph reconstruction added in bug_001, then **moved out of the renderer entirely in P2** | Markdown *projection* of the Semantic Document: syntax only. Paragraph grouping, prose segmentation, note labelling and heading placement all live in the model (`src/structure/paragraph_assembly.py`, `Footnote.label`, `Heading.source_block_id`) |
 | Text Sanitization | `src/utils/text_sanitization.py`, `src/models/sanitization.py` | XML Sanitization Architecture C | Layer 1 of a 3-layer defense removing XML-illegal characters at every point text enters the Document model; `Document.sanitization_events` is the audit trail Layer 2 (`DOC_004`) discloses |
 | DOCX Generation | `src/docx/docx_generator.py` | original, Layer 3 sanitization guard (`_safe_run_text()`) added | Heading styles, page markers/breaks, image+alt-text wiring, footnote bookmark/hyperlink wiring |
 | Table Extraction | `src/tables/table_extractor.py`, `src/tables/evidence.py`, `src/tables/detectors/` | FEATURE_015/015.1, 2026-06-29 | PyMuPDF `find_tables(strategy='lines')` auto-detection; merged cell detection; `Table`, `TableRow`, `TableCell` models; stage 3 integration. |

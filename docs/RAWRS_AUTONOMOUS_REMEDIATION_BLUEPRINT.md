@@ -2,7 +2,38 @@
 
 **Phase objective:** *Automatically produce outputs that match or exceed the quality of benchmark human-remediated documents, while minimizing manual work for professional remediators.*
 
-**Status:** design blueprint. No implementation. This document is the engineering specification for the phase.
+**Status:** partially implemented. F0, L1, L2 and L3's first two steps have shipped;
+L4–L8 remain design only. This document is still the engineering specification for the
+phase — the roadmap in §4 is the plan of record, annotated below with what exists.
+
+| Item | State | Commit |
+|---|---|---|
+| F0 Benchmark Differ | **shipped** | `ce3ac8a` |
+| F1 Span-level text model | **shipped earlier** (`feature_005`) | — |
+| L1 Physical-zone assignment | **shipped** | `21f822e` |
+| L1.2 Document-wide repetition analysis | **shipped** | `5180b78` |
+| L2 Artifact classification | **shipped** | `9999418` |
+| L2.1 Running-title classification | **shipped** | `c9fa131` |
+| L2.2 Reversible artifact suppression | **shipped** | `bac3764` |
+| L3 Artifact-aware heading candidacy | **shipped** | `1eeaae3` |
+| L3.1 Heading detection produces evidence | **shipped** | `d2ba03b` |
+| L3.2 Retire positional-H1 on measured grounds | **partly** — emitted as `HEADING_VERIFY_006` findings (`8c335ca`), signal not yet removed | `8c335ca` |
+| L4 Footnote/endnote distinction | design only | — |
+| L5 Front-page reconstruction | design only | — |
+| L6 Structure-preserving output | design only | — |
+| L7 Auto-remediation composer | design only | — |
+| L8 Canonical editing | design only | — |
+
+**Interleaved work not in this roadmap.** Between L3.1 and L4 the correction rail was made
+a universal pipeline primitive (ADR-016) and the projection architecture's P1/P2 landed
+(ADR-018, ADR-019). Both were prerequisites this blueprint assumed rather than scheduled:
+§2.4's composer is "90% wiring into machinery that already exists", and that machinery only
+became path-agnostic and single-entry in `9348bb4`/`435bc1b`. See `ADR_2026-08-03.md`.
+
+**Gate change.** §4's "measured against the corpus before/after" still holds for detector
+quality, but any commit that touches a projection is additionally gated on projection
+correctness (ADR-020): `python -m src.benchmark --projection <pdf_dir>`. Byte parity is
+retired — see ADR-020 for why it was actively harmful here.
 
 ---
 

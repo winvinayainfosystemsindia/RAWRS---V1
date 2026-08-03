@@ -29,11 +29,11 @@ class PhysicalZone(str, Enum):
     band), BODY (everything between). Horizontal MARGIN/GUTTER zones are a
     documented follow-up. Assigned by
     src/structure/layout_signals.py::assign_physical_zone from the line's bbox
-    and page height - purely geometric, no interpretation. Additive signal for
-    later stages (repetition/artifact classification, heading detection); no
-    existing consumer reads it, so its default (None on any TextBlock not built
-    by the real extraction path) always means "zone not assigned," never a real
-    BODY classification.
+    and page height - purely geometric, no interpretation. Consumed by L2
+    artifact classification (``classify_artifacts``), which requires a zone to
+    agree with a repetition signal before labelling anything an artifact. Its
+    default (None on any TextBlock not built by the real extraction path)
+    always means "zone not assigned," never a real BODY classification.
     """
 
     HEADER = "header"
@@ -47,9 +47,10 @@ class RepetitionEvidence(BaseModel):
     across two or more pages - the running-header / masthead / repeated-footer
     signature. A faithful measurement, not an interpretation: it records how
     and where the text repeats, and later stages decide whether that makes it
-    an artifact. Produced by src/structure/layout_signals.py::annotate_repetition;
-    additive, with no consumer yet, so ``TextBlock.repetition`` defaulting to
-    None always means "not repeated (or not analysed)," never a real signal.
+    an artifact. Produced by src/structure/layout_signals.py::annotate_repetition and
+    consumed by L2 artifact classification. ``TextBlock.repetition`` defaulting
+    to None always means "not repeated (or not analysed)," never a real
+    signal.
     """
 
     signature: str                       # normalized (lowercased, whitespace-collapsed) text
@@ -84,9 +85,12 @@ class ArtifactClassification(BaseModel):
     Produced by src/structure/layout_signals.py::classify_artifacts from the
     already-computed PhysicalZone + RepetitionEvidence (and the page's printed
     label). ``evidence`` is the human-readable list of signals that produced the
-    label, so every classification is explainable. Additive: no consumer reads
-    ``TextBlock.artifact`` yet (no suppression), so its default None always
-    means "not classified as an artifact" (content, or not analysed).
+    label, so every classification is explainable. Two consumers read it: L3
+    heading candidacy (an artifact line is never a heading, see
+    src/headings/heading_detector.py) and L2.2 suppression
+    (src/verification/artifacts.py, which turns a classification into a
+    reversible CorrectionRecord). Its default None always means "not classified
+    as an artifact" (content, or not analysed).
     """
 
     artifact_class: ArtifactClass
@@ -150,15 +154,15 @@ class TextBlock(BaseModel):
     is_bold: Optional[bool] = None
     source_block_index: Optional[int] = None
     spans: List[Span] = Field(default_factory=list)
-    # L1 physical zone (header/footer/body) from geometry; additive, no
-    # consumer yet. None = not assigned (see PhysicalZone docstring).
+    # L1 physical zone (header/footer/body) from geometry; read by L2
+    # classification. None = not assigned (see PhysicalZone docstring).
     physical_zone: Optional[PhysicalZone] = None
     # L1 document-wide repetition evidence (running-header/masthead
-    # signature); additive, no consumer yet. None = not repeated/analysed.
+    # signature); read by L2 classification. None = not repeated/analysed.
     repetition: Optional[RepetitionEvidence] = None
     # L2 artifact classification (running header/footer/page-number/
-    # decorative); additive, evidence-driven, no consumer/suppression yet.
-    # None = content (or not analysed).
+    # decorative), evidence-driven. Read by L3 heading candidacy and by L2.2
+    # suppression. None = content (or not analysed).
     artifact: Optional[ArtifactClassification] = None
     @property
     def block_id(self) -> str:
