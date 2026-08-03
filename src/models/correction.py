@@ -18,7 +18,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -75,6 +75,23 @@ NON_TERMINAL_STATUSES = frozenset(
         CorrectionStatus.PROPOSED,
         CorrectionStatus.PENDING_REVIEW,
         CorrectionStatus.REVERTED,
+    }
+)
+
+# The statuses whose corrections actually changed the document, and therefore
+# the only ones an undo has anything to reverse. REJECTED and IGNORED never
+# mutated anything; PROPOSED has not been acted on. Reverting one of those
+# would move it to REVERTED — a *non-terminal* status — and so silently
+# re-open a question the reviewer had already closed, and re-block export.
+#
+# Same reasoning as NON_TERMINAL_STATUSES above: defined once, beside the enum
+# it partitions, because the undo path and the decisions API both need the
+# answer and must not drift on it.
+APPLIED_STATUSES = frozenset(
+    {
+        CorrectionStatus.AUTO_APPLIED,
+        CorrectionStatus.ACCEPTED,
+        CorrectionStatus.EDITED,
     }
 )
 
@@ -150,6 +167,16 @@ class CorrectionRecord(BaseModel):
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
     )
+    # W-3: the unit of history is the transaction — one judgement, one undo.
+    # Suppressing 34 running headers is one judgement; without this field it
+    # costs 34 undos, and there is no other way to recover the grouping after
+    # the fact (``created_at`` orders the log but cannot say which records
+    # belong together).
+    #
+    # Optional because every correction persisted before this existed has no
+    # transaction. Those read back as a transaction of one — see
+    # ``transactions()`` below — so no document needs migrating.
+    transaction_id: Optional[str] = None
     object_type: str
     object_id: Optional[str] = None
     field: str
@@ -173,3 +200,27 @@ class CorrectionRecord(BaseModel):
     # M-4.4 (minimal telemetry) — appended by engine/routes on every
     # reviewer action; collection only, see CorrectionTelemetryEvent.
     telemetry_events: List[CorrectionTelemetryEvent] = Field(default_factory=list)
+
+
+def transactions(corrections: List[CorrectionRecord]) -> List[List[CorrectionRecord]]:
+    """Group the decision log into transactions, oldest first.
+
+    A transaction is one judgement: the corrections a single act produced.
+    The grouping is **derived, never stored** (W-1) — it is recomputed from
+    the log every time, so there is no second place for it to drift.
+
+    The group key is ``transaction_id``, falling back to the record's own id
+    so a correction written before that field existed reads back as a
+    transaction of one. That is what lets every already-persisted document be
+    read without a migration.
+
+    Ordering is ``created_at``. The log needs no sequence number of its own
+    because it is only ever appended to — which is also why a sequence field
+    was considered for this and rejected.
+    """
+    groups: Dict[str, List[CorrectionRecord]] = {}
+    for correction in corrections:
+        groups.setdefault(
+            correction.transaction_id or correction.correction_id, []
+        ).append(correction)
+    return sorted(groups.values(), key=lambda group: min(c.created_at for c in group))

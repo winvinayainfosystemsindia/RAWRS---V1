@@ -15,11 +15,21 @@ changes.
 
 from __future__ import annotations
 
+import uuid
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from loguru import logger
 
-from src.models.correction import NON_TERMINAL_STATUSES, CorrectionRecord, CorrectionStatus
+from src.models.correction import (
+    APPLIED_STATUSES,
+    NON_TERMINAL_STATUSES,
+    CorrectionRecord,
+    CorrectionStatus,
+    CorrectionTelemetryAction,
+    CorrectionTelemetryEvent,
+    transactions,
+)
 from src.models.validation_issue import Severity, ValidationIssue
 from src.models.verification import BenchmarkOutcome, Finding, RepairSuggestion
 from src.verification.base import SemanticVerifier
@@ -30,6 +40,17 @@ from src.verification.merge import MergeAction, MergeDecision
 class UnknownAssetTypeError(Exception):
     """Raised when a caller asks the engine to dispatch to an asset_type
     that no AssetVerifier has registered for."""
+
+
+class NonLifoUndoError(Exception):
+    """Raised when a caller names a transaction that is not the most recent
+    undoable one.
+
+    Undo replays ``apply()`` with original/proposed swapped, which is only
+    sound when nothing later touched the same field. Rather than checking
+    that per field — which would need a ``read`` on every verifier that none
+    of them has — the rail refuses out-of-order undo outright.
+    """
 
 
 class CrossSourceVerificationEngine:
@@ -126,6 +147,7 @@ class CrossSourceVerificationEngine:
         findings: List[Finding],
         provider: str = "mathpix",
         status: CorrectionStatus = CorrectionStatus.PROPOSED,
+        transaction_id: Optional[str] = None,
     ) -> None:
         """Append one CorrectionRecord per finding to document.corrections.
 
@@ -165,6 +187,7 @@ class CrossSourceVerificationEngine:
                     reason_code=spec.reason_code,
                     provider=provider,
                     status=status,
+                    transaction_id=transaction_id,
                 )
             )
 
@@ -239,18 +262,105 @@ class CrossSourceVerificationEngine:
         auto = [f for f in findings if f.auto_apply]
         review = [f for f in findings if not f.auto_apply]
 
+        # W-3: one judgement, one transaction. The autonomous batch and the
+        # batch handed to a reviewer are two different judgements — "RAWRS
+        # decided this" and "RAWRS is asking about this" — so undoing the
+        # first must not disturb the second. Hence two ids, not one.
         if auto:
             first_new = len(document.corrections)
             self.findings_to_corrections(
-                document, auto, provider=provider, status=CorrectionStatus.AUTO_APPLIED
+                document,
+                auto,
+                provider=provider,
+                status=CorrectionStatus.AUTO_APPLIED,
+                transaction_id=str(uuid.uuid4()),
             )
             for correction in document.corrections[first_new:]:
                 self.apply_correction(document, correction)
 
         if review:
-            self.findings_to_corrections(document, review, provider=provider, status=status)
+            self.findings_to_corrections(
+                document,
+                review,
+                provider=provider,
+                status=status,
+                transaction_id=str(uuid.uuid4()),
+            )
             if status in NON_TERMINAL_STATUSES:
                 document.verification_findings.extend(review)
+
+    def undo_last_transaction(
+        self, document: Any, expect_transaction_id: Optional[str] = None
+    ) -> List[CorrectionRecord]:
+        """Undo the most recent transaction that actually changed the document.
+
+        The unit of undo is the transaction, not the correction (W-3): one
+        judgement is one undo, so a batch of 34 suppressions costs a reviewer
+        one action to reverse rather than 34.
+
+        **LIFO only.** ``revert()`` replays ``apply()`` with original and
+        proposed swapped, which is sound only while nothing later changed the
+        same field. Verifying that per field would need a ``read`` operation
+        no verifier has, so an out-of-order request is refused rather than
+        risked — silently clobbering a later edit is the one failure a
+        reversible system must not have.
+
+        History is append-only (W-2): nothing is deleted. Each reverted
+        record keeps its place in the log, moves to REVERTED, and gains an
+        UNDONE telemetry event. REVERTED is deliberately *non-terminal*, so
+        undoing an auto-applied change re-blocks export via REVIEW_001 — the
+        question it answered is genuinely open again.
+
+        Transactions holding nothing applied — a batch of proposals, or one
+        already undone — are skipped rather than treated as the top of the
+        stack, so undo always reaches the last real change.
+
+        Returns the records it reverted, newest first; ``[]`` when there is
+        nothing to undo.
+
+        ponytail: LIFO-only. Out-of-order undo needs a per-verifier
+        ``current_value()`` to check the value is still the one this
+        correction wrote; add that method when a caller actually needs it.
+        """
+        for group in reversed(transactions(getattr(document, "corrections", []) or [])):
+            applied = [c for c in group if c.status in APPLIED_STATUSES]
+            if not applied:
+                continue
+
+            transaction_id = applied[0].transaction_id or applied[0].correction_id
+            if expect_transaction_id is not None and expect_transaction_id != transaction_id:
+                raise NonLifoUndoError(
+                    f"Transaction '{expect_transaction_id}' cannot be undone: "
+                    f"'{transaction_id}' is the most recent undoable transaction."
+                )
+
+            now = datetime.now(timezone.utc)
+            reverted: List[CorrectionRecord] = []
+            # Reverse application order within the transaction, for the same
+            # reason the transactions themselves are walked backwards.
+            for correction in sorted(applied, key=lambda c: c.created_at, reverse=True):
+                previous_status = correction.status.value
+                self.revert_correction(document, correction)
+                correction.status = CorrectionStatus.REVERTED
+                correction.reviewed_at = now
+                correction.telemetry_events.append(
+                    CorrectionTelemetryEvent(
+                        correction_id=correction.correction_id,
+                        timestamp=now,
+                        action=CorrectionTelemetryAction.UNDONE,
+                        previous_status=previous_status,
+                        new_status=correction.status.value,
+                        latency_seconds=(now - correction.created_at).total_seconds(),
+                    )
+                )
+                reverted.append(correction)
+
+            logger.info(
+                "Undid transaction '{}': {} correction(s) reverted", transaction_id, len(reverted)
+            )
+            return reverted
+
+        return []
 
     def findings_to_validation_issues(
         self, document: Any, findings: List[Finding]
