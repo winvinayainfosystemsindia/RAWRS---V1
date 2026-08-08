@@ -579,3 +579,118 @@ def summarize(reports: List[ProjectionReport]) -> Dict[str, Any]:
         "findings_by_kind": finding_kinds,
         "documents": [r.to_dict() for r in reports],
     }
+
+
+# --- DOCX note materialization (L4b) -----------------------------------------
+#
+# A second projection, checked the same way and for the same reason. The
+# Markdown check above asks whether every note *definition* survives; this
+# asks whether every note survives **as the kind of note the model says it
+# is**. They are different questions because Markdown has one note syntax and
+# Word has two parts, and for the whole life of this codebase before L4b the
+# DOCX projection had only one of them: every endnote was written into
+# word/footnotes.xml as a w:footnoteReference, and Word rendered a document's
+# endnotes at the foot of its pages. Nothing failed, nothing was logged, and
+# the benchmark's 54 gold endnotes were being compared against 54 RAWRS
+# footnotes.
+#
+# The invariant is deliberately stated over the OOXML package rather than over
+# generate_docx()'s inputs: the package is what a reader opens, and reading it
+# back is the only evidence that cannot be satisfied by the renderer agreeing
+# with itself.
+
+_DOCX_W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+_DOCX_FOOTNOTES_PART = "word/footnotes.xml"
+_DOCX_ENDNOTES_PART = "word/endnotes.xml"
+# Word's own separator entries, present in both parts and belonging to no
+# Footnote in the model.
+_DOCX_STRUCTURAL_NOTE_TYPES = frozenset({"separator", "continuationSeparator"})
+
+
+def _docx_note_bodies(zf: Any, part: str, tag: str) -> List[str]:
+    """Every real note body in one part, in document order."""
+    import xml.etree.ElementTree as ET
+
+    try:
+        root = ET.fromstring(zf.read(part))
+    except KeyError:
+        return []
+    w = "{%s}" % _DOCX_W
+    bodies = []
+    for el in root.iter(w + tag):
+        if el.get(w + "type") in _DOCX_STRUCTURAL_NOTE_TYPES:
+            continue
+        bodies.append(_norm("".join(t.text or "" for t in el.iter(w + "t"))))
+    return bodies
+
+
+def check_docx_notes(document: Any, docx_path: Any, name: str = "") -> ProjectionReport:
+    """PI-6 · every note is materialized as the kind of note it is.
+
+    Three claims, each checked against the generated package itself:
+
+    * every ``NoteType.ENDNOTE`` appears in ``word/endnotes.xml``
+    * no ``NoteType.ENDNOTE`` appears in ``word/footnotes.xml``
+    * no ``NoteType.FOOTNOTE`` appears in ``word/endnotes.xml``
+
+    Matching is by normalized body text, because that is the one thing the
+    model and the package independently agree on: OOXML ``w:id`` values are
+    per-part plumbing assigned by the renderer, and ``Footnote.label`` is
+    consumed by the renderer rather than written into the part. A note whose
+    body text does not survive at all is a lost object under PI-1 and is
+    reported as one here.
+    """
+    import zipfile
+
+    report = ProjectionReport(
+        document=name or str(getattr(document, "source_pdf_path", "") or "?")
+    )
+    notes = list(getattr(document, "footnotes", []) or [])
+    if not notes:
+        report.counts["notes"] = 0
+        return report
+
+    with zipfile.ZipFile(str(docx_path)) as zf:
+        in_footnotes = _docx_note_bodies(zf, _DOCX_FOOTNOTES_PART, "footnote")
+        in_endnotes = _docx_note_bodies(zf, _DOCX_ENDNOTES_PART, "endnote")
+
+    def _present(body: str, bodies: List[str]) -> bool:
+        # The renderer prefixes a separating space onto the body run, and
+        # Word's auto-number mark contributes no w:t, so an exact normalized
+        # equality is right - containment would let a truncated body pass.
+        return _norm(body) in bodies
+
+    for note in notes:
+        is_endnote = str(getattr(note.note_type, "value", note.note_type)) == "endnote"
+        want, wrong = (
+            (in_endnotes, in_footnotes) if is_endnote else (in_footnotes, in_endnotes)
+        )
+        want_part = _DOCX_ENDNOTES_PART if is_endnote else _DOCX_FOOTNOTES_PART
+        wrong_part = _DOCX_FOOTNOTES_PART if is_endnote else _DOCX_ENDNOTES_PART
+        label = getattr(note, "label", "?")
+
+        if _present(note.body, wrong):
+            report.violations.append(
+                Violation(
+                    "PI-6",
+                    "wrong_note_part",
+                    f"note {label} is a {note.note_type} but was materialized in {wrong_part}",
+                )
+            )
+        elif not _present(note.body, want):
+            report.violations.append(
+                Violation(
+                    "PI-6",
+                    "lost_object",
+                    f"note {label} ({note.note_type}) is absent from {want_part}",
+                )
+            )
+
+    report.counts.update(
+        {
+            "notes": len(notes),
+            "footnotes_part": len(in_footnotes),
+            "endnotes_part": len(in_endnotes),
+        }
+    )
+    return report

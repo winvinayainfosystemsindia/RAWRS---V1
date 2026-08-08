@@ -39,17 +39,31 @@ handling immediately after the very first heading (page 1's marker),
 exactly the span of lines src/markdown/markdown_builder.py is
 documented to put it in.
 
-Footnote/endnote wiring (Phase K) follows the same principle: this
-module renders whatever ``[^label]`` inline references and
-``[^label]: body`` definitions already exist in the markdown
-(src/markdown/markdown_builder.py decides what those are; this module
-only renders them) as a real, internally-linked DOCX
-marker-to-note-body relationship - a superscript run wrapped in a
-``w:hyperlink`` pointing at a ``w:bookmark`` on the matching definition
-paragraph. python-docx 1.2.0 has no public API for either OOXML
-construct, so both are built directly via docx.oxml - the same
-documented, well-known pattern already used for the docPr alt-text
-attributes above, not a novel technique.
+Footnote/endnote wiring (Phase K): this module renders whatever
+``[^label]`` inline references and ``[^label]: body`` definitions
+already exist in the markdown (src/markdown/markdown_builder.py decides
+where those go; this module only renders them) as native OOXML notes in
+their own document part. python-docx 1.2.0 has no public API for that
+part, so it is built directly via docx.oxml/lxml - the same documented
+pattern already used for the docPr alt-text attributes above.
+
+**Which kind of note that is, is not a markdown question (L4b).**
+``Footnote.note_type`` on the Semantic Document is the answer, and
+_NoteRegistries is the only place this module asks it. The label in
+``[^label]`` is used purely as an identity to look the note up by -
+exactly the role ``<!-- table-id: ... -->`` already plays for tables -
+so note type is never inferred from placement, section headings,
+rendered text or the shape of the markdown. Before L4b there was no
+such lookup and no endnotes part: every note, whatever the document
+said it was, became a ``w:footnoteReference`` in word/footnotes.xml,
+and Word rendered a document's endnotes at the foot of its pages. The
+benchmark's human-remediated DOCX files put all 54 of their notes in
+word/endnotes.xml, so that loss was measurable as well as wrong.
+
+Everything else about note rendering still comes from parsing the
+markdown - where a reference sits in the prose, and which definitions
+exist at all. That is the remaining debt this milestone deliberately
+did not take on; see docs/KNOWN_LIMITATIONS.md.
 
 XML Sanitization Architecture (Layer 3): a production PDF crashed this
 module with "All strings must be XML compatible..." (a ValueError from
@@ -72,7 +86,7 @@ import io
 import itertools
 import re
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, NamedTuple, Optional, Tuple, Union
 
 from docx import Document as DocxDocument
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -87,7 +101,7 @@ from lxml import etree
 from PIL import Image as PILImage
 
 from src.markdown.markdown_builder import PAGE_BREAK_MARKER
-from src.models.contracts import Document, FrontMatter
+from src.models.contracts import Document, Footnote, FrontMatter, NoteType
 from src.utils.text_sanitization import sanitize_xml_text
 
 DEFAULT_OUTPUT_DIR = Path("outputs/docx")
@@ -108,14 +122,54 @@ _HEADING_FONT_SIZES_PT = {1: 16, 2: 14, 3: 12, 4: 12, 5: 12, 6: 12}
 _TITLE_FONT_SIZE_PT = 20
 _BYLINE_FONT_SIZE_PT = 14
 
-_FOOTNOTES_RELATIONSHIP_TYPE = (
-    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes"
-)
-_FOOTNOTES_CONTENT_TYPE = (
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml"
-)
 _W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 _XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
+
+
+class _NotePartSpec(NamedTuple):
+    """The OOXML vocabulary for one kind of note part (L4b).
+
+    Word models footnotes and endnotes identically and names every
+    element differently: two parts, two relationship types, two content
+    types, and matching element/style names throughout. This gathers
+    that naming in one place so ``_build_notes_xml()`` and
+    ``_attach_notes_part()`` are written once rather than duplicated per
+    kind - which is how the endnote part came to be missing before L4b:
+    there was one hard-coded footnote implementation and nowhere for a
+    second kind to exist.
+    """
+
+    partname: str
+    content_type: str
+    relationship_type: str
+    root_tag: str  # "footnotes" / "endnotes"
+    item_tag: str  # "footnote"  / "endnote"
+    auto_number_tag: str  # "footnoteRef" / "endnoteRef"
+    reference_tag: str  # "footnoteReference" / "endnoteReference"
+    reference_style: str  # Word's built-in character style for the marker
+
+
+_FOOTNOTE_PART = _NotePartSpec(
+    partname="/word/footnotes.xml",
+    content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml",
+    relationship_type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes",
+    root_tag="footnotes",
+    item_tag="footnote",
+    auto_number_tag="footnoteRef",
+    reference_tag="footnoteReference",
+    reference_style="FootnoteReference",
+)
+
+_ENDNOTE_PART = _NotePartSpec(
+    partname="/word/endnotes.xml",
+    content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.endnotes+xml",
+    relationship_type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/endnotes",
+    root_tag="endnotes",
+    item_tag="endnote",
+    auto_number_tag="endnoteRef",
+    reference_tag="endnoteReference",
+    reference_style="EndnoteReference",
+)
 
 
 class _FootnoteRegistry:
@@ -155,6 +209,34 @@ class _FootnoteRegistry:
 
     def has_entries(self) -> bool:
         return bool(self._bodies)
+
+
+class _NoteRegistries:
+    """One registry per note part, plus the Semantic Document's answer
+    about which part each note belongs in (L4b).
+
+    ``Footnote.note_type`` is that answer, and this is the only place the
+    projection asks the question. The markdown label is used purely as an
+    identity - the same role ``<!-- table-id: ... -->`` already plays for
+    tables - so nothing here reads placement, section headings or
+    rendered text to decide what a note *is*. A label with no matching
+    Footnote (a fixture, hand-written markdown, a direct generate_docx()
+    call) is a footnote, which is exactly what every note was before this
+    milestone: unknown provenance changes nothing.
+    """
+
+    def __init__(self, notes: List[Footnote]) -> None:
+        self.footnotes = _FootnoteRegistry()
+        self.endnotes = _FootnoteRegistry()
+        self._endnote_labels = {
+            note.label for note in notes if note.note_type == NoteType.ENDNOTE
+        }
+
+    def part_for(self, label: str) -> _NotePartSpec:
+        return _ENDNOTE_PART if label in self._endnote_labels else _FOOTNOTE_PART
+
+    def registry_for(self, label: str) -> _FootnoteRegistry:
+        return self.endnotes if label in self._endnote_labels else self.footnotes
 
 
 _HEADING_PATTERN = re.compile(r"^(#{1,6})\s+(.+)$")
@@ -261,7 +343,7 @@ def generate_docx(
     in_front_matter_zone = False
     front_matter_kinds = _front_matter_kinds(document.front_matter)
     front_matter_index = 0
-    footnote_registry = _FootnoteRegistry()
+    note_registries = _NoteRegistries(document.footnotes)
     pipe_table_rows: list = []
     pipe_table_header_count = 0
     pending_table_id: Optional[str] = None
@@ -384,8 +466,8 @@ def generate_docx(
 
         footnote_def_match = _FOOTNOTE_DEFINITION_PATTERN.match(line)
         if footnote_def_match:
-            _add_footnote_definition(
-                footnote_registry,
+            _add_note_definition(
+                note_registries,
                 label=footnote_def_match.group(1),
                 body_text=footnote_def_match.group(2),
             )
@@ -397,7 +479,7 @@ def generate_docx(
         bullet_match = _BULLET_LIST_PATTERN.match(line)
         if bullet_match:
             _add_list_paragraph(
-                docx_document, bullet_match.group(2), "List Bullet", footnote_registry
+                docx_document, bullet_match.group(2), "List Bullet", note_registries
             )
             pending_caption_after_image = False
             continue
@@ -405,19 +487,24 @@ def generate_docx(
         numbered_match = _NUMBERED_LIST_PATTERN.match(line)
         if numbered_match:
             _add_list_paragraph(
-                docx_document, numbered_match.group(2), "List Number", footnote_registry
+                docx_document, numbered_match.group(2), "List Number", note_registries
             )
             pending_caption_after_image = False
             continue
 
-        _add_body_paragraph(docx_document, line, footnote_registry)
+        _add_body_paragraph(docx_document, line, note_registries)
         pending_caption_after_image = False
 
     # Flush any pipe table still open at end of document.
     flush_pipe_table()
 
-    if footnote_registry.has_entries():
-        _attach_footnotes_part(docx_document, footnote_registry)
+    # L4b: one part per note kind, and only for kinds this document
+    # actually has. An endnote emitted into the footnotes part is not a
+    # cosmetic difference — Word would render it at the foot of a page.
+    if note_registries.footnotes.has_entries():
+        _attach_notes_part(docx_document, note_registries.footnotes, _FOOTNOTE_PART)
+    if note_registries.endnotes.has_entries():
+        _attach_notes_part(docx_document, note_registries.endnotes, _ENDNOTE_PART)
 
     docx_document.save(str(resolved_path))
     logger.info("Saved DOCX to '{}'", resolved_path)
@@ -533,30 +620,30 @@ def _parse_inline_format(text: str) -> List[Tuple[str, bool, bool]]:
 
 
 def _add_body_text_with_inline_format(
-    paragraph: Paragraph, text: str, registry: _FootnoteRegistry
+    paragraph: Paragraph, text: str, registries: _NoteRegistries
 ) -> None:
     """Parse ``***...***`` / ``**...**`` / ``*...*`` inline markers in
     ``text`` and emit each segment as a formatted run (016G). Footnote
     references within a formatted segment inherit the segment's bold/italic.
     """
     for segment_text, is_bold, is_italic in _parse_inline_format(text):
-        _add_text_with_footnote_references(
-            paragraph, segment_text, registry, bold=is_bold, italic=is_italic
+        _add_text_with_note_references(
+            paragraph, segment_text, registries, bold=is_bold, italic=is_italic
         )
 
 
 def _add_body_paragraph(
-    docx_document: DocxDocument, text: str, registry: _FootnoteRegistry
+    docx_document: DocxDocument, text: str, registries: _NoteRegistries
 ) -> None:
     paragraph = docx_document.add_paragraph()
-    _add_body_text_with_inline_format(paragraph, text, registry)
+    _add_body_text_with_inline_format(paragraph, text, registries)
 
 
 def _add_list_paragraph(
     docx_document: DocxDocument,
     text: str,
     style: str,
-    registry: _FootnoteRegistry,
+    registries: _NoteRegistries,
 ) -> None:
     """Add a list item using Word's built-in 'List Bullet' or 'List Number'
     paragraph style (FEATURE_016C semantic list accessibility).
@@ -572,27 +659,30 @@ def _add_list_paragraph(
         paragraph = docx_document.add_paragraph(style=style)
     except KeyError:
         paragraph = docx_document.add_paragraph()
-    _add_text_with_footnote_references(paragraph, text, registry)
+    _add_text_with_note_references(paragraph, text, registries)
 
 
-def _add_text_with_footnote_references(
+def _add_text_with_note_references(
     paragraph: Paragraph,
     text: str,
-    registry: _FootnoteRegistry,
+    registries: _NoteRegistries,
     bold: bool = False,
     italic: bool = False,
 ) -> None:
     """Add ``text`` to ``paragraph`` as one or more runs, splitting out
     any ``[^label]`` footnote/endnote references (Phase K) into their
-    own native OOXML ``w:footnoteReference`` run. Text with no
-    references at all renders as exactly one plain run - unchanged from
-    this function's pre-Phase-K behavior.
+    own native OOXML reference run. Text with no references at all
+    renders as exactly one plain run - unchanged from this function's
+    pre-Phase-K behavior.
+
+    The label locates the note; ``registries`` answers what kind it is,
+    from ``Footnote.note_type`` (L4b). This function does not decide.
 
     ``bold`` / ``italic`` are forwarded to every plain-text run so that
     callers that have already parsed inline format markers (016G) can
-    propagate formatting within each already-classified segment.
-    Footnote reference runs are not affected — they use the built-in
-    ``FootnoteReference`` character style.
+    propagate formatting within each already-classified segment. Note
+    reference runs are not affected — they use Word's built-in
+    reference character style for their kind.
     """
     position = 0
     has_reference = False
@@ -600,7 +690,7 @@ def _add_text_with_footnote_references(
         has_reference = True
         if match.start() > position:
             _add_plain_run(paragraph, text[position : match.start()], bold=bold, italic=italic)
-        _add_footnote_reference_run(paragraph, match.group(1), registry)
+        _add_note_reference_run(paragraph, match.group(1), registries)
         position = match.end()
 
     if position < len(text) or not has_reference:
@@ -620,25 +710,27 @@ def _add_plain_run(
     run.font.color.rgb = _BLACK
 
 
-def _add_footnote_reference_run(
-    paragraph: Paragraph, label: str, registry: _FootnoteRegistry
+def _add_note_reference_run(
+    paragraph: Paragraph, label: str, registries: _NoteRegistries
 ) -> None:
-    """A native OOXML ``w:footnoteReference`` run.
+    """A native OOXML ``w:footnoteReference`` or ``w:endnoteReference``
+    run, whichever this note's ``NoteType`` calls for (L4b).
 
     Word auto-numbers and renders the printed superscript digit from the
-    referenced ``w:footnote`` entry in ``word/footnotes.xml``; no
-    explicit text content is needed here.  The ``FootnoteReference``
-    character style is requested via ``w:rStyle`` (Word's built-in style
-    for footnote markers) with an explicit ``w:vertAlign superscript``
-    as a fallback in case the style is not defined in the template.
+    referenced entry in the corresponding part; no explicit text content
+    is needed here.  Word's built-in character style for the marker is
+    requested via ``w:rStyle`` with an explicit ``w:vertAlign
+    superscript`` as a fallback in case the style is not defined in the
+    template.
     """
-    fn_id = registry.get_or_assign_id(label)
+    part = registries.part_for(label)
+    note_id = registries.registry_for(label).get_or_assign_id(label)
 
     run = OxmlElement("w:r")
     run_properties = OxmlElement("w:rPr")
 
     style = OxmlElement("w:rStyle")
-    style.set(qn("w:val"), "FootnoteReference")
+    style.set(qn("w:val"), part.reference_style)
     run_properties.append(style)
 
     vert_align = OxmlElement("w:vertAlign")
@@ -647,24 +739,25 @@ def _add_footnote_reference_run(
 
     run.append(run_properties)
 
-    footnote_ref = OxmlElement("w:footnoteReference")
-    footnote_ref.set(qn("w:id"), str(fn_id))
-    run.append(footnote_ref)
+    note_ref = OxmlElement(f"w:{part.reference_tag}")
+    note_ref.set(qn("w:id"), str(note_id))
+    run.append(note_ref)
 
     paragraph._p.append(run)
 
 
-def _add_footnote_definition(
-    registry: _FootnoteRegistry, label: str, body_text: str
+def _add_note_definition(
+    registries: _NoteRegistries, label: str, body_text: str
 ) -> None:
-    """Register a footnote body for inclusion in ``word/footnotes.xml``.
+    """Register a note body for inclusion in its own part.
 
-    Native OOXML footnotes live in a separate document part, not as
+    Native OOXML notes live in a separate document part, not as
     paragraphs in the main body.  No paragraph is added here; the body
-    text is stored in the registry and the part is built and attached
-    after the main rendering loop completes.
+    text is stored in the registry its ``NoteType`` selects, and the
+    parts are built and attached after the main rendering loop
+    completes.
     """
-    registry.register_body(label, _safe_run_text(body_text))
+    registries.registry_for(label).register_body(label, _safe_run_text(body_text))
 
 
 def _add_bookmark(paragraph: Paragraph, name: str, bookmark_id: int) -> None:
@@ -694,14 +787,17 @@ def _display_number(label: str) -> str:
     return match.group(1) if match else label
 
 
-def _build_footnotes_xml(entries: List[Tuple[int, str]]) -> bytes:
-    """Build the raw XML bytes for ``word/footnotes.xml``.
+def _build_notes_xml(entries: List[Tuple[int, str]], part: _NotePartSpec) -> bytes:
+    """Build the raw XML bytes for ``word/footnotes.xml`` or
+    ``word/endnotes.xml`` — one implementation, ``part`` names the
+    vocabulary (L4b; see _NotePartSpec).
 
     ``entries`` is a list of ``(id, body_text)`` pairs in ascending id
-    order.  IDs -1 and 0 are the Word-required separator footnotes;
-    user footnotes start at 1.  The ``w:footnoteRef`` element in each
-    body paragraph is Word's auto-number placeholder — it renders the
-    correct printed number without any hard-coded text.
+    order.  IDs -1 and 0 are the Word-required separator entries, which
+    both parts need; user notes start at 1.  Each part carries its own
+    id space, so a footnote and an endnote may both be id 1 — the
+    printed number a reader sees comes from Word's auto-number element
+    (``w:footnoteRef``/``w:endnoteRef``), never from text written here.
     """
     W = _W_NS
     WP = "{%s}" % W
@@ -709,13 +805,13 @@ def _build_footnotes_xml(entries: List[Tuple[int, str]]) -> bytes:
     def w(tag: str) -> str:
         return WP + tag
 
-    root = etree.Element(w("footnotes"), nsmap={"w": W})
+    root = etree.Element(w(part.root_tag), nsmap={"w": W})
 
     for fn_type, fn_id, child_tag in (
         ("separator", -1, "separator"),
         ("continuationSeparator", 0, "continuationSeparator"),
     ):
-        fn_el = etree.SubElement(root, w("footnote"))
+        fn_el = etree.SubElement(root, w(part.item_tag))
         fn_el.set(w("type"), fn_type)
         fn_el.set(w("id"), str(fn_id))
         p = etree.SubElement(fn_el, w("p"))
@@ -728,7 +824,7 @@ def _build_footnotes_xml(entries: List[Tuple[int, str]]) -> bytes:
         etree.SubElement(r, w(child_tag))
 
     for fn_id, body_text in entries:
-        fn_el = etree.SubElement(root, w("footnote"))
+        fn_el = etree.SubElement(root, w(part.item_tag))
         fn_el.set(w("id"), str(fn_id))
 
         p = etree.SubElement(fn_el, w("p"))
@@ -737,10 +833,10 @@ def _build_footnotes_xml(entries: List[Tuple[int, str]]) -> bytes:
         ref_r = etree.SubElement(p, w("r"))
         ref_rPr = etree.SubElement(ref_r, w("rPr"))
         rStyle = etree.SubElement(ref_rPr, w("rStyle"))
-        rStyle.set(w("val"), "FootnoteReference")
+        rStyle.set(w("val"), part.reference_style)
         vert = etree.SubElement(ref_rPr, w("vertAlign"))
         vert.set(w("val"), "superscript")
-        etree.SubElement(ref_r, w("footnoteRef"))
+        etree.SubElement(ref_r, w(part.auto_number_tag))
 
         # Body text run
         body_r = etree.SubElement(p, w("r"))
@@ -762,23 +858,25 @@ def _build_footnotes_xml(entries: List[Tuple[int, str]]) -> bytes:
     return etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
 
 
-def _attach_footnotes_part(
-    docx_document: DocxDocument, registry: _FootnoteRegistry
+def _attach_notes_part(
+    docx_document: DocxDocument, registry: _FootnoteRegistry, part: _NotePartSpec
 ) -> None:
-    """Build ``word/footnotes.xml`` from the registry and attach it to
-    the document package with the correct OPC relationship and content
-    type.  Word requires all three (the XML file, the relationship from
+    """Build a note part from its registry and attach it to the document
+    package with the correct OPC relationship and content type.  Word
+    requires all three (the XML file, the relationship from
     ``document.xml``, and the content-type override) to recognise the
-    footnotes part.
+    part — and needs them once per kind, which is why an endnote emitted
+    into the footnotes part is not a cosmetic difference: Word would
+    place it at the foot of a page and call it a footnote.
     """
-    xml_bytes = _build_footnotes_xml(registry.ordered_entries())
-    footnotes_part = Part(
-        partname=PackURI("/word/footnotes.xml"),
-        content_type=_FOOTNOTES_CONTENT_TYPE,
+    xml_bytes = _build_notes_xml(registry.ordered_entries(), part)
+    notes_part = Part(
+        partname=PackURI(part.partname),
+        content_type=part.content_type,
         blob=xml_bytes,
         package=docx_document.part.package,
     )
-    docx_document.part.relate_to(footnotes_part, _FOOTNOTES_RELATIONSHIP_TYPE)
+    docx_document.part.relate_to(notes_part, part.relationship_type)
 
 
 def _build_image_alignment_map(document: Document) -> Dict[str, WD_ALIGN_PARAGRAPH]:
