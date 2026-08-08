@@ -61,14 +61,17 @@ class TestIndexArtifactTexts:
 
 
 class TestArtifactRejection:
+    # These pages carry text but no layout, so both lines must be heading
+    # candidates on their text alone - "Chapter 9" (a running head naming
+    # the chapter, exactly the artifact shape L3 targets) and the
+    # structural keyword "Introduction". Since L3.2 a bare descriptive
+    # phrase would be no heading at all and would prove nothing here.
     def _document_run(self, with_artifact: bool) -> Document:
-        # "Running Masthead" is the document's first productive line, so
-        # absent L3 it claims the H1 slot; "Actual Content Heading" follows.
-        page = Page(page_number=1, cleaned_text="Running Masthead\nActual Content Heading\nsome body.")
-        masthead = _blk(
-            "Running Masthead", 1, 0, ArtifactClass.RUNNING_HEADER if with_artifact else None
-        )
-        content = _blk("Actual Content Heading", 1, 1)
+        # "Chapter 9" is the document's first productive line, so absent L3
+        # it holds the title position; "Introduction" follows.
+        page = Page(page_number=1, cleaned_text="Chapter 9\nIntroduction\nsome body.")
+        masthead = _blk("Chapter 9", 1, 0, ArtifactClass.RUNNING_HEADER if with_artifact else None)
+        content = _blk("Introduction", 1, 1)
         document = Document(
             source_pdf_path="dummy.pdf",
             metadata=Metadata(filename="dummy.pdf"),
@@ -79,16 +82,19 @@ class TestArtifactRejection:
         return document
 
     def test_artifact_line_is_rejected_as_heading(self):
-        assert "Running Masthead" not in _content_texts(self._document_run(with_artifact=True))
+        assert "Chapter 9" not in _content_texts(self._document_run(with_artifact=True))
 
     def test_control_without_artifact_keeps_the_line(self):
         # The very difference L3 makes: identical input, no classification.
-        assert "Running Masthead" in _content_texts(self._document_run(with_artifact=False))
+        assert "Chapter 9" in _content_texts(self._document_run(with_artifact=False))
 
     def test_h1_slot_passes_to_next_line_when_artifact_rejected(self):
-        # The rejected masthead must not spend the H1 slot; the real title
-        # after it should still be detected (as the now-first line).
-        assert "Actual Content Heading" in _content_texts(self._document_run(with_artifact=True))
+        # The rejected masthead must not spend the title position; the real
+        # heading after it becomes the now-first line and is ranked H1.
+        headings = [
+            h for h in self._document_run(with_artifact=True).headings if not h.is_page_marker
+        ]
+        assert [(h.text, int(h.level)) for h in headings] == [("Introduction", 1)]
 
 
 class TestStructureToHeadingsWiring:

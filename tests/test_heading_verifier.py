@@ -54,7 +54,14 @@ class TestDetectHeadingsFromPdf:
         from src.ocr.extractor import extract_text
         from src.parser.pdf_parser import parse_pdf
 
-        pdf_path = _build_pdf(tmp_path, [("Chapter One Begins Here", "hebo", 14)])
+        # Body lines, not just the heading: bold-vs-body contrast is what
+        # makes the first line a heading, and it needs a majority body
+        # profile to contrast against. Until L3.2 position alone sufficed.
+        pdf_path = _build_pdf(
+            tmp_path,
+            [("Chapter One Begins Here", "hebo", 14)]
+            + [(f"Body text line {i} follows here.", "helv", 10) for i in range(3)],
+        )
         document = extract_text(parse_pdf(pdf_path))
         document = detect_headings(document)
         assert any(not h.is_page_marker for h in document.headings)

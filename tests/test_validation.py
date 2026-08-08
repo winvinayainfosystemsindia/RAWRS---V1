@@ -65,20 +65,23 @@ def _build_document(
 
 
 class TestValidDocument:
+    # A "well-formed" fixture needs a real H1, and since L3.2 that means a
+    # first line with evidence of its own - "Chapter 1" rather than a bare
+    # title line, which now earns nothing and trips HEADING_002.
     def test_well_formed_single_page_document_has_no_issues(self) -> None:
-        document = _build_document(["Doc Title\nIntroduction\nbody text"])
+        document = _build_document(["Chapter 1\nIntroduction\nbody text"])
         assert validate_document(document) == []
 
     def test_well_formed_multi_page_document_has_no_issues(self) -> None:
         document = _build_document(
-            ["Doc Title\nIntroduction\nbody", "3.1 Overview\nbody", "3.1.1 Details\nbody"]
+            ["Chapter 1\nIntroduction\nbody", "3.1 Overview\nbody", "3.1.1 Details\nbody"]
         )
         assert validate_document(document) == []
 
 
 class TestInvalidHierarchy:
     def test_h1_then_h3_is_flagged_as_hierarchy_jump(self) -> None:
-        document = _build_document(["Doc Title\n3.1 Overview\nbody"])
+        document = _build_document(["Chapter 1\n3.1 Overview\nbody"])
         issues = validate_document(document)
 
         jumps = [i for i in issues if i.rule_id == "HEADING_001"]
@@ -97,10 +100,9 @@ class TestInvalidHierarchy:
         assert [i for i in issues if i.rule_id == "HEADING_001"] == []
 
     def test_missing_h1_is_flagged(self) -> None:
-        # The H1 slot is consumed by the very first non-blank line
-        # regardless of outcome. A line matching the more specific H3
-        # numbering pattern (checked before the H1 slot) consumes the
-        # slot without ever becoming H1, so no H1 appears anywhere.
+        # Section numbering states its own level, so it is the one signal
+        # the title position cannot promote (src/headings/heading_signals.py):
+        # "3.1 Overview" opens the document and stays H3, leaving no H1.
         document = _build_document(["3.1 Overview\nbody text"])
         issues = validate_document(document)
 
@@ -995,7 +997,10 @@ class TestCrossSourceVerificationFindings:
     """
 
     def test_no_findings_produces_no_issues(self) -> None:
-        document = _build_document(["body text"])
+        # "Chapter 1" so the fixture has an H1: this test asserts the whole
+        # issue list is empty, so it must not trip HEADING_002 (missing H1)
+        # on a document whose only line has no heading evidence.
+        document = _build_document(["Chapter 1\nbody text"])
         assert document.verification_findings == []
         assert validate_document(document) == []
 
@@ -1026,7 +1031,7 @@ class TestCrossSourceVerificationFindings:
         from src.models.verification import Finding
         import src.verification.figures  # noqa: F401
 
-        document = _build_document(["body text"])
+        document = _build_document(["Chapter 1\nbody text"])
         document.verification_findings.append(
             Finding(asset_type="figure", kind="not_a_real_kind", message="should be ignored")
         )

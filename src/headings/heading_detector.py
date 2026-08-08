@@ -22,21 +22,25 @@ Phase B for the full taxonomy this was derived from):
 **The per-line signals themselves live in
 src/headings/heading_signals.py** (L3.1), which owns the signal set, the
 precedence between them, and the audit trail behind each one (numbering
-depth, the positional H1 slot, structural keywords, bold-vs-body
-contrast, and the bug_002 recurring-heading-font last resort). This
-module owns everything around that decision: reading the PDF's layout
-and font indices, walking pages and lines, the H1-slot lifecycle,
-front-matter and artifact pre-filters, continuation absorption, and page
-markers.
+depth, structural keywords, bold-vs-body contrast, and the bug_002
+recurring-heading-font last resort). This module owns everything around
+that decision: reading the PDF's layout and font indices, walking pages
+and lines, the title-position lifecycle, front-matter and artifact
+pre-filters, continuation absorption, and page markers.
 
-Each detected heading now carries the evidence behind it -
+Each detected heading carries the evidence behind it -
 ``Heading.evidence_items`` (the signals that fired) and
 ``Heading.confidence`` (their weighted mean), both produced by
-``heading_signals.evaluate_heading()``. The decision itself is unchanged
-by that split: heading_signals reproduces the historical tier precedence
-exactly, so the same input yields the same level as before it existed.
+``heading_signals.evaluate_heading()``.
 
-The H1 slot's own robustness rule stays here because it is a property of
+L3.2 reduced what that position is worth. It no longer decides that a
+line is a heading - only ``heading_signals``' evidence does - so this
+module's remaining positional job is narrow: identify which line holds
+the document's title position, so that a line already evidenced as a
+heading can be ranked H1. Position is now the last thing consulted about
+a line rather than the second.
+
+The slot's own robustness rule stays here because it is a property of
 walking the document, not of classifying a line: the slot stays open
 across unproductive lines - a bare footer page number or a lone
 decorative drop-cap glyph extracted as its own line - rather than being
@@ -208,7 +212,10 @@ def detect_headings(
 
     headings: List[Heading] = []
     order = 0
-    h1_slot_open = True  # only the first non-blank line in the whole document is eligible for H1
+    # Only the first productive line in the whole document holds the title
+    # position. Since L3.2 that buys the line nothing on its own - it ranks
+    # a heading the evidence already found, and ranks nothing otherwise.
+    h1_slot_open = True
     # Texts that have already produced a heading, so the bold-contrast
     # signal can decline on a repeat occurrence of the same exact text -
     # see heading_signals.bold_contrast() and the Running Header/Footer
@@ -565,12 +572,10 @@ def _evaluate_line(
     behind it. The signal set, its precedence, and each signal's rationale
     all live there; this function only marshals inputs.
 
-    The returned verdict's level is identical to what the previous
-    inline tier cascade produced for the same inputs - the precedence in
-    heading_signals reproduces it exactly. What is new is
-    ``verdict.bundle``: every signal that fired, not just the winning
-    one, so a heading resting on a single weak assumption is now
-    distinguishable from a corroborated one.
+    ``is_h1_slot`` is the one positional input in the set, and since L3.2
+    it is marshalled like any other piece of evidence rather than as a
+    decision: heading_signals will not let it make this line a heading,
+    only rank one it has already established.
     """
     candidate = HeadingCandidate(
         text=line,
@@ -587,7 +592,6 @@ def _evaluate_line(
 
 def _is_fallback_heading(
     line: str,
-    is_h1_slot: bool,
     fallback_signal: Optional[FallbackFontSignal],
     body_font_name: Optional[str],
     signature_counts: Optional[Counter],
@@ -599,11 +603,14 @@ def _is_fallback_heading(
     heading_signals.font_signal_supports_heading() - the conditions and
     the audit trail behind each now live there. Kept at this name because
     it is the unit-test entry point for that gate.
+
+    L3.2 dropped the ``is_h1_slot`` parameter: the gate it fed ("decline
+    on the document's first line, the positional signal owns it") is gone,
+    so passing position in here would be passing something nothing reads.
     """
     return font_signal_supports_heading(
         HeadingCandidate(
             text=line,
-            is_h1_slot=is_h1_slot,
             body_profile=body_profile,
             font_signal=fallback_signal,
             body_font_name=body_font_name,

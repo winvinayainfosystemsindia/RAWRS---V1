@@ -134,11 +134,6 @@ def _positional_signal(_a: Any, _b: Any) -> Optional[float]:
     return 0.05
 
 
-# The heading_signals name for the positional H1 slot. A heading whose
-# evidence is exactly this and nothing else is asserted on position alone.
-_POSITIONAL_H1_SIGNAL = "positional_h1_slot"
-
-
 def _encode_recovery(pdf_heading: Heading) -> str:
     return json.dumps(
         {"level": int(pdf_heading.level), "text": pdf_heading.text, "page_number": pdf_heading.page_number}
@@ -591,11 +586,11 @@ class HeadingVerifier(SemanticVerifier):
             "likely_running_header": RuleSpec(
                 rule_id="HEADING_VERIFY_005", reason_code="HEADING_LIKELY_RUNNING_HEADER", severity="warning"
             ),
-            "positional_only_h1": RuleSpec(
-                rule_id="HEADING_VERIFY_006",
-                reason_code="HEADING_POSITIONAL_ONLY",
-                severity="warning",
-            ),
+            # HEADING_VERIFY_006 ("positional_only_h1") was retired by
+            # L3.2 along with the detector behaviour it described — see
+            # inspect(). Deliberately not reissued for another purpose:
+            # a rule id names one meaning for the lifetime of the corpus.
+            #
             # A reviewer's own "this is not a heading". Recorded through the
             # same rail as every machine-proposed removal so the decision
             # actually reaches the document — before this it set a
@@ -625,10 +620,15 @@ class HeadingVerifier(SemanticVerifier):
         elif correction.field == "text_correction" and correction.proposed_value:
             heading.text = correction.proposed_value
         elif correction.field in ("positional_only_h1", "reviewer_rejected"):
-            # Reviewer confirmed the positional slot was wrong: this line is
-            # not a heading. Removal only ever runs after an explicit Accept
-            # (the finding is PROPOSED, never auto_apply), and revert()
-            # restores it from the payload below.
+            # "this line is not a heading". Removal only ever runs after an
+            # explicit Accept (both kinds land PROPOSED, never auto_apply),
+            # and revert() restores it from the payload below.
+            #
+            # positional_only_h1 is no longer *emitted* (L3.2 retired
+            # HEADING_VERIFY_006), but it is still handled: documents
+            # persisted before L3.2 carry corrections with this field, and
+            # dropping the branch would leave those records applied with no
+            # way back. Same reason the field needed no migration.
             document.headings = [h for h in document.headings if h.id != heading.id]
         elif correction.field == "likely_running_header":
             # REMOVE, reviewer-accepted (FEATURE_019 — every REMOVE lands
@@ -661,86 +661,35 @@ class HeadingVerifier(SemanticVerifier):
     def inspect(self, document, **context):
         """Everything this verifier has to say about the document's headings.
 
-        Two strategies, each self-selecting, because a producer may reach
-        its findings however it likes:
+        Cross-source reconciliation needs a provider to reconcile against.
+        Native documents have none (see Document.import_provider):
+        detect_headings_from_pdf() shares its classifier with
+        detect_headings(), so comparing them would compare a thing to
+        itself.
 
-        * ``_uncorroborated_h1_findings`` needs only RAWRS's own detection
-          evidence, so it runs on any document. Provider-supplied headings
-          carry no ``evidence_items``, so it is naturally silent for them
-          rather than being gated by a path check.
-        * cross-source reconciliation needs a provider to reconcile
-          against. Native documents have none (see
-          Document.import_provider): detect_headings_from_pdf() shares its
-          classifier with detect_headings(), so comparing them would
-          compare a thing to itself.
+        L3.2 removed the second strategy that used to run here. It flagged
+        headings whose evidence was the positional H1 slot and nothing
+        else (HEADING_VERIFY_006) — RAWRS stating a doubt it could not
+        yet act on. Heading detection can no longer produce such a
+        heading: evidence, not position, now decides that a line is a
+        heading at all, so a bundle containing the positional signal
+        always contains a typographic one beside it. The check had
+        nothing left to find, and a rule that cannot fire is worse than
+        no rule — it reads as a guarantee. See
+        src/headings/heading_signals.py's decision policy.
         """
-        findings = self._uncorroborated_h1_findings(document)
         if not getattr(document, "import_provider", None):
-            return findings
+            return []
         from src.headings.heading_detector import detect_headings_from_pdf
         from src.verification.engine import engine
 
         content_headings = [h for h in document.headings if not h.is_page_marker]
         pdf_headings = detect_headings_from_pdf(document.source_pdf_path)
-        findings.extend(
+        return list(
             engine.run_pdf_verification(
                 "heading", content_headings, pdf_headings, pdf_path=document.source_pdf_path
             )
         )
-        return findings
-
-    @staticmethod
-    def _uncorroborated_h1_findings(document: Any) -> List[Finding]:
-        """Headings asserted on document position and nothing else.
-
-        The positional H1 slot (src/headings/heading_signals.py) claims
-        the document's first productive line is its title. It is the only
-        signal in the set with no typographic corroboration, which is why
-        L3.1 scores it lowest — and measuring the benchmark corpus settled
-        what that is worth: of 87 content headings, exactly 4 rest on it
-        alone, and all 4 are wrong. 'Article' (a journal kicker label —
-        this is bug_003), 'Jerome Bruner' (an author), 'xlv' (a roman page
-        label), and a sentence of body prose. Every heading where position
-        is *corroborated* — the next tier up is positional + bold, e.g.
-        'AIMS OF EDUCATION: DO TEACHERS NEED TO BE PHILOSOPHERS?' — is
-        genuine.
-
-        So this proposes removal rather than merely noting doubt, and it
-        proposes rather than auto-applies: 4 instances is a strong signal
-        but a small sample, and deleting a document's only H1 is exactly
-        the kind of decision that should be a human's. The evidence
-        bundle travels with the finding so the reviewer sees why.
-
-        This is what replaces "retire the positional-first-line
-        assumption" (blueprint step 10) as a blind rewrite: the
-        assumption is now measured, surfaced per instance, and reversible
-        — the detector states its uncertainty instead of silently
-        asserting a title.
-        """
-        findings: List[Finding] = []
-        for heading in document.headings:
-            if heading.is_page_marker or not heading.evidence_items:
-                continue
-            names = {signal.name for signal in heading.evidence_items}
-            if names != {_POSITIONAL_H1_SIGNAL}:
-                continue
-            findings.append(
-                Finding(
-                    asset_type="heading",
-                    kind="positional_only_h1",
-                    object_id=heading.id,
-                    confidence=heading.confidence,
-                    evidence_items=list(heading.evidence_items),
-                    evidence="detected from document position only; no typographic support",
-                    message=(
-                        f"{heading.text!r} was made H{int(heading.level)} because it is the "
-                        f"document's first productive line, with no other supporting signal"
-                    ),
-                    original_value=_encode_recovery(heading),
-                    proposed_value=_encode_recovery(heading),
-                )
-            )
-        return findings
 
 
 def _register() -> None:

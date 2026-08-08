@@ -70,26 +70,29 @@ def _add_image(
 
 class TestHeadingGeneration:
     def test_h1_through_h5_render_with_correct_atx_depth(self) -> None:
+        # "Chapter 1" rather than a bare title line: since L3.2 the first
+        # line needs evidence of its own to be a heading at all, and this
+        # fixture is about ATX depth, not about what earns an H1.
         document = _build_document(
-            ["Doc Title\nIntroduction\n3.1 Overview\n3.1.1 Objectives\n3.1.1.1 Detail"]
+            ["Chapter 1\nIntroduction\n3.1 Overview\n3.1.1 Objectives\n3.1.1.1 Detail"]
         )
         markdown = build_markdown(document)
 
-        assert "# Doc Title" in markdown
+        assert "# Chapter 1" in markdown
         assert "## Introduction" in markdown
         assert "### 3.1 Overview" in markdown
         assert "#### 3.1.1 Objectives" in markdown
         assert "##### 3.1.1.1 Detail" in markdown
 
     def test_heading_levels_use_correct_hash_count_not_just_substrings(self) -> None:
-        document = _build_document(["Doc Title\nIntroduction"])
+        document = _build_document(["Chapter 1\nIntroduction"])
         markdown = build_markdown(document)
 
         lines = markdown.splitlines()
-        assert "# Doc Title" in lines
+        assert "# Chapter 1" in lines
         assert "## Introduction" in lines
         # the H1 line must not itself be a longer heading in disguise
-        assert "## Doc Title" not in lines
+        assert "## Chapter 1" not in lines
 
 
 class TestPageMarkerGeneration:
@@ -121,12 +124,12 @@ class TestPageMarkerGeneration:
 class TestReadingOrderPreservation:
     def test_headings_and_body_text_stay_in_source_order(self) -> None:
         document = _build_document(
-            ["Doc Title\nsome intro text\nIntroduction\nmore body text\n3.1 Overview\nfinal text"]
+            ["Chapter 1\nsome intro text\nIntroduction\nmore body text\n3.1 Overview\nfinal text"]
         )
         markdown = build_markdown(document)
 
         positions = [
-            markdown.index("# Doc Title"),
+            markdown.index("# Chapter 1"),
             markdown.index("some intro text"),
             markdown.index("## Introduction"),
             markdown.index("more body text"),
@@ -136,12 +139,12 @@ class TestReadingOrderPreservation:
         assert positions == sorted(positions)
 
     def test_multi_page_content_stays_in_page_order(self) -> None:
-        document = _build_document(["Doc Title\nIntroduction", "3.1 Overview\nbody"])
+        document = _build_document(["Chapter 1\nIntroduction", "3.1 Overview\nbody"])
         markdown = build_markdown(document)
 
         positions = [
             markdown.index("###### 1"),
-            markdown.index("# Doc Title"),
+            markdown.index("# Chapter 1"),
             markdown.index("## Introduction"),
             markdown.index("###### 2"),
             markdown.index("### 3.1 Overview"),
@@ -234,11 +237,11 @@ class TestMultiPageDocuments:
         assert markdown.count("<!-- pagebreak -->") == 3
 
     def test_page_breaks_follow_each_pages_content(self) -> None:
-        document = _build_document(["Doc Title", "3.1 Overview"])
+        document = _build_document(["Chapter 1", "3.1 Overview"])
         markdown = build_markdown(document)
 
         first_break = markdown.index("<!-- pagebreak -->")
-        assert markdown.index("# Doc Title") < first_break
+        assert markdown.index("# Chapter 1") < first_break
         assert first_break < markdown.index("### 3.1 Overview")
 
 

@@ -99,24 +99,40 @@ def _content_headings(document: Document) -> List[Heading]:
 
 
 class TestH1Detection:
-    def test_first_line_of_document_is_h1(self) -> None:
-        document = _build_document(["The Silenced Dialogue\nSome body text here."])
+    """L3.2: the title position ranks a heading the evidence already found;
+    it cannot make one. So the first line becomes H1 when something about
+    the line itself says "heading", and produces nothing when nothing does
+    - with HEADING_002 reporting the resulting absence of a title.
+    """
+
+    def test_first_line_becomes_h1_when_evidence_supports_a_heading(self) -> None:
+        document = _build_document(["Chapter 4\nSome body text here."])
         detect_headings(document)
 
         content = _content_headings(document)
         assert len(content) == 1
+        # The chapter pattern makes it a heading; the title position ranks it.
         assert content[0].level == HeadingLevel.H1
-        assert content[0].text == "The Silenced Dialogue"
+        assert content[0].text == "Chapter 4"
+
+    def test_unsupported_first_line_is_not_h1(self) -> None:
+        # Plain prose in the title position. Until L3.2 this was the
+        # document's H1 on position alone - the assumption that produced
+        # 'Article' and 'xlv' as titles on the benchmark corpus.
+        document = _build_document(["The Silenced Dialogue\nSome body text here."])
+        detect_headings(document)
+
+        assert _content_headings(document) == []
 
     def test_only_one_h1_ever_assigned(self) -> None:
         document = _build_document(
-            ["Document Title\nIntroduction\nsome text", "Another Title-Looking Line\nmore text"]
+            ["Chapter 4\nIntroduction\nsome text", "Chapter 5\nmore text"]
         )
         detect_headings(document)
 
         h1_headings = [h for h in document.headings if h.level == HeadingLevel.H1]
         assert len(h1_headings) == 1
-        assert h1_headings[0].text == "Document Title"
+        assert h1_headings[0].text == "Chapter 4"
 
     def test_no_h1_when_document_has_no_text(self) -> None:
         document = _build_document(["", ""])
@@ -198,21 +214,21 @@ class TestDocumentOrdering:
         assert orders[0] == 0
 
     def test_page_marker_precedes_content_headings_on_same_page(self) -> None:
-        document = _build_document(["Doc Title\nIntroduction\nbody text"])
+        document = _build_document(["Chapter 1\nIntroduction\nbody text"])
         detect_headings(document)
 
         page_1_headings = [h for h in document.headings if h.page_number == 1]
         assert page_1_headings[0].is_page_marker is True
         assert page_1_headings[0].level == HeadingLevel.H6
         # content headings on the same page follow the marker, in line order
-        assert [h.text for h in page_1_headings[1:]] == ["Doc Title", "Introduction"]
+        assert [h.text for h in page_1_headings[1:]] == ["Chapter 1", "Introduction"]
 
     def test_headings_preserve_cross_page_reading_order(self) -> None:
-        document = _build_document(["Doc Title\nIntroduction\nbody", "3.1 Overview\nbody"])
+        document = _build_document(["Chapter 1\nIntroduction\nbody", "3.1 Overview\nbody"])
         detect_headings(document)
 
         ordered_texts = [h.text for h in document.headings]
-        assert ordered_texts == ["1", "Doc Title", "Introduction", "2", "3.1 Overview"]
+        assert ordered_texts == ["1", "Chapter 1", "Introduction", "2", "3.1 Overview"]
 
 
 class TestInvalidHierarchyIsDetectedNotCorrected:
@@ -224,7 +240,7 @@ class TestInvalidHierarchyIsDetectedNotCorrected:
     """
 
     def test_h1_directly_followed_by_h3_is_recorded_as_is(self) -> None:
-        document = _build_document(["Doc Title\n3.1 Overview\nbody text"])
+        document = _build_document(["Chapter 1\n3.1 Overview\nbody text"])
         detect_headings(document)
 
         content = _content_headings(document)
@@ -232,7 +248,7 @@ class TestInvalidHierarchyIsDetectedNotCorrected:
         assert levels == [HeadingLevel.H1, HeadingLevel.H3]
 
     def test_h2_directly_followed_by_h4_is_recorded_as_is(self) -> None:
-        document = _build_document(["Doc Title\nIntroduction\n3.1.1 Details\nbody"])
+        document = _build_document(["Chapter 1\nIntroduction\n3.1.1 Details\nbody"])
         detect_headings(document)
 
         content = _content_headings(document)
@@ -240,7 +256,7 @@ class TestInvalidHierarchyIsDetectedNotCorrected:
         assert levels == [HeadingLevel.H1, HeadingLevel.H2, HeadingLevel.H4]
 
     def test_repeated_h2_at_same_level_is_recorded_without_complaint(self) -> None:
-        document = _build_document(["Doc Title\nIntroduction\nbody\nConclusion\nbody"])
+        document = _build_document(["Chapter 1\nIntroduction\nbody\nConclusion\nbody"])
         detect_headings(document)
 
         content = _content_headings(document)
@@ -259,12 +275,13 @@ class TestBodyTextIsNotMisclassified:
 
     def test_ordinary_paragraph_text_is_ignored(self) -> None:
         document = _build_document(
-            ["Doc Title\nThis is just a normal sentence of body text, not a heading."]
+            ["Chapter 1\nThis is just a normal sentence of body text, not a heading."]
         )
         detect_headings(document)
 
         content = _content_headings(document)
         assert len(content) == 1
+        assert content[0].text == "Chapter 1"
         assert content[0].level == HeadingLevel.H1
 
 
@@ -385,10 +402,12 @@ class TestLayoutBasedHeadingDetection:
         assert all("Running Header" not in h.text for h in content)
 
 
-class TestH1PositionalPriorityOverKeyword:
-    """Phase B: the H1 slot is now checked before the Chapter/Unit
-    keyword rule, so a short excerpt whose very first line is "Chapter
-    9" gets H1 (it IS that excerpt's title), matching the benchmark.
+class TestTitlePositionPromotesAChapterHeading:
+    """A short excerpt whose very first line is "Chapter 9" gets H1 - it IS
+    that excerpt's title, matching the benchmark. Phase B produced that by
+    checking the H1 slot ahead of the Chapter/Unit rule; since L3.2 the
+    Chapter/Unit rule makes it a heading and the title position then ranks
+    it. Same outcome, and now for a reason the evidence can defend.
     """
 
     def test_chapter_n_as_first_line_becomes_h1(self) -> None:
@@ -399,18 +418,16 @@ class TestH1PositionalPriorityOverKeyword:
         assert content[0].text == "Chapter 9"
         assert content[0].level == HeadingLevel.H1
 
-    def test_chapter_n_after_a_preceding_title_still_becomes_h2(self) -> None:
-        # Regression guard: when a document already has its own title
-        # as the first line, a later "Chapter N" must still fall
-        # through to H2, not steal the (already-consumed) H1 slot.
+    def test_chapter_n_after_the_title_position_is_taken_stays_h2(self) -> None:
+        # Regression guard: the title position belongs to the first
+        # productive line, taken or not. "Book Title" holds it and earns
+        # nothing (no supporting evidence), and a later "Chapter N" must
+        # not inherit it.
         document = _build_document(["Book Title\nChapter 1\nbody text"])
         detect_headings(document)
 
         content = _content_headings(document)
-        assert content[0].text == "Book Title"
-        assert content[0].level == HeadingLevel.H1
-        assert content[1].text == "Chapter 1"
-        assert content[1].level == HeadingLevel.H2
+        assert [(h.text, h.level) for h in content] == [("Chapter 1", HeadingLevel.H2)]
 
 
 @pytest.mark.parametrize(
@@ -428,16 +445,57 @@ class TestHeadingRecoveryOnRealBenchmarkPdfs:
         content = _content_headings(document)
         assert len(content) > 0
 
-    def test_no_h1_is_missing_anymore(self, sample_pdf_path: Path) -> None:
+    def test_every_h1_is_corroborated_not_positional(self, sample_pdf_path: Path) -> None:
+        # L3.2's corpus-wide invariant, and what replaced "every document
+        # gets an H1". That older guard was satisfiable by asserting a
+        # title from position alone, and on 3 of these PDFs that is exactly
+        # what it was accepting: 'Article' (a journal kicker), 'xlv' (a
+        # roman page label), and a sentence of body prose. An H1 must now
+        # rest on something the line itself shows.
         document = parse_pdf(sample_pdf_path)
         extract_text(document)
         detect_headings(document)
 
-        content = _content_headings(document)
-        assert any(h.level == HeadingLevel.H1 for h in content)
+        for h1 in [h for h in _content_headings(document) if h.level == HeadingLevel.H1]:
+            names = {s.name for s in h1.evidence_items}
+            assert names - {"title_position"}, f"{h1.text!r} rests on position alone"
 
 
 class TestHeadingRecoveryOnSpecificBenchmarkDocuments:
+    @pytest.mark.parametrize(
+        "filename,expected_h1",
+        [
+            # Corroborated titles - these must survive L3.2 untouched. Bold
+            # and/or a recurring heading font makes them headings; the title
+            # position ranks them H1.
+            ("1.Aims of Education and the teacher_Dhankar_PhilPers (1).pdf",
+             "AIMS OF EDUCATION: DO TEACHERS NEED TO BOTHER ABOUT THEM?"),
+            ("2.FolkPedagogy_Bruner_PsychDimensions_New.pdf", "THE CULTURE OF EDUCATION"),
+            ("4.Teaching as a professional discipline-Chapter 1.pdf", "Chapter 1"),
+            ("5.Teachingas a profession_Calderhead.pdf", "Chapter 9"),
+            ("6. Fullan&Hargreaves_teacherasaperson.pdf", "Chapter 7"),
+            # The three documents whose first productive line carries no
+            # typographic support. Before L3.2 each got an H1 anyway, and
+            # each was wrong: body prose, 'xlv' (a roman page label), and
+            # 'Article' (a journal kicker - bug_003). No title is the honest
+            # answer; HEADING_002 is what tells the reviewer.
+            ("1. Nature of Enquiry.pdf", None),
+            ("3. sockett_profession.pdf", None),
+            ("7.brinkman-learner-centred-education-reform-india-missing-beliefs.pdf", None),
+        ],
+    )
+    def test_h1_is_present_exactly_where_the_evidence_supports_one(
+        self, filename: str, expected_h1
+    ) -> None:
+        document = parse_pdf(SAMPLE_PDF_DIR / filename)
+        extract_text(document)
+        detect_headings(document)
+
+        h1_texts = [
+            h.text for h in _content_headings(document) if h.level == HeadingLevel.H1
+        ]
+        assert h1_texts == ([expected_h1] if expected_h1 else [])
+
     def test_calderhead_chapter_becomes_h1_not_h2(self) -> None:
         path = SAMPLE_PDF_DIR / "5.Teachingas a profession_Calderhead.pdf"
         document = parse_pdf(path)
@@ -503,7 +561,6 @@ class TestBug002FallbackTier:
         sole = _FallbackSignal(font_name="CustomFont", size=14.0, is_sole_line=True)
         shared = _FallbackSignal(font_name="CustomFont", size=14.0, is_sole_line=False)
         common_kwargs = dict(
-            is_h1_slot=False,
             body_font_name="BodyFont",
             signature_counts=signature_counts,
             body_profile=(10.0, False),
@@ -531,7 +588,6 @@ class TestBug002FallbackTier:
         assert (
             _is_fallback_heading(
                 "Table 1. Summary of results",
-                is_h1_slot=False,
                 fallback_signal=caption_sized,
                 body_font_name="BodyFont",
                 signature_counts=signature_counts,

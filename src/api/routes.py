@@ -746,8 +746,9 @@ def review_heading(job_id: str, document_order: int, body: HeadingReviewRequest)
             # line kept rendering as a heading forever.
             #
             # It now goes through the rail as a removal, the same machinery
-            # HeadingVerifier already uses for likely_running_header and
-            # positional_only_h1. Removing it from document.headings makes
+            # HeadingVerifier already uses for likely_running_header (and
+            # for positional_only_h1 until L3.2 retired that finding).
+            # Removing it from document.headings makes
             # markdown_builder render the line as ordinary body text (it
             # matches headings against document.headings as it walks the
             # page), so the decision reaches Markdown, and DOCX follows from

@@ -27,8 +27,8 @@ individual tier:
    floor and the >=body-size gate are each one observed defect patched
    inside the tier that produced it.
 
-This module addresses (1) and (2) and leaves the decision itself
-untouched; (3) is L3.2's concern (see "Transitional policy" below).
+L3.1 addressed (1) and (2) and left the decision itself untouched.
+L3.2 (below) settles what the recorded evidence then measured.
 
 Reuses ``src/verification/evidence.py``'s ``EvidenceSignal`` /
 ``EvidenceBundle`` - the shared evidence-fusion primitive (FEATURE_019)
@@ -38,18 +38,48 @@ heading-specific evidence vocabulary. ``src/structure/layout_signals.py``
 is the equivalent module for the L1/L2 layout passes; this is its
 heading-side counterpart, and the naming is deliberate.
 
-Transitional policy (L3.1)
---------------------------
-``evaluate_heading()`` currently decides by **declared precedence**: the
-highest-priority signal that fired wins, which reproduces the historical
-cascade decision for decision. That is deliberate and temporary - this
-commit changes what is *recorded*, never what is *decided*, so it is
-KPI-neutral by construction and independently revertible. Genuine
-evidence fusion (letting a weak signal be outvoted, and converting the
-guards above into negative evidence) is a following, separately
-benchmark-gated commit. Until then the scores below are honest about
-relative strength but are **not** corpus-calibrated weights - they encode
-the specificity ordering the cascade already asserted, nothing more.
+Decision policy (L3.2)
+----------------------
+**Evidence decides whether a line is a heading. Position never does.**
+
+``evaluate_heading()`` runs the four evidence-bearing signals below -
+numbering, structural keyword, bold contrast, recurring heading font -
+and decides by declared precedence among *them*. A line no evidence
+supports is not a heading, whatever its position in the document.
+
+Document position survives in exactly one reduced role
+(``title_position``): once evidence has already established that a line
+*is* a heading, being in the document's title position raises its rank
+to H1. It corroborates; it cannot create. This is the whole of L3.2, and
+the reason it is a retirement rather than a rewrite is that the corpus
+measured the difference: of the 89 content headings the native path found
+across samples/benchmark/pdfs/, 8 sat in the title position, and the 3
+that rested on position *alone* were all wrong - 'Article' (a journal
+kicker label, bug_003), 'xlv' (a roman page label), and a sentence of
+body prose. The other 5 were corroborated (bold, or the chapter pattern)
+and are all genuine titles. Requiring corroboration therefore removes
+exactly those three and preserves the five: 89 headings become 86, and
+every remaining one is unchanged - see L3.2's commit message for the
+before/after dump.
+
+Two consequences follow, and both are intended:
+
+* ``HEADING_VERIFY_006`` (positional-only H1) can no longer fire, because
+  the class of heading it described can no longer be produced. The
+  finding was L3.1's way of *surfacing* the assumption; L3.2 removes the
+  assumption, so the finding retires with it.
+* A document whose title line has no typographic support now has no H1 at
+  all, and ``HEADING_002`` ("No H1 heading was detected in the document",
+  src/validation/validator.py) says so. That is the honest answer - RAWRS
+  could not find a title - and it reaches a reviewer through a rule that
+  already existed. It is also why a layout-free document (OCR text with
+  no readable font information) now yields no title: there is nothing for
+  position to corroborate, and inventing one from position is the very
+  thing that produced 'Article' and 'xlv'.
+
+The scores below grade relative strength honestly but are still **not**
+corpus-fitted weights; they encode the specificity ordering the original
+cascade asserted. Calibrating them is a separate question from this one.
 """
 
 import re
@@ -131,13 +161,12 @@ _NUMBERING_SCORE, _NUMBERING_WEIGHT = 0.95, 3.0
 _KEYWORD_SCORE, _KEYWORD_WEIGHT = 0.90, 2.5
 _HEADING_FONT_SCORE, _HEADING_FONT_WEIGHT = 0.75, 2.0
 _BOLD_SCORE, _BOLD_WEIGHT = 0.70, 2.0
-# Deliberately the weakest signal in the set: it asserts "the document's
-# first productive line is its title" from position alone, with no
-# typographic corroboration whatsoever. bug_003 (a journal section kicker
-# label winning the slot ahead of the real title) is this assumption
-# failing. Recording it as weak evidence is what lets L3.2 retire it on
-# measured grounds rather than by adding another guard.
-_H1_SLOT_SCORE, _H1_SLOT_WEIGHT = 0.35, 1.0
+# Deliberately the weakest evidence in the set, and since L3.2 the only
+# one that cannot decide anything by itself: position carries no
+# typographic information at all, so it grades rank, not existence. The
+# score is unchanged from L3.1 so that the confidence of every heading
+# that legitimately sits in the title position is unchanged too.
+_TITLE_POSITION_SCORE, _TITLE_POSITION_WEIGHT = 0.35, 1.0
 
 
 class FallbackFontSignal:
@@ -186,10 +215,18 @@ class HeadingCandidate:
 
 @dataclass(frozen=True)
 class SignalVerdict:
-    """One signal's finding: the level it argues for, plus why."""
+    """One signal's finding: the level it argues for, plus why.
+
+    ``states_own_level`` marks a signal whose level is *declared by the
+    text itself* rather than inferred - "1.2.3 Foo" says it is a third-
+    level section. Only such a signal is immune to the title-position
+    promotion in ``evaluate_heading()``: a numbered subsection that
+    happens to open a document is still that subsection.
+    """
 
     level: HeadingLevel
     evidence: EvidenceSignal
+    states_own_level: bool = False
 
 
 @dataclass(frozen=True)
@@ -233,28 +270,39 @@ def numbering_depth(candidate: HeadingCandidate) -> Optional[SignalVerdict]:
                     _NUMBERING_WEIGHT,
                     f"decimal section number of depth {dots} sets level {level.name}",
                 ),
+                states_own_level=True,
             )
     return None
 
 
-def positional_h1_slot(candidate: HeadingCandidate) -> Optional[SignalVerdict]:
-    """The document's first productive line, claimed as its title.
+def title_position(candidate: HeadingCandidate) -> Optional[EvidenceSignal]:
+    """The document's title position - corroboration, never a claim (L3.2).
 
-    Position only - no typographic corroboration is required or checked,
-    which is why this carries the lowest score in the set. The caller owns
-    what "productive" means and whether the slot is still open; this
-    signal only reports that the slot was claimed.
+    Returns a bare ``EvidenceSignal``, not a ``SignalVerdict``, and that
+    difference is the entire architectural point: this function has no
+    level to give, because position is not evidence that a line is a
+    heading. It is only evidence about the *rank* of a line some other
+    signal has already established as one.
+
+    Until L3.2 this was ``positional_h1_slot()``, a peer of the
+    typographic signals with the authority to make a line an H1 on
+    position alone. The corpus measured what that authority produced: 3
+    of the 3 headings that rested on it alone were wrong. It no longer
+    has it.
+
+    The caller owns what "the title position" means - which line is the
+    document's first productive one, and whether that position is still
+    unclaimed (see ``heading_detector``'s slot lifecycle). This function
+    only reports that the candidate holds it.
     """
     if not candidate.is_h1_slot or not any(ch.isalpha() for ch in candidate.text):
         return None
-    return SignalVerdict(
-        level=HeadingLevel.H1,
-        evidence=_signal(
-            "positional_h1_slot",
-            _H1_SLOT_SCORE,
-            _H1_SLOT_WEIGHT,
-            "first productive line of the document; position only, no typographic support",
-        ),
+    return _signal(
+        "title_position",
+        _TITLE_POSITION_SCORE,
+        _TITLE_POSITION_WEIGHT,
+        "in the document's title position; corroborates rank only, and cannot"
+        " by itself make a line a heading",
     )
 
 
@@ -329,6 +377,12 @@ def recurring_heading_font(candidate: HeadingCandidate) -> Optional[SignalVerdic
     since this signal has no text pattern to fall back on if the font
     evidence misleads. See ``font_signal_supports_heading`` for what each
     condition rules out.
+
+    L3.2: this signal is now consulted on the document's first productive
+    line like any other. It previously declined there on the grounds that
+    "the H1 slot signal already resolved this line" - a positional
+    privilege living inside a typographic test, and false once position
+    stopped resolving anything.
     """
     if not font_signal_supports_heading(candidate):
         return None
@@ -346,7 +400,6 @@ def recurring_heading_font(candidate: HeadingCandidate) -> Optional[SignalVerdic
 def font_signal_supports_heading(candidate: HeadingCandidate) -> bool:
     """The AND-ed conditions behind ``recurring_heading_font``.
 
-    - not the H1 slot: that signal already resolved this line.
     - the line has at least one alphabetic character.
     - font differs from the document's dominant body font.
     - the (font, size) pair recurs: a one-off title/byline in a distinct
@@ -359,16 +412,15 @@ def font_signal_supports_heading(candidate: HeadingCandidate) -> bool:
       1-line block; a running header sharing a block with its page number
       ("Brinkmann" + "343" on one baseline) is not. Enforced here and only
       here, never as a global heading requirement - "Chapter 9"/"Chapter 7"
-      are real headings that are not sole-line blocks, but the H1-slot
-      signal resolves them before this one is consulted.
+      are real headings that are not sole-line blocks, and the chapter
+      pattern (not this signal, and not their position) is what detects
+      them.
     - font size at least the body size: table/figure captions and table
       footnotes satisfy every condition above just as real headings do.
       All 12 real Brinkman headings are 12pt against a 10pt body; every
       caption/footnote false positive found was 8-9pt.
     """
     signal = candidate.font_signal
-    if candidate.is_h1_slot:
-        return False
     if signal is None or candidate.body_font_name is None or candidate.signature_counts is None:
         return False
     if not any(ch.isalpha() for ch in candidate.text):
@@ -384,14 +436,13 @@ def font_signal_supports_heading(candidate: HeadingCandidate) -> bool:
     return True
 
 
-# Declared precedence, highest first. The order reproduces the historical
-# cascade exactly (numbering, then the positional H1 slot, then structural
-# keywords, then bold contrast, then the recurring-font last resort), and
-# is the whole of the current decision policy - see the module docstring's
-# "Transitional policy" note.
+# The evidence-bearing signals, in declared precedence, highest first.
+# Every member reads something about the line itself - its text pattern,
+# its typography, its font's document-wide reuse. None reads where the
+# line sits, which is why membership of this tuple *is* the definition of
+# "can decide that a line is a heading" (L3.2).
 _SIGNALS: Tuple[Callable[[HeadingCandidate], Optional[SignalVerdict]], ...] = (
     numbering_depth,
-    positional_h1_slot,
     structural_keyword,
     bold_contrast,
     recurring_heading_font,
@@ -399,14 +450,21 @@ _SIGNALS: Tuple[Callable[[HeadingCandidate], Optional[SignalVerdict]], ...] = (
 
 
 def evaluate_heading(candidate: HeadingCandidate) -> HeadingVerdict:
-    """Run every signal over one candidate line and decide its heading level.
+    """Decide one candidate line's heading level from its evidence.
 
-    Unlike the cascade this replaces, no signal short-circuits the rest:
-    all five are evaluated (they are pure and cheap), so the returned
-    bundle records the full corroboration picture even though the decision
-    still goes to the highest-precedence signal that fired. A line matched
-    only by ``positional_h1_slot`` is therefore now visibly distinct from
-    one matched by numbering *and* bold contrast, at identical output.
+    Two stages, and the order between them is the architecture:
+
+    1. **Does the evidence support a heading at all?** Every signal in
+       ``_SIGNALS`` is evaluated - none short-circuits the rest, so the
+       bundle records the full corroboration picture - and the
+       highest-precedence one that fired sets the level. If none fired,
+       the line is not a heading. Position is not consulted and cannot
+       change that answer.
+    2. **Given that it is one, is it the title?** Only now is
+       ``title_position`` consulted. It adds its evidence to the bundle
+       and raises the level to H1, unless the deciding signal stated its
+       own level (numbering), in which case the text's own declaration
+       wins.
 
     Returns a verdict with ``level=None`` and an empty bundle when nothing
     fired, or when the line is too long to be a heading at all.
@@ -420,5 +478,20 @@ def evaluate_heading(candidate: HeadingCandidate) -> HeadingVerdict:
         if verdict is not None:
             verdicts.append(verdict)
 
-    bundle = EvidenceBundle(signals=[v.evidence for v in verdicts])
-    return HeadingVerdict(level=verdicts[0].level if verdicts else None, bundle=bundle)
+    if not verdicts:
+        # No evidence, so no heading - however the line is positioned.
+        # This single early return is what retires the positional-H1
+        # assumption; everything else in L3.2 follows from it.
+        return HeadingVerdict(level=None, bundle=EvidenceBundle())
+
+    decided = verdicts[0]
+    level = decided.level
+    signals = [v.evidence for v in verdicts]
+
+    position = title_position(candidate)
+    if position is not None:
+        signals.append(position)
+        if not decided.states_own_level:
+            level = HeadingLevel.H1
+
+    return HeadingVerdict(level=level, bundle=EvidenceBundle(signals=signals))

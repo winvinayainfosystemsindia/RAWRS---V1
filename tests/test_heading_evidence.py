@@ -46,7 +46,7 @@ def _signal_names(text: str, **overrides) -> List[str]:
 
 
 class TestDecisionIsUnchanged:
-    """Each historical tier still decides the same way it always did."""
+    """Each evidence-bearing tier still decides the same way it always did."""
 
     @pytest.mark.parametrize(
         "text,overrides,expected",
@@ -55,8 +55,9 @@ class TestDecisionIsUnchanged:
             ("1.2.3.4 Deep", {}, HeadingLevel.H5),
             ("1.2.3 Deeper", {}, HeadingLevel.H4),
             ("1.2 Overview", {}, HeadingLevel.H3),
-            # Tier 2 - the positional H1 slot.
-            ("The Culture of Education", {"is_h1_slot": True}, HeadingLevel.H1),
+            # The document's title position, with nothing else: since L3.2
+            # this is not a heading at all (see TestPositionCannotCreate).
+            ("The Culture of Education", {"is_h1_slot": True}, None),
             # Tier 3 - chapter pattern and structural keywords.
             ("Chapter 3", {}, HeadingLevel.H2),
             ("Unit 12", {}, HeadingLevel.H2),
@@ -71,15 +72,17 @@ class TestDecisionIsUnchanged:
     def test_tier_outcomes(self, text: str, overrides: dict, expected) -> None:
         assert evaluate_heading(_candidate(text, **overrides)).level is expected
 
-    def test_h1_slot_still_outranks_the_chapter_pattern(self) -> None:
-        # A short excerpt whose first line is "Chapter 9" gets H1 - it IS
-        # this excerpt's title. The historical cascade checked the slot
-        # before the chapter rule specifically to preserve this, so the
-        # declared precedence has to keep doing it.
+    def test_title_position_promotes_an_evidenced_chapter_heading(self) -> None:
+        # A short excerpt whose first line is "Chapter 9" still gets H1 - it
+        # IS this excerpt's title. What changed in L3.2 is why: the chapter
+        # pattern makes it a heading, and the title position then ranks it,
+        # rather than position deciding both questions at once.
         assert evaluate_heading(_candidate("Chapter 9", is_h1_slot=True)).level is HeadingLevel.H1
         assert evaluate_heading(_candidate("Chapter 9")).level is HeadingLevel.H2
 
-    def test_numbering_still_outranks_the_h1_slot(self) -> None:
+    def test_numbering_states_its_own_level_and_keeps_it(self) -> None:
+        # The only signal immune to the promotion: "1.2" declares depth 3
+        # about itself, and opening the document does not make it the title.
         assert (
             evaluate_heading(_candidate("1.2 Overview", is_h1_slot=True)).level is HeadingLevel.H3
         )
@@ -139,23 +142,50 @@ class TestEvidenceIsRecorded:
         assert signal.note  # every signal explains itself to a reviewer
 
 
-class TestConfidenceDiscriminates:
-    """A guess and a corroborated detection must not score the same.
+class TestPositionCannotCreate:
+    """L3.2: position ranks a heading; it never makes one.
 
-    This is what the unit exists to make possible: bug_003 (a journal
-    section kicker label winning the H1 slot ahead of the real title) is
-    the positional signal firing alone, and until now that was
-    indistinguishable downstream from a heading three signals agreed on.
+    bug_003 - 'Article', a journal section kicker label, winning the title
+    slot ahead of the real title - is the old assumption failing. L3.1
+    made it visible by scoring it lowest; this is where it stops being
+    produced at all.
     """
 
-    def test_positional_only_heading_scores_lowest(self) -> None:
-        positional = evaluate_heading(_candidate("Article", is_h1_slot=True))
+    def test_position_alone_is_not_a_heading(self) -> None:
+        verdict = evaluate_heading(_candidate("Article", is_h1_slot=True))
+        assert verdict.level is None
+        assert verdict.bundle.signals == []
+
+    def test_position_records_itself_when_it_promotes(self) -> None:
+        # Bold makes it a heading (H2); the title position raises it to H1
+        # and says so in the bundle, so a reviewer sees both reasons.
+        verdict = evaluate_heading(
+            _candidate("Aims of Education", layout=BOLD_LINE, is_h1_slot=True)
+        )
+        assert verdict.level is HeadingLevel.H1
+        assert [s.name for s in verdict.bundle.signals] == ["bold_contrast", "title_position"]
+
+    def test_promotion_does_not_change_what_the_evidence_was(self) -> None:
+        # Same line off the title position: same evidence, one rank lower.
+        assert evaluate_heading(_candidate("Aims of Education", layout=BOLD_LINE)).level is (
+            HeadingLevel.H2
+        )
+
+
+class TestConfidenceDiscriminates:
+    """A thinly-supported detection and a corroborated one must not score
+    the same - that discrimination is what L3.1 exists to make possible."""
+
+    def test_position_corroborated_heading_scores_below_a_specific_signal(self) -> None:
+        promoted = evaluate_heading(
+            _candidate("Aims of Education", layout=BOLD_LINE, is_h1_slot=True)
+        )
         numbered = evaluate_heading(_candidate("1.2 Overview"))
         keyword = evaluate_heading(_candidate("References"))
 
-        assert positional.level is HeadingLevel.H1
-        assert positional.bundle.confidence < keyword.bundle.confidence
-        assert positional.bundle.confidence < numbered.bundle.confidence
+        assert promoted.level is HeadingLevel.H1
+        assert promoted.bundle.confidence < keyword.bundle.confidence
+        assert promoted.bundle.confidence < numbered.bundle.confidence
 
     def test_corroboration_raises_confidence_above_the_weaker_signal_alone(self) -> None:
         bold_only = evaluate_heading(_candidate("Teaching as an Art", layout=BOLD_LINE))
@@ -199,14 +229,14 @@ class TestEvidenceReachesTheDocument:
             _one_page_document(
                 tmp_path,
                 [
-                    # Large but NOT bold - the shape that makes the H1 slot
-                    # fire alone, with no typographic corroboration. Size is
-                    # deliberately not a heading signal (2 of 3 born-digital
-                    # benchmark PDFs have a non-bold subtitle as the largest
-                    # text on the page).
-                    ("The Culture of Education", "helv", 18.0),
+                    # Bold, so the evidence makes it a heading; first, so the
+                    # title position then ranks it H1. Size is deliberately
+                    # not a heading signal (2 of 3 born-digital benchmark PDFs
+                    # have a non-bold subtitle as the largest text on a page).
+                    ("The Culture of Education", "hebo", 18.0),
                     ("1.2 Overview", "hebo", 12.0),
                     ("ordinary body prose that is not a heading", "helv", 10.0),
+                    ("more ordinary body prose to settle the body profile", "helv", 10.0),
                 ],
             )
         )
@@ -218,9 +248,26 @@ class TestEvidenceReachesTheDocument:
 
         title = content["The Culture of Education"]
         assert title.level is HeadingLevel.H1
-        assert {s.name for s in title.evidence_items} == {"positional_h1_slot"}
-        # The title rests on position alone; the numbered heading does not.
+        assert {s.name for s in title.evidence_items} == {"bold_contrast", "title_position"}
+        # The title's evidence is weaker than the numbered heading's, and
+        # the confidence says so even though both are real headings.
         assert title.confidence < overview.confidence
+
+    def test_an_unsupported_first_line_produces_no_title(self, tmp_path: Path) -> None:
+        # L3.2's visible consequence end to end: a document whose opening
+        # line has no typographic support now has no H1, rather than one
+        # asserted from position. HEADING_003 is what tells a reviewer so.
+        document = detect_headings(
+            _one_page_document(
+                tmp_path,
+                [
+                    ("The Culture of Education", "helv", 10.0),
+                    ("ordinary body prose that is not a heading", "helv", 10.0),
+                ],
+            )
+        )
+        content = [h for h in document.headings if not h.is_page_marker]
+        assert content == []
 
     def test_page_markers_carry_no_heading_evidence(self, tmp_path: Path) -> None:
         # H6 markers are built by page_markers.py, not by signal

@@ -622,7 +622,7 @@ class TestStructureDetectionDoesNotChangeExistingOutputs:
                 # L3.1: confidence/evidence_items are neutralised for exactly
                 # the same reason, and only that reason - they ARE the level's
                 # supporting evidence, so wherever the H1 slot legitimately
-                # shifts above, the positional_h1_slot signal fires in one run
+                # shifts above, the title_position signal fires in one run
                 # and not the other and the bundle diverges with it (e.g.
                 # FolkPedagogy's 'HARVARD UNIVERSITY PRESS': positional + bold
                 # in the "with" run, bold alone in the "without" one).

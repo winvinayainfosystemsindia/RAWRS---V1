@@ -17,7 +17,7 @@ phase — the roadmap in §4 is the plan of record, annotated below with what ex
 | L2.2 Reversible artifact suppression | **shipped** | `bac3764` |
 | L3 Artifact-aware heading candidacy | **shipped** | `1eeaae3` |
 | L3.1 Heading detection produces evidence | **shipped** | `d2ba03b` |
-| L3.2 Retire positional-H1 on measured grounds | **partly** — emitted as `HEADING_VERIFY_006` findings (`8c335ca`), signal not yet removed | `8c335ca` |
+| L3.2 Retire positional-H1 on measured grounds | **shipped** — position ranks, never decides; 89 → 86 corpus headings, all 3 removed were wrong | *this commit* |
 | L4 Footnote/endnote distinction | design only | — |
 | L5 Front-page reconstruction | design only | — |
 | L6 Structure-preserving output | design only | — |

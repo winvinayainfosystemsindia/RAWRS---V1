@@ -194,11 +194,11 @@ class TestEvidenceTravelsWithTheDecision:
         heading = _heading(level=3)
         heading.confidence = 0.35
         heading.evidence_items = [
-            EvidenceSignal(name="positional_h1_slot", score=0.35, weight=1.0, note="position only")
+            EvidenceSignal(name="title_position", score=0.35, weight=1.0, note="position only")
         ]
         job_id = _inject(heading)
         client.patch(f"/api/documents/{job_id}/headings/0", json={"level": 2})
 
         correction = _heading_corrections(_document(job_id))[0]
         assert correction.confidence == 0.35
-        assert [s.name for s in correction.evidence_items] == ["positional_h1_slot"]
+        assert [s.name for s in correction.evidence_items] == ["title_position"]

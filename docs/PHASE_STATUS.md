@@ -1074,11 +1074,15 @@ document's status table for per-item commits.
 | L3 | `src/headings/heading_detector.py` | An artifact-classified line is rejected from heading candidacy before any tier scores it |
 | L3.1 | `src/headings/heading_signals.py` | Five named, weighted signals replace the tier cascade; `Heading.evidence_items` + weighted-mean confidence. Proven decision-identical via a 248-row corpus dump diff |
 
-**Measured:** 161 artifact suppressions corpus-wide. Of 87 content headings, exactly 4 rested
-on `positional_h1_slot` alone and all 4 were wrong — emitted as `HEADING_VERIFY_006` findings
-rather than silently dropped (`8c335ca`).
+| L3.2 | same | Position stops deciding: evidence makes a heading, `title_position` only ranks one. `positional_h1_slot` → `title_position`; `HEADING_VERIFY_006` retired with the behaviour it described |
 
-**Open:** L3.2 (retire the positional-H1 signal itself), L4–L8.
+**Measured:** 161 artifact suppressions corpus-wide. L3.2 over `samples/benchmark/pdfs/`:
+89 content headings → 86. Of the 8 H1s in the title position, the 3 resting on position
+alone were all wrong ("Article" — bug_003, "xlv", a sentence of body prose) and were
+removed; the 5 corroborated titles are unchanged, as is every other heading. Precision up,
+recall flat.
+
+**Open:** L4–L8.
 
 ---
 
