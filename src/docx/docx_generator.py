@@ -101,6 +101,8 @@ from lxml import etree
 from PIL import Image as PILImage
 
 from src.markdown.markdown_builder import PAGE_BREAK_MARKER
+from src.models.content_stream import ContentKind
+from src.structure.content_stream import build_content_stream
 from src.models.contracts import Document, Footnote, FrontMatter, NoteType
 from src.utils.text_sanitization import sanitize_xml_text
 
@@ -341,7 +343,8 @@ def generate_docx(
     content_lines = [line.strip() for line in markdown_content.splitlines() if line.strip()]
     pending_caption_after_image = False
     in_front_matter_zone = False
-    front_matter_kinds = _front_matter_kinds(document.front_matter)
+    front_matter_groups = _front_matter_groups(document)
+    front_matter_kinds = [role for role, _ in front_matter_groups]
     front_matter_index = 0
     note_registries = _NoteRegistries(document.footnotes)
     pipe_table_rows: list = []
@@ -429,9 +432,9 @@ def generate_docx(
             continue
 
         if in_front_matter_zone:
-            kind = front_matter_kinds[front_matter_index]
+            kind, text = front_matter_groups[front_matter_index]
             front_matter_index += 1
-            _add_front_matter_line(docx_document, kind, document.front_matter)
+            _add_front_matter_line(docx_document, kind, text)
             in_front_matter_zone = front_matter_index < len(front_matter_kinds)
             continue
 
@@ -985,33 +988,58 @@ def _add_caption(docx_document: DocxDocument, text: str) -> None:
     run.font.color.rgb = _BLACK
 
 
-def _front_matter_kinds(front_matter: Optional[FrontMatter]) -> List[str]:
-    """Which of "title"/"author"/"affiliation" lines
-    src/markdown/markdown_builder.py's _render_front_matter_blocks()
-    actually emitted, in order - mirrors that function's own
-    if-authors/if-affiliations gating exactly, so this module consumes
-    precisely as many lines as were rendered, never more or fewer."""
-    if front_matter is None or not front_matter.title:
+def _front_matter_groups(document: Document) -> List[Tuple[str, str]]:
+    """(role, text) per front-matter block, from the ContentStream (L5'a).
+
+    One entry per block src/markdown/markdown_builder.py emits, in the
+    same order, because this module still consumes that module's lines
+    positionally - see the module docstring's note on remaining debt.
+    What L5'a changes is where the *semantics* come from: the role is read
+    off ``FrontMatterItem.role`` and the text off ``FrontMatterItem.text``,
+    both placed by the traversal. This module no longer mirrors another
+    module's if-authors/if-affiliations gating, and no longer asks
+    ``document.front_matter`` what a line is.
+
+    Empty when the traversal placed nothing - a Document whose provider
+    recorded no source blocks, or one built before items existed - which
+    routes this module to the legacy path exactly as before.
+    """
+    front_matter = getattr(document, "front_matter", None)
+    items = {str(item.id): item for item in (getattr(front_matter, "items", []) or [])}
+    if not items:
         return []
-    kinds = ["title"]
-    if front_matter.authors:
-        kinds.append("author")
-    if front_matter.affiliations:
-        kinds.append("affiliation")
-    return kinds
+
+    grouped: Dict[str, List[str]] = {}
+    order: List[str] = []
+    for node in build_content_stream(document).nodes:
+        if node.kind is not ContentKind.FRONT_MATTER:
+            continue
+        item = items.get(node.object_id)
+        if item is None:
+            continue
+        role = item.role.value
+        if role not in grouped:
+            grouped[role] = []
+            order.append(role)
+        grouped[role].append(item.text)
+
+    joiner = {"title": " ", "author": ", ", "affiliation": "; "}
+    return [(role, joiner[role].join(grouped[role])) for role in order]
+
+
+def _front_matter_kinds(document: Document) -> List[str]:
+    return [role for role, _ in _front_matter_groups(document)]
 
 
 def _add_front_matter_line(
-    docx_document: DocxDocument, kind: str, front_matter: Optional[FrontMatter]
+    docx_document: DocxDocument, kind: str, text: str
 ) -> None:
-    if front_matter is None:
-        return
     if kind == "title":
-        _add_title(docx_document, front_matter.title or "")
+        _add_title(docx_document, text)
     elif kind == "author":
-        _add_byline(docx_document, ", ".join(front_matter.authors))
+        _add_byline(docx_document, text)
     else:
-        _add_affiliation(docx_document, "; ".join(front_matter.affiliations))
+        _add_affiliation(docx_document, text)
 
 
 def _add_title(docx_document: DocxDocument, text: str) -> None:

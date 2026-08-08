@@ -95,6 +95,29 @@ EXCEPTIONS: Tuple[DeclaredException, ...] = (
     ),
     DeclaredException(
         invariant="AI-2",
+        subject="src/markdown/markdown_builder.py",
+        imports="src.structure.content_stream",
+        reason=(
+            "L5'a: front matter is placed by the traversal, not by the renderer. "
+            "Consuming a ContentStream is the direction AI-2 exists to push a "
+            "projection in — but the projection still *builds* the stream, "
+            "because nothing hands it one yet."
+        ),
+        retired_by="P3 - the caller builds the stream and passes it in",
+    ),
+    DeclaredException(
+        invariant="AI-2",
+        subject="src/docx/docx_generator.py",
+        imports="src.structure.content_stream",
+        reason=(
+            "L5'a, same reason as the Markdown projection above: a front-matter "
+            "item's role and text are read off the traversal instead of being "
+            "mirrored from another module's rendering gates."
+        ),
+        retired_by="P3 - the caller builds the stream and passes it in",
+    ),
+    DeclaredException(
+        invariant="AI-2",
         subject="src/docx/docx_generator.py",
         imports="src.markdown.markdown_builder",
         reason=(

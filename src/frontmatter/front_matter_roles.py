@@ -35,19 +35,17 @@ them would be speculative generality with no producer and no consumer.
 Add them here when an extractor produces them — this enum is the place.
 """
 
-from enum import Enum
 from typing import Optional
 
-from src.models.front_matter import FrontMatter
+from src.models.front_matter import FrontMatter, FrontMatterRole
 from src.models.heading import Heading, HeadingLevel
 
-
-class FrontMatterRole(str, Enum):
-    """The semantic role a front-matter line plays."""
-
-    TITLE = "title"
-    AUTHOR = "author"
-    AFFILIATION = "affiliation"
+# FrontMatterRole was defined here until L5'a and now lives in the model
+# layer, where FrontMatterItem needs it: AI-1 forbids src.models importing
+# a decision package, so the role could not travel on the object while it
+# was defined in this one. Re-exported under its original name, so every
+# caller's import of it is unchanged.
+__all__ = ["FrontMatterRole", "role_for_text", "is_heading_eligible", "build_title_heading"]
 
 
 #: Roles that may legitimately become a heading. The document title is

@@ -87,6 +87,47 @@ def _heading_anchor_orders(document: Any, page_number: int) -> Dict[str, int]:
     return anchors
 
 
+def _front_matter_items(document: Any) -> List[Any]:
+    """The document's front-matter items, in recorded order (L5'a).
+
+    Empty for a FrontMatter that predates ``items`` or that a provider
+    built without them - see ``_placed_front_matter`` for what that costs.
+    """
+    front_matter = getattr(document, "front_matter", None)
+    items = list(getattr(front_matter, "items", []) or []) if front_matter else []
+    return sorted(items, key=lambda item: item.document_order)
+
+
+def _placed_front_matter(document: Any, page_number: int) -> List[tuple]:
+    """(block order, item) for every front-matter item this page can place.
+
+    Placement is by ``FrontMatterItem.source_block_id`` and nothing else.
+    No text is matched, no first-unconsumed tie-break is applied, and page
+    position is not consulted - the whole point of L5'a is that the item
+    already records where it came from, the same way ``Heading`` and
+    ``Image`` do.
+
+    An item whose ``source_block_id`` is absent or names no block on this
+    page is not placed. That is not a silent drop: it is the honest answer
+    for front matter a provider supplied with no position in the PDF at
+    all (src/mathpix/ingestor.py), and the Markdown projection's declared
+    limitation covers what happens to it instead.
+    """
+    blocks = {
+        block.block_id: block
+        for block in (getattr(document, "blocks", []) or [])
+        if block.page_number == page_number
+    }
+    placed = []
+    for item in _front_matter_items(document):
+        block = blocks.get(item.source_block_id) if item.source_block_id else None
+        if block is None:
+            continue
+        order = block.corrected_order if block.corrected_order is not None else block.order
+        placed.append((order, item))
+    return placed
+
+
 def _is_endnote(note: Any) -> bool:
     note_type = getattr(note, "note_type", None)
     return note_type is not None and str(note_type).upper().endswith("ENDNOTE")
@@ -134,8 +175,23 @@ def build_content_stream(document: Any) -> ContentStream:
 
         anchors = _heading_anchor_orders(document, page_number)
         entries: List[tuple] = []  # (sort position, tie-break, kind, object id)
+
+        # L5'a: front matter sits at the block it was read from, and that
+        # block is not also a body line — the same line cannot be both, and
+        # emitting both is exactly the duplication a traversal exists to
+        # prevent. Tie-break 0 keeps it ahead of anything sharing its
+        # position, matching how an anchored heading precedes its own line.
+        front_matter = _placed_front_matter(document, page_number)
+        front_matter_blocks = {
+            item.source_block_id for _, item in front_matter if item.source_block_id
+        }
+        for position, item in front_matter:
+            entries.append((position, 0, ContentKind.FRONT_MATTER, str(item.id)))
+
         for block in blocks:
             if block.page_number != page_number or block.suppressed:
+                continue
+            if block.block_id in front_matter_blocks:
                 continue
             position = block.corrected_order if block.corrected_order is not None else block.order
             entries.append((position, 1, ContentKind.BODY_LINE, block.block_id))

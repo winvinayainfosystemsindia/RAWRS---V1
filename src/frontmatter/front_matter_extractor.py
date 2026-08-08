@@ -125,7 +125,7 @@ from collections import Counter
 from typing import List, Optional
 
 from src.models.contracts import Document, TextBlock
-from src.models.front_matter import FrontMatter
+from src.models.front_matter import FrontMatter, FrontMatterItem, FrontMatterRole
 
 # A line at or above this many times the document's dominant body font
 # size is part of the title run. 1.3x sits with wide margin between
@@ -281,7 +281,49 @@ def _build_front_matter(
         author_source_texts=[block.text for block in author_blocks],
         affiliations=[block.text.strip() for block in affiliation_blocks],
         affiliation_source_texts=[block.text for block in affiliation_blocks],
+        items=_build_items(title_blocks, author_blocks, affiliation_blocks),
     )
+
+
+def _build_items(
+    title_blocks: List[TextBlock],
+    author_blocks: List[TextBlock],
+    affiliation_blocks: List[TextBlock],
+) -> List[FrontMatterItem]:
+    """Record the same decision as identity-bearing objects (L5'a).
+
+    Decides nothing. Every block here was already selected above by the
+    tier logic; this only writes down *which* block each piece of front
+    matter came from, so the ContentStream can place it by recorded
+    identity rather than by matching text (see FrontMatterItem).
+
+    One item per source line, because that is the granularity at which a
+    block id is a fact rather than an attribution: a line yields exactly
+    one block. ``FrontMatter.authors`` keeps the parsed per-person split
+    beside it - which line each parsed name came from is not something
+    this module ever determined, and inventing that mapping here would be
+    deciding something new.
+    """
+    items: List[FrontMatterItem] = []
+    for role, blocks in (
+        (FrontMatterRole.TITLE, title_blocks),
+        (FrontMatterRole.AUTHOR, author_blocks),
+        (FrontMatterRole.AFFILIATION, affiliation_blocks),
+    ):
+        for block in blocks:
+            text = block.text.strip()
+            if not text:
+                continue
+            items.append(
+                FrontMatterItem(
+                    role=role,
+                    text=text,
+                    source_block_id=block.block_id,
+                    document_order=len(items),
+                    page_number=block.page_number,
+                )
+            )
+    return items
 
 
 def _find_zone_boundary(zone_blocks: List[TextBlock], body_font_size: float) -> Optional[int]:

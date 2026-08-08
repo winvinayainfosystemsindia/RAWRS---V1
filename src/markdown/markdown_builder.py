@@ -105,7 +105,7 @@ and emits plain text unchanged.
 """
 
 import re
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from loguru import logger
 
@@ -126,6 +126,8 @@ from src.models.contracts import (
     TextBlock,
 )
 from src.architecture.contract import GeneratedObject, Limitation, ProjectionContract
+from src.models.content_stream import ContentKind
+from src.structure.content_stream import build_content_stream
 from src.structure.paragraph_assembly import (
     NOTES_SECTION_HEADING_PATTERN,
     absorbed_block_ids,
@@ -168,10 +170,26 @@ PROJECTION_CONTRACT = ProjectionContract(
             kind="heading",
             reason=(
                 "The document title is an H1 in document.headings and is also the "
-                "front matter's title. _render_front_matter_blocks() owns its "
-                "rendering (FE-0-005), so the heading deliberately does not render "
-                "a second time. The model records no 'this heading is the title' "
-                "fact, so the projection currently decides it."
+                "front matter's title, which the front-matter blocks render "
+                "(FE-0-005), so the heading deliberately does not render a second "
+                "time. L5'a moved *where* front matter is placed onto the model — "
+                "the ContentStream places each FrontMatterItem at the block it "
+                "records — but the model still records no 'this heading is the "
+                "title' fact, so the projection still decides that part."
+            ),
+        ),
+        Limitation(
+            code="front_matter_without_recorded_position",
+            kind="front_matter",
+            reason=(
+                "L5'a: front matter is rendered from the ContentStream, which "
+                "places an item by its recorded source_block_id. A provider that "
+                "supplies front matter without one — src/mathpix/ingestor.py "
+                "builds it from MMD metadata that records no position in the PDF "
+                "at all — has nothing for the traversal to place, so those "
+                "documents keep the pre-L5'a rendering path. Inventing a position "
+                "for them is the reconstruction this milestone exists to remove. "
+                "PI-7 reports such an item as a finding, never silently."
             ),
         ),
         Limitation(
@@ -317,6 +335,11 @@ def build_markdown(
     # logic for that case — same function, same answer, one implementation.
     paragraphs = document.paragraphs or assemble_paragraphs(document)
     paragraphs_by_page = _group_paragraphs_by_page(paragraphs)
+    # L5'a: front matter is placed by the traversal, not by this module.
+    # build_content_stream() resolves each FrontMatterItem to the block it
+    # records, so what arrives here is already "which items, in what order,
+    # on which page" - no text matching and no page-position guess.
+    front_matter_items_by_page = _front_matter_items_by_page(document)
     has_endnotes = any(note.note_type == NoteType.ENDNOTE for note in document.footnotes)
     sorted_pages = sorted(document.pages, key=lambda page: page.page_number)
 
@@ -370,6 +393,7 @@ def build_markdown(
             lists_by_page.get(page.page_number, []),
             paragraphs_by_page.get(page.page_number, []),
             is_mathpix_import,
+            front_matter_items_by_page.get(page.page_number, []),
         )
         for page in sorted_pages
     ]
@@ -394,6 +418,61 @@ def _group_images_by_page(images: List[Image]) -> Dict[int, List[Image]]:
     for image in images:
         grouped.setdefault(image.page_number, []).append(image)
     return grouped
+
+
+def _front_matter_items_by_page(document: Document) -> Dict[int, List[Any]]:
+    """Front-matter items per page, in traversal order (L5'a).
+
+    The traversal is the authority on which items are placed and where;
+    this only indexes its answer by page. Items the stream could not place
+    (a provider that recorded no source block) are absent here, which is
+    what routes them to the declared legacy path below.
+    """
+    front_matter = getattr(document, "front_matter", None)
+    items = {str(item.id): item for item in (getattr(front_matter, "items", []) or [])}
+    if not items:
+        return {}
+    by_page: Dict[int, List[Any]] = {}
+    for node in build_content_stream(document).nodes:
+        if node.kind is not ContentKind.FRONT_MATTER:
+            continue
+        item = items.get(node.object_id)
+        if item is not None:
+            by_page.setdefault(node.page_number, []).append(item)
+    return by_page
+
+
+def _render_front_matter_from_stream(items: List[Any]) -> List[str]:
+    """Render the page's front matter from its ContentStream items (L5'a).
+
+    ``items`` are ``FrontMatterItem``s in stream order, and each one
+    carries its own role - so this function reads no ``document.front_
+    matter``, matches no text, and decides nothing about what a line is or
+    where it belongs. It groups by role in the order the roles first
+    appear, which is the order the document printed them.
+
+    Same three blocks as before: the title bold, the byline italic, the
+    affiliations plain. What changed is where the answer comes from. One
+    output difference falls out of that and is intended: a byline printed
+    as a single line ("Michael Fullan and Andy Hargreaves") now renders as
+    that line, where the old path rendered ``', '.join(FrontMatter.
+    authors)`` - the projection re-joining names a detector had split.
+    The line as printed is the one the model actually recorded.
+    """
+    if not items:
+        return []
+    grouped: Dict[str, List[str]] = {}
+    for item in items:
+        grouped.setdefault(item.role.value, []).append(item.text)
+
+    blocks: List[str] = []
+    if grouped.get("title"):
+        blocks.append(f"**{' '.join(grouped['title'])}**")
+    if grouped.get("author"):
+        blocks.append(f"*{', '.join(grouped['author'])}*")
+    if grouped.get("affiliation"):
+        blocks.append("; ".join(grouped["affiliation"]))
+    return blocks
 
 
 def _render_front_matter_blocks(front_matter: Optional[FrontMatter]) -> List[str]:
@@ -628,10 +707,16 @@ def _render_page(
     page_lists: Optional[List[ListBlock]] = None,
     page_paragraphs: Optional[List[Paragraph]] = None,
     is_mathpix_import: bool = False,
+    front_matter_items: Optional[List[Any]] = None,
 ) -> str:
     """Render one page's marker (when policy permits), front matter
     (page 1 only), headings, body text, footnotes, tables, lists, and
-    images."""
+    images.
+
+    ``front_matter_items`` are this page's ContentStream front-matter
+    items (L5'a) - already placed, already carrying their roles. Defaults
+    to None for the direct callers and fixtures that predate the stream,
+    which fall back to the declared legacy rendering path."""
     if page_tables is None:
         page_tables = []
     if page_lists is None:
@@ -664,7 +749,14 @@ def _render_page(
     blocks: List[str] = []
     if marker is not None:
         blocks.append(_render_heading(marker))
-    blocks.extend(_render_front_matter_blocks(page_front_matter))
+    # L5'a: render from the traversal when it placed the front matter.
+    # _render_front_matter_blocks() remains for a FrontMatter with no
+    # placeable items — the Mathpix path, which records no source block —
+    # and is declared as a limitation on PROJECTION_CONTRACT.
+    if front_matter_items:
+        blocks.extend(_render_front_matter_from_stream(front_matter_items))
+    else:
+        blocks.extend(_render_front_matter_blocks(page_front_matter))
     blocks.extend(
         _render_page_body(
             document,

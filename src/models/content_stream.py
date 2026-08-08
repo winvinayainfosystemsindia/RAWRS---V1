@@ -51,6 +51,7 @@ class ContentKind(str, Enum):
     TABLE = "table"
     IMAGE = "image"
     NOTE_DEFINITION = "note_definition"  # footnote/endnote body
+    FRONT_MATTER = "front_matter"        # one FrontMatterItem (title/author/affiliation)
 
 
 class ContentNode(BaseModel):

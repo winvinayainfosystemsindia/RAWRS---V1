@@ -694,3 +694,129 @@ def check_docx_notes(document: Any, docx_path: Any, name: str = "") -> Projectio
         }
     )
     return report
+
+
+# --- Front matter in the traversal (L5'a) -------------------------------------
+#
+# Front matter was the last detected content the ContentStream could not carry,
+# and the reason was structural: ContentNode holds the id of the object it
+# points at, and a title or byline had no id — FrontMatter stored bare strings.
+# The Markdown projection compensated by deciding the rendering itself, which
+# its own PROJECTION_CONTRACT declared as a limitation.
+#
+# This checks the five properties that make the fix real rather than cosmetic.
+# Property 5 is the one that would catch a regression to text-keyed placement:
+# two items with identical text must resolve to different blocks, which a text
+# key cannot do and a recorded source_block_id does for free.
+
+_FRONT_MATTER_ROLES = ("title", "author", "affiliation")
+
+
+def check_front_matter_stream(document: Any, name: str = "") -> ProjectionReport:
+    """PI-7 · every front-matter item is placed once, by recorded identity.
+
+    * identity — every item has a stable, unique ``id``
+    * position — every item records a ``source_block_id`` that names a real block
+    * presence — every placeable item appears in the stream exactly once
+    * role     — the item's role survives onto the object the node points at
+    * ordering — stream order follows the recorded blocks, not the text
+
+    An item with no ``source_block_id`` is a *finding*, not a violation: the
+    Mathpix path records no position in the PDF at all, and calling that a
+    projection defect would blame the renderer for what the provider never
+    supplied.
+    """
+    from src.structure.content_stream import build_content_stream
+    from src.models.content_stream import ContentKind
+
+    report = ProjectionReport(
+        document=name or str(getattr(document, "source_pdf_path", "") or "?")
+    )
+    front_matter = getattr(document, "front_matter", None)
+    items = list(getattr(front_matter, "items", []) or []) if front_matter else []
+    if not items:
+        report.counts["front_matter_items"] = 0
+        return report
+
+    block_ids = {b.block_id for b in (getattr(document, "blocks", []) or [])}
+    ids = [str(item.id) for item in items]
+    if len(set(ids)) != len(ids):
+        report.violations.append(
+            Violation("PI-7", "duplicate", "front-matter items share an id")
+        )
+
+    placeable = []
+    for item in items:
+        if not str(item.id):
+            report.violations.append(
+                Violation("PI-7", "lost_object", f"front-matter {item.role} has no id")
+            )
+            continue
+        if item.role.value not in _FRONT_MATTER_ROLES:
+            report.violations.append(
+                Violation("PI-7", "invented_object", f"unknown front-matter role {item.role}")
+            )
+        if not item.source_block_id:
+            report.findings.append(
+                Violation(
+                    "PI-7",
+                    "no_recorded_position",
+                    f"front-matter {item.role.value} {str(item.id)!r} records no source block, "
+                    "so the traversal cannot place it",
+                )
+            )
+            continue
+        if item.source_block_id not in block_ids:
+            report.violations.append(
+                Violation(
+                    "PI-7",
+                    "lost_object",
+                    f"front-matter {str(item.id)!r} names block {item.source_block_id!r}, "
+                    "which is not in the document",
+                )
+            )
+            continue
+        placeable.append(item)
+
+    nodes = [
+        node
+        for node in build_content_stream(document).nodes
+        if node.kind is ContentKind.FRONT_MATTER
+    ]
+    node_ids = [node.object_id for node in nodes]
+    for item in placeable:
+        seen = node_ids.count(str(item.id))
+        if seen == 0:
+            report.violations.append(
+                Violation("PI-7", "lost_object", f"front-matter {str(item.id)!r} is not in the stream")
+            )
+        elif seen > 1:
+            report.violations.append(
+                Violation("PI-7", "duplicate", f"front-matter {str(item.id)!r} appears {seen} times")
+            )
+
+    # A front-matter block must not also be emitted as body text: the same
+    # line cannot be two things, and this is how it would silently become so.
+    body_ids = {
+        node.object_id
+        for node in build_content_stream(document).nodes
+        if node.kind is ContentKind.BODY_LINE
+    }
+    for item in placeable:
+        if item.source_block_id in body_ids:
+            report.violations.append(
+                Violation(
+                    "PI-7",
+                    "duplicate",
+                    f"front-matter {str(item.id)!r}'s block is also a body line",
+                )
+            )
+
+    report.counts.update(
+        {
+            "front_matter_items": len(items),
+            "placeable": len(placeable),
+            "in_stream": len(nodes),
+        }
+    )
+    return report
