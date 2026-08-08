@@ -6,7 +6,11 @@ from typing import List, Tuple
 import fitz
 import pytest
 
-from src.footnotes.footnote_detector import _find_span_marker_candidates, detect_footnotes
+from src.footnotes.footnote_detector import (
+    _find_span_marker_candidates,
+    detect_footnotes,
+    detect_unlinked_note_bodies,
+)
 from src.models.contracts import BoundingBox, Document, Metadata, NoteType, Page, Span, TextBlock
 from src.parser.pdf_parser import parse_pdf
 from src.structure.structure_detector import detect_structure
@@ -436,8 +440,18 @@ class TestBenchmarkDocuments:
     # body-linked endnotes (the exact bug_005 fix this signal exists
     # for), so it's excluded here, not because the detector is wrong,
     # but because it would be wrong for this specific PDF to report zero.
+    #
+    # L4a: Nature of Enquiry joins it, and the premise above is now known
+    # to have been wrong rather than merely narrow. The human-remediated
+    # gold DOCX (samples/benchmark/remediated_docx) carries 54 notes across
+    # four of these PDFs — 4 of them this one's. The Phase K audit read
+    # zero because the detector could not parse a tab-delimited body
+    # number, not because the notes were absent. See
+    # TestL4aBenchmarkCorpus, which asserts against the gold counts
+    # instead of against an absence.
     _PDFS_WITH_REAL_LINKED_FOOTNOTES = {
         "7.brinkman-learner-centred-education-reform-india-missing-beliefs.pdf",
+        "1. Nature of Enquiry.pdf",
     }
 
     def test_no_real_footnotes_in_current_benchmark_corpus(self, sample_pdf_path: Path) -> None:
@@ -612,3 +626,164 @@ class TestBug005RealRegressionPdf:
         assert "(B4-L)" in note.anchor_text
         assert note.anchor_offset is not None
         assert note.anchor_text[note.anchor_offset] == "3"
+
+
+class TestL4aBodyMarkerRecognition:
+    """L4a: a note body's own restated number is not always punctuated.
+
+    The corpus prints it three ways - "1. text" (Brinkman), "1<TAB>text"
+    (Nature of Enquiry) and "1 text" (Aims of Education) - and only the
+    first was recognised, which made 15 of the benchmark's 54 gold notes
+    undetectable no matter how well their markers were found.
+    """
+
+    def test_tab_delimited_body_number_is_recognised(self, tmp_path: Path) -> None:
+        page_1 = _footnote_page(marker_line="A claim\u00b9.")
+        page_2 = [
+            ("Notes", 14.0, (72.0, 72.0)),
+            ("1\t The note body.", 12.0, (72.0, 100.0)),
+        ]
+        document = _detect(_build_pdf(tmp_path, [page_1, page_2]))
+
+        assert [n.body for n in document.footnotes] == ["The note body."]
+        assert document.footnotes[0].note_type == NoteType.ENDNOTE
+
+    def test_space_delimited_body_number_is_recognised(self, tmp_path: Path) -> None:
+        page_1 = _footnote_page(marker_line="A claim\u00b9.")
+        page_2 = [
+            ("Notes", 14.0, (72.0, 72.0)),
+            ("1 Noam Chomsky, Human Nature, 1998.", 12.0, (72.0, 100.0)),
+        ]
+        document = _detect(_build_pdf(tmp_path, [page_1, page_2]))
+
+        assert [n.body for n in document.footnotes] == ["Noam Chomsky, Human Nature, 1998."]
+
+    def test_a_year_is_not_a_note_number(self, tmp_path: Path) -> None:
+        # Both halves of the guard, in one fixture: "1961." would have
+        # parsed as note 1961 under the old unbounded punctuated form, and
+        # "2015 was..." must not parse under the new whitespace form -
+        # no 1-3 digit prefix of it is followed by a space.
+        page_1 = _footnote_page(marker_line="A claim\u00b9.")
+        page_2 = [
+            ("Notes", 14.0, (72.0, 72.0)),
+            ("1961. Kuhn's book appeared the following year.", 12.0, (72.0, 100.0)),
+            ("2015 was the year of the reform.", 12.0, (72.0, 120.0)),
+        ]
+        document = _detect(_build_pdf(tmp_path, [page_1, page_2]))
+
+        assert document.footnotes == []
+        assert [b.number for b in detect_unlinked_note_bodies(document)] == []
+
+
+class TestL4aNotesSectionRecognition:
+    """L4a: a note section's heading may carry a qualifier, but must
+    still be a heading - see _NOTES_SECTION_PATTERN."""
+
+    def test_qualified_capitalised_heading_starts_the_section(self, tmp_path: Path) -> None:
+        page_1 = _footnote_page(marker_line="A claim\u00b9.")
+        page_2 = [
+            ("NOTES TO PAGES 47-52", 14.0, (72.0, 72.0)),
+            ("1. The note body.", 12.0, (72.0, 100.0)),
+        ]
+        document = _detect(_build_pdf(tmp_path, [page_1, page_2]))
+
+        assert [n.note_type for n in document.footnotes] == [NoteType.ENDNOTE]
+
+    def test_prose_beginning_with_the_word_does_not(self, tmp_path: Path) -> None:
+        # sockett_profession.pdf's OCR text contains exactly this line
+        # mid-paragraph. Reading it as a section boundary turned seven
+        # fragments of that page into note bodies.
+        page_1 = _footnote_page(marker_line="A claim\u00b9.")
+        page_2 = [
+            ("notes on each day returned", 12.0, (72.0, 72.0)),
+            ("1 not a note body at all", 12.0, (72.0, 100.0)),
+        ]
+        document = _detect(_build_pdf(tmp_path, [page_1, page_2]))
+
+        assert document.footnotes == []
+        assert detect_unlinked_note_bodies(document) == []
+
+    def test_the_bare_word_still_works_in_any_casing(self, tmp_path: Path) -> None:
+        for heading in ("Notes", "notes", "ENDNOTES"):
+            page_1 = _footnote_page(marker_line="A claim\u00b9.")
+            page_2 = [(heading, 14.0, (72.0, 72.0)), ("1. Body.", 12.0, (72.0, 100.0))]
+            document = _detect(_build_pdf(tmp_path, [page_1, page_2], filename=f"{heading}.pdf"))
+            assert len(document.footnotes) == 1, heading
+
+
+class TestL4aUnlinkedNoteBodies:
+    """L4a: a note body no marker claimed is reported, not discarded.
+
+    Before this, the detector's "only confidently-linked pairs" policy
+    was silent about the other side, so a document losing every one of
+    its notes was indistinguishable from one that had none.
+    """
+
+    def test_unlinked_body_is_reported(self, tmp_path: Path) -> None:
+        # Two note bodies in the section, one marker in the text.
+        page_1 = _footnote_page(marker_line="A claim\u00b9.")
+        page_2 = [
+            ("Notes", 14.0, (72.0, 72.0)),
+            ("1. The linked note body.", 12.0, (72.0, 100.0)),
+            ("2. The orphaned note body.", 12.0, (72.0, 140.0)),
+        ]
+        document = _detect(_build_pdf(tmp_path, [page_1, page_2]))
+
+        assert [n.number for n in document.footnotes] == [1]
+        unlinked = detect_unlinked_note_bodies(document)
+        assert [(u.number, u.text) for u in unlinked] == [(2, "The orphaned note body.")]
+        assert unlinked[0].note_type == NoteType.ENDNOTE
+
+    def test_a_linked_body_is_not_also_reported_as_unlinked(self, tmp_path: Path) -> None:
+        page_1 = _footnote_page(marker_line="A claim\u00b9.")
+        page_2 = [("Notes", 14.0, (72.0, 72.0)), ("1. The body.", 12.0, (72.0, 100.0))]
+        document = _detect(_build_pdf(tmp_path, [page_1, page_2]))
+
+        assert len(document.footnotes) == 1
+        assert detect_unlinked_note_bodies(document) == []
+
+    def test_no_blocks_reports_nothing(self) -> None:
+        document = Document(
+            source_pdf_path="dummy.pdf", metadata=Metadata(filename="dummy.pdf"), pages=[]
+        )
+        assert detect_unlinked_note_bodies(document) == []
+
+
+class TestL4aBenchmarkCorpus:
+    """Corpus-level measurement, pinned. The gold standard is the
+    human-remediated DOCX (samples/benchmark/remediated_docx), which
+    holds 54 notes across four documents - every one of them in
+    word/endnotes.xml, none in word/footnotes.xml."""
+
+    def test_nature_of_enquiry_recovers_all_four_endnotes(self) -> None:
+        # Its bodies are tab-delimited ("1\t We are not here..."), which
+        # is why this document scored 0 of 4 before L4a.
+        document = _detect(SAMPLE_PDF_DIR / "1. Nature of Enquiry.pdf")
+
+        endnotes = [n for n in document.footnotes if n.note_type == NoteType.ENDNOTE]
+        assert len(endnotes) == 4
+        assert sorted(n.number for n in endnotes) == [1, 2, 3, 4]
+        assert detect_unlinked_note_bodies(document) == []
+
+    def test_folk_pedagogy_reports_every_note_it_cannot_link(self) -> None:
+        # 36 real endnotes, and the PDF's OCR-degraded text yields zero
+        # marker candidates, so none can be linked. What L4a changes is
+        # that all 36 are now stated as unlinked bodies instead of
+        # silently becoming ordinary paragraphs.
+        document = _detect(SAMPLE_PDF_DIR / "2.FolkPedagogy_Bruner_PsychDimensions_New.pdf")
+
+        assert document.footnotes == []
+        assert len(detect_unlinked_note_bodies(document)) == 36
+
+    def test_documents_with_no_notes_produce_no_note_findings(self) -> None:
+        # The gold DOCX for these carries no footnotes/endnotes part at
+        # all, so anything detected here is a false positive.
+        for name in (
+            "3. sockett_profession.pdf",
+            "5.Teachingas a profession_Calderhead.pdf",
+            "6. Fullan&Hargreaves_teacherasaperson.pdf",
+            "4.Teaching as a professional discipline-Chapter 1.pdf",
+        ):
+            document = _detect(SAMPLE_PDF_DIR / name)
+            assert document.footnotes == [], name
+            assert detect_unlinked_note_bodies(document) == [], name

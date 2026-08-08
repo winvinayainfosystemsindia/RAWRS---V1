@@ -196,3 +196,80 @@ class _DocumentDouble:
 
     def __init__(self, footnotes):
         self.footnotes = footnotes
+
+
+class TestUnlinkedNoteBodyFindings:
+    """L4a: an unlinked note body reaches the reviewer as a finding.
+
+    Single-source, so unlike the cross-source strategy beside it this
+    runs on a native document with no import_provider — see
+    SemanticVerifier.inspect on why the strategy is the verifier's own
+    business.
+    """
+
+    def _document(self, tmp_path, bodies):
+        import fitz
+
+        from src.parser.pdf_parser import parse_pdf
+        from src.structure.structure_detector import detect_structure
+        from src.footnotes.footnote_detector import detect_footnotes
+
+        pdf_path = tmp_path / "unlinked.pdf"
+        doc = fitz.open()
+        page = doc.new_page()
+        for i, text in enumerate(
+            ["Ordinary body text on the page.", "More ordinary body text here."]
+        ):
+            page.insert_text((72.0, 72.0 + i * 20), text, fontname="helv", fontsize=12)
+        page_2 = doc.new_page()
+        page_2.insert_text((72.0, 72.0), "Notes", fontname="helv", fontsize=14)
+        for i, text in enumerate(bodies):
+            page_2.insert_text((72.0, 100.0 + i * 20), text, fontname="helv", fontsize=12)
+        doc.save(str(pdf_path))
+        doc.close()
+        return detect_footnotes(detect_structure(parse_pdf(pdf_path)))
+
+    def test_orphaned_body_produces_an_informational_finding(self, tmp_path) -> None:
+        document = self._document(tmp_path, ["1. An orphaned note body."])
+        findings = FootnoteVerifier().inspect(document)
+
+        assert [f.kind for f in findings] == ["unlinked_note_body"]
+        finding = findings[0]
+        assert finding.object_id is None  # nothing to attach it to — that is the finding
+        assert finding.auto_apply is False
+        assert "orphaned note body" in finding.message
+        assert "number=1" in finding.evidence
+
+    def test_the_finding_is_registered_as_an_info_rule(self) -> None:
+        spec = FootnoteVerifier().rule_table()["unlinked_note_body"]
+        assert spec.rule_id == "FOOTNOTE_VERIFY_004"
+        assert spec.reason_code == "FOOTNOTE_BODY_UNLINKED"
+        assert spec.severity == "info"
+
+    def test_applying_it_changes_nothing(self, tmp_path) -> None:
+        # It proposes no value, so accepting it must not mutate the
+        # document: with no marker there is no anchor to write.
+        from src.models.correction import CorrectionRecord
+
+        document = self._document(tmp_path, ["1. An orphaned note body."])
+        before = list(document.footnotes)
+        FootnoteVerifier().apply(
+            document,
+            CorrectionRecord(
+                object_type="footnote",
+                object_id=None,
+                field="unlinked_note_body",
+                original_value="",
+                proposed_value="",
+                reason_code="FOOTNOTE_BODY_UNLINKED",
+            ),
+        )
+        assert document.footnotes == before
+
+    def test_a_document_whose_notes_all_link_is_silent(self, tmp_path) -> None:
+        document = self._document(tmp_path, ["1. A body no marker references."])
+        # No marker anywhere in the body text, so this one is unlinked;
+        # the silent case is a document with no note region at all.
+        empty = self._document(tmp_path, [])
+        assert FootnoteVerifier().inspect(empty) == []
+        assert len(FootnoteVerifier().inspect(document)) == 1

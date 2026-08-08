@@ -217,6 +217,13 @@ class FootnoteVerifier(SemanticVerifier):
             "wrong_page": RuleSpec(
                 rule_id="FOOTNOTE_VERIFY_003", reason_code="FOOTNOTE_ANCHOR_WRONG_PAGE", severity="warning"
             ),
+            # L4a. Informational, and informational is the honest level:
+            # RAWRS can say a line reads as a note body and that nothing
+            # claimed it, but not what it belongs to. Same shape as
+            # "unconfirmed" above - no proposed_value, apply() is a no-op.
+            "unlinked_note_body": RuleSpec(
+                rule_id="FOOTNOTE_VERIFY_004", reason_code="FOOTNOTE_BODY_UNLINKED", severity="info"
+            ),
         }
 
     def apply(self, document: Any, correction: CorrectionRecord) -> None:
@@ -241,25 +248,75 @@ class FootnoteVerifier(SemanticVerifier):
 
 
     def inspect(self, document, **context):
-        """Reconcile provider footnotes against PDF-derived candidates.
+        """Everything this verifier has to say about the document's notes.
 
-        Only meaningful when a provider supplied document.footnotes: on the
-        RAWRS-native path both sides would come from the same detector, so
-        the comparison would be a tautology. That condition is read from
-        the document, not from a pipeline branch — see
-        Document.import_provider.
+        Two strategies, each self-selecting (see SemanticVerifier.inspect:
+        how a producer reaches its findings is its own business).
 
-        Also the mechanism that resolves _p2footnote_to_footnote()'s
-        anchor_page_number=1 placeholder (src/mathpix/ingestor.py) into a
-        real, PDF-confirmed page.
+        * ``_unlinked_body_findings`` needs only RAWRS's own reading of the
+          PDF, so it runs on any document.
+        * Cross-source reconciliation is only meaningful when a provider
+          supplied document.footnotes: on the RAWRS-native path both sides
+          would come from the same detector, so the comparison would be a
+          tautology. That condition is read from the document, not from a
+          pipeline branch — see Document.import_provider. It is also the
+          mechanism that resolves _p2footnote_to_footnote()'s
+          anchor_page_number=1 placeholder (src/mathpix/ingestor.py) into a
+          real, PDF-confirmed page.
         """
+        findings = self._unlinked_body_findings(document)
         if not getattr(document, "import_provider", None):
-            return []
+            return findings
         from src.footnotes.footnote_detector import detect_footnote_pdf_candidates
         from src.verification.engine import engine
 
         pdf_footnotes = detect_footnote_pdf_candidates(document)
-        return engine.run_pdf_verification("footnote", document.footnotes, pdf_footnotes)
+        findings.extend(
+            engine.run_pdf_verification("footnote", document.footnotes, pdf_footnotes)
+        )
+        return findings
+
+    @staticmethod
+    def _unlinked_body_findings(document: Any) -> List[Finding]:
+        """Note bodies RAWRS read but could not attach to a marker (L4a).
+
+        The detector only ever promotes confidently-linked marker/body
+        pairs, which is right — a note with an invented anchor is worse
+        than no note. What was wrong is what happened to the other side:
+        an unlinked body silently became ordinary body text, so a document
+        losing every one of its notes looked exactly like a document that
+        had none. The Brinkman PDF drops two this way, and a PDF whose
+        markers are unreadable drops all of them.
+
+        So this states the loss instead of hiding it. It proposes nothing:
+        with no marker there is no anchor page, no anchor text and no
+        offset, and inventing them is the guess this milestone must not
+        make. The reviewer gets the line, its printed number, its page and
+        which region it was found in, and decides.
+        """
+        from src.footnotes.footnote_detector import detect_unlinked_note_bodies
+
+        findings: List[Finding] = []
+        for body in detect_unlinked_note_bodies(document):
+            findings.append(
+                Finding(
+                    asset_type="footnote",
+                    kind="unlinked_note_body",
+                    object_id=None,
+                    confidence=None,
+                    evidence=(
+                        f"page={body.page_number}; number={body.number}; "
+                        f"region={body.note_type.value}"
+                    ),
+                    message=(
+                        f"Page {body.page_number} has a line that reads as "
+                        f"{body.note_type.value} {body.number}'s body "
+                        f"({body.text[:60]!r}), but no marker in the text "
+                        "referenced it — the note is not being preserved as a note."
+                    ),
+                )
+            )
+        return findings
 
 
 def _register() -> None:

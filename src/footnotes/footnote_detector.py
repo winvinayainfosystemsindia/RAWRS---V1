@@ -94,12 +94,54 @@ _SUPERSCRIPT_TO_DIGIT = str.maketrans(_SUPERSCRIPT_DIGITS, "0123456789")
 # preceding non-space character - never a standalone leading character.
 _INLINE_MARKER_PATTERN = re.compile(f"(?<=\\S)([{_SUPERSCRIPT_DIGITS}]+)")
 
-# A note body's leading marker: superscript digits, or a plain digit
-# followed by a period/parenthesis/colon (the body's own restated
-# number, even when the inline reference itself was superscript).
-_BODY_MARKER_PATTERN = re.compile(rf"^(?:([{_SUPERSCRIPT_DIGITS}]+)|(\d+)[.\):])\s*(\S.*)$")
+# A note body's leading marker: superscript digits, a plain digit
+# followed by a period/parenthesis/colon, or (L4a) a plain 1-3 digit
+# number followed by whitespace - the body's own restated number, even
+# when the inline reference itself was superscript.
+#
+# L4a added the whitespace-delimited form on corpus evidence: it is how
+# 15 of the benchmark's 54 gold notes are actually printed - "1\t We are
+# not here recommending..." (Nature of Enquiry) and "1 Noam Chomsky,
+# Human Nature..." (Aims of Education) - and requiring punctuation made
+# every one of them undetectable. Two things keep it off ordinary prose:
+# the lookahead (so "2015 was a year" cannot parse as note 201/20/2 - no
+# digit prefix of it is followed by whitespace), and the fact that this
+# pattern only ever runs inside an already-identified note region (a
+# page's footnote zone, or a Notes section), never over body text at
+# large. The digit cap is the same realistic marker bound
+# _SPAN_MARKER_DIGIT_PATTERN already applies to inline markers.
+# L4a also bounded the punctuated form to the same 1-3 digits. It was
+# unbounded, which made "1961. " and "1975." parse as notes numbered
+# 1961 and 1975 - four such years in the corpus. They were invisible
+# before only because an unlinkable body was dropped in silence; now
+# that unlinked bodies reach a reviewer, a bound that was merely
+# untidy would be noise in the queue.
+_BODY_MARKER_PATTERN = re.compile(
+    rf"^(?:([{_SUPERSCRIPT_DIGITS}]+)|(\d{{1,3}})[.\):]|(\d{{1,3}})(?=\s))\s*(\S.*)$"
+)
 
-_NOTES_SECTION_PATTERN = re.compile(r"^(notes|endnotes)$", re.IGNORECASE)
+# A note section's heading. L4a widened this from an exact "notes"/
+# "endnotes" match, which could not see the corpus's "NOTES TO PAGES
+# 47-52" (FolkPedagogy) at all. A qualifier is allowed; prose is not.
+#
+# The bare word alone is still accepted in any casing ("Notes",
+# "Endnotes" - Brinkman and Nature of Enquiry both print it that way).
+# A *qualified* heading has to prove it is a heading, because the word
+# also starts ordinary sentences: sockett's OCR text contains the line
+# "notes on each day returned", which this pattern matches and which is
+# nothing but a fragment of a paragraph. The discriminator is the one
+# the qualified real heading actually carries - it is set in capitals,
+# as headings are, and the prose is not. Deliberately narrow: "Notes and
+# References" would be declined. No such heading exists in the corpus,
+# and admitting mixed-case qualifiers is exactly what admits the prose.
+_NOTES_SECTION_PATTERN = re.compile(r"^(notes|endnotes)\b[^.!?]*$", re.IGNORECASE)
+_NOTES_SECTION_BARE_WORDS = frozenset({"notes", "endnotes"})
+
+# Longest line still readable as a note-section heading rather than
+# prose. The longest real one in the corpus is "NOTES TO PAGES 47-52"
+# (20 characters); twice that leaves room for an unseen qualifier
+# without admitting a sentence.
+_NOTES_SECTION_MAX_LENGTH = 40
 
 # bug_005 / feature_005: PyMuPDF span flags bit 0 - confirmed exhaustively
 # against the installed PyMuPDF version during the feature_005 design
@@ -183,7 +225,7 @@ def detect_footnotes(document: Document) -> Document:
         projected from it. Never raises.
     """
     logger.info("Detecting footnotes/endnotes for '{}'", document.source_pdf_path)
-    document.footnotes = _compute_footnotes(document)
+    document.footnotes = _compute_footnotes(document)[0]
     _populate_page_reference_lists(document)
 
     footnote_count = sum(1 for note in document.footnotes if note.note_type == NoteType.FOOTNOTE)
@@ -210,19 +252,62 @@ def detect_footnote_pdf_candidates(document: Document) -> List[Footnote]:
     footnotes are never overwritten. Zero duplicated detection logic -
     see _compute_footnotes().
     """
-    return _compute_footnotes(document)
+    return _compute_footnotes(document)[0]
 
 
-def _compute_footnotes(document: Document) -> List[Footnote]:
-    """Shared detection body for detect_footnotes() and
-    detect_footnote_pdf_candidates() - see both docstrings above."""
+@dataclass(frozen=True)
+class UnlinkedNoteBody:
+    """A line inside a note region that reads as a note body, but which
+    no marker claimed (L4a).
+
+    Deliberately not a ``Footnote``: this module only ever promotes
+    confidently-linked pairs, and a body with no marker has no anchor
+    page, no anchor text and no offset - three required fields whose
+    values would have to be invented. It is evidence for a finding, not
+    a semantic object, which is why it lives here rather than in
+    src/models/.
+    """
+
+    number: int
+    page_number: int
+    text: str
+    note_type: NoteType
+
+
+def detect_unlinked_note_bodies(document: Document) -> List[UnlinkedNoteBody]:
+    """Note bodies this module found but could not link to any marker.
+
+    The same detection run as detect_footnotes(), reporting what it
+    discarded instead of what it kept. Before L4a these lines vanished
+    silently into ordinary body text - the Brinkman PDF alone drops two,
+    and a document whose markers are unreadable (FolkPedagogy's OCR
+    text yields zero marker candidates against 36 real notes) drops all
+    of them. Surfaced through src/verification/footnotes.py as a
+    reviewable finding rather than guessed at: an unlinked body is
+    evidence that RAWRS is losing note content, and the reviewer is the
+    one who can say what it belongs to.
+    """
+    return _compute_footnotes(document, collect_unlinked=True)[1]
+
+
+def _compute_footnotes(
+    document: Document, collect_unlinked: bool = False
+) -> Tuple[List[Footnote], List[UnlinkedNoteBody]]:
+    """Shared detection body for detect_footnotes(),
+    detect_footnote_pdf_candidates() and detect_unlinked_note_bodies() -
+    see all three docstrings above.
+
+    Returns both halves of the same run: the linked pairs, and (when
+    asked) the body candidates no marker claimed. One traversal, so the
+    two answers can never disagree about what was found.
+    """
     if not document.blocks:
         logger.info(
             "No structure blocks available for '{}'; skipping footnote detection "
             "(requires Phase H Structure Detection to have run with a native text layer)",
             document.source_pdf_path,
         )
-        return []
+        return [], []
 
     sorted_blocks = sorted(document.blocks, key=lambda block: (block.page_number, block.order))
     page_heights = _read_page_heights(document.source_pdf_path)
@@ -236,6 +321,7 @@ def _compute_footnotes(document: Document) -> List[Footnote]:
 
     footnotes: List[Footnote] = []
     claimed_bodies: Set[Tuple[int, int]] = set()
+    seen_bodies: List[Tuple[NoteType, _BodyCandidate]] = []
 
     # Footnotes: every page strictly before the Notes section (or every
     # page, if there is no Notes section at all) - numbering resets per page.
@@ -243,11 +329,12 @@ def _compute_footnotes(document: Document) -> List[Footnote]:
         if notes_page is not None and page_number >= notes_page:
             continue
         markers = _first_occurrence_per_number(_find_marker_candidates(page_blocks))
-        if not markers:
+        if not markers and not collect_unlinked:
             continue
         bodies = _find_footnote_body_candidates(
             page_blocks, body_font_size, page_heights.get(page_number)
         )
+        seen_bodies.extend((NoteType.FOOTNOTE, body) for body in bodies.values())
         _link_and_collect(NoteType.FOOTNOTE, markers, bodies, footnotes, claimed_bodies)
 
     # Endnotes: markers from anywhere before the Notes section; bodies
@@ -260,11 +347,23 @@ def _compute_footnotes(document: Document) -> List[Footnote]:
             block for block in sorted_blocks if (block.page_number, block.order) > notes_heading
         ]
         bodies = _find_endnote_body_candidates(section_blocks)
+        seen_bodies.extend((NoteType.ENDNOTE, body) for body in bodies.values())
         _link_and_collect(NoteType.ENDNOTE, markers, bodies, footnotes, claimed_bodies)
 
     for idx, note in enumerate(footnotes):
         note.footnote_id = f"fn-{idx}"
-    return footnotes
+
+    unlinked = [
+        UnlinkedNoteBody(
+            number=body.number,
+            page_number=body.page_number,
+            text=body.body_text,
+            note_type=note_type,
+        )
+        for note_type, body in seen_bodies
+        if (body.page_number, body.order) not in claimed_bodies
+    ]
+    return footnotes, unlinked
 
 
 def _link_and_collect(
@@ -501,8 +600,8 @@ def _parse_body_candidate(block: TextBlock) -> Optional[_BodyCandidate]:
     match = _BODY_MARKER_PATTERN.match(block.text)
     if match is None:
         return None
-    superscript, plain, rest = match.group(1), match.group(2), match.group(3)
-    number = int((superscript or plain).translate(_SUPERSCRIPT_TO_DIGIT))
+    superscript, punctuated, spaced, rest = match.group(1), match.group(2), match.group(3), match.group(4)
+    number = int((superscript or punctuated or spaced).translate(_SUPERSCRIPT_TO_DIGIT))
     return _BodyCandidate(
         number=number,
         body_text=rest.strip(),
@@ -513,12 +612,21 @@ def _parse_body_candidate(block: TextBlock) -> Optional[_BodyCandidate]:
 
 
 def _find_notes_section_start(blocks: List[TextBlock]) -> Optional[Tuple[int, int]]:
-    """The (page_number, order) of the first block that is exactly
-    "Notes" or "Endnotes" (whole line, case-insensitive) - the start of
-    a detected endnotes section, or None if there is no such heading.
+    """The (page_number, order) of the first block that reads as a note
+    section's heading - "Notes", "Endnotes", or one of those with a
+    qualifier ("NOTES TO PAGES 47-52") - or None if there is no such
+    heading.
+
+    The length cap and the capitals requirement are the two halves of the
+    guard the exact match used to provide for free; see
+    _NOTES_SECTION_PATTERN for what each one declines and why.
     """
     for block in blocks:
-        if _NOTES_SECTION_PATTERN.match(block.text.strip()):
+        text = block.text.strip()
+        if len(text) > _NOTES_SECTION_MAX_LENGTH or not _NOTES_SECTION_PATTERN.match(text):
+            continue
+        is_bare_word = text.lower() in _NOTES_SECTION_BARE_WORDS
+        if is_bare_word or not any(char.islower() for char in text):
             return (block.page_number, block.order)
     return None
 

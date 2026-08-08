@@ -763,10 +763,17 @@ class TestStructureDetectionDoesNotChangeExistingOutputs:
         # document.corrections, not reviewer queue items), so this exception
         # covers exactly the three corpus documents with a running title:
         # FolkPedagogy, Calderhead, Fullan & Hargreaves.
+        # FOOTNOTE_VERIFY_004 (L4a unlinked note body) joins on exactly the
+        # same grounds as NOTE_001/NOTE_002 above: the footnote detector
+        # reads document.blocks and returns immediately without them, so a
+        # note body can be found in "with" and never in "without". It is
+        # the same finding, from the same deliberate consumer — only now
+        # RAWRS says so instead of discarding it in silence, which is why
+        # it newly shows up here at all (FolkPedagogy 36, Brinkman 2).
         _EXCLUDED_RULE_IDS = {
             "PAGE_003", "PAGE_004", "PAGE_007", "PAGE_008",
             "DOC_004", "NOTE_001", "NOTE_002", "HEADING_004",
-            "ARTIFACT_001",
+            "ARTIFACT_001", "FOOTNOTE_VERIFY_004",
         }
         with_keys = [
             _issue_key(i) for i in result_with.validation_issues if i.rule_id not in _EXCLUDED_RULE_IDS
@@ -1051,14 +1058,23 @@ class TestFootnoteDetectionBenchmarkRegression:
     detection is wrong, but because it would be wrong for this specific
     PDF to report zero."""
 
-    _PDF_WITH_REAL_FOOTNOTES = (
-        "7.brinkman-learner-centred-education-reform-india-missing-beliefs.pdf"
-    )
+    #
+    # L4a: the premise above is now known to be wrong, not merely narrow.
+    # The human-remediated gold DOCX carries 54 notes across four of these
+    # PDFs, 4 of them Nature of Enquiry's — the Phase K audit read zero
+    # there because the detector could not parse a tab-delimited body
+    # number. Nature of Enquiry therefore joins Brinkman below, and
+    # tests/test_footnote_detector.py::TestL4aBenchmarkCorpus asserts the
+    # gold counts positively rather than asserting an absence.
+    _PDFS_WITH_REAL_FOOTNOTES = {
+        "7.brinkman-learner-centred-education-reform-india-missing-beliefs.pdf",
+        "1. Nature of Enquiry.pdf",
+    }
 
     def test_no_footnotes_detected_and_no_note_issues_raised(
         self, sample_pdf_path: Path, tmp_path: Path
     ) -> None:
-        if sample_pdf_path.name == self._PDF_WITH_REAL_FOOTNOTES:
+        if sample_pdf_path.name in self._PDFS_WITH_REAL_FOOTNOTES:
             pytest.skip("known to have real, body-linked footnotes/endnotes - see bug_005")
         result = run_pipeline(sample_pdf_path, output_root=tmp_path, enable_ocr=False)
 
