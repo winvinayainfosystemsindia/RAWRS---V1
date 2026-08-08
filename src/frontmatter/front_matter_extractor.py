@@ -162,6 +162,18 @@ _ZONE_BOUNDARY_KEYWORDS = {"abstract", "keywords", "introduction", "summary"}
 # distinct tiers.
 _TIER_SIZE_TOLERANCE = 0.3
 
+# L5'b-1: a title run must contain at least this many word-like tokens.
+# Two is the minimum that rejects every noise run on the corpus's one
+# scanned title page while accepting every real title, the shortest of
+# which ("The Moral Core...") has seven.
+_MIN_TITLE_WORDS = 2
+
+# A word: letters only, no digits and no punctuation inside. Length is
+# deliberately not bounded - "A Title" is a title, and the noise this
+# rejects fails on its characters, not its length.
+_WORD_PATTERN = re.compile(r"^[^\W\d_]+$", re.UNICODE)
+_WORD_TRIM = ".,:;!?()[]{}“”‘’\"'*—–-"
+
 # feature_008: when no _ZONE_BOUNDARY_KEYWORDS match is found, the
 # masthead zone instead ends at the first line whose font size returns
 # to within this many points of the document's body font size - the
@@ -212,44 +224,41 @@ def _build_front_matter(
     if boundary is None:
         return FrontMatter()
 
-    zone = zone_blocks[:boundary]
     title_threshold = body_font_size * _TITLE_MIN_SIZE_RATIO
 
-    index = 0
-    # feature_008: a short leading line is a kicker (e.g. "Article",
-    # "Chapter 9") if it's smaller than the line right after it - not
-    # (as before bug_007/feature_006) only when it's below the global
-    # title threshold, which missed kickers that are themselves >1.3x
-    # body size (Calderhead/Fullan&Hargreaves' "Chapter N" labels).
-    if (
-        index + 1 < len(zone)
-        and len(zone[index].text) <= _KICKER_MAX_LEN
-        and (zone[index].font_size or 0) < (zone[index + 1].font_size or 0)
-    ):
-        index += 1
-
-    if index >= len(zone) or (zone[index].font_size or 0) < title_threshold:
+    # L5'b-1: the title is found by the page's own typography, not by its
+    # position in block order. The masthead zone above is an *ordinal*
+    # prefix, and on two corpus documents the title does not live in it:
+    # Nature of Enquiry prints its 24.0pt title at the physical top of
+    # page 1 but at block order 93 of 96, and sockett_profession's real
+    # 13.0pt title sits at order 61 behind ~60 blocks of scan noise. Both
+    # were invisible while discovery was "look at the first few blocks".
+    title_blocks = _find_title_run(zone_blocks, title_threshold)
+    if not title_blocks:
         return FrontMatter()  # no confident title tier - nothing else is extracted either
 
-    # feature_008: title run is the contiguous run at this line's own
-    # size, not "every line >= threshold" - the latter would merge a
-    # still-above-threshold author line into the title (Bruner: title
-    # 29.0pt, author 24.0pt, threshold only 16.9pt).
-    title_size = zone[index].font_size
-    title_blocks: List[TextBlock] = []
-    while index < len(zone) and abs((zone[index].font_size or 0) - title_size) < _TIER_SIZE_TOLERANCE:
-        title_blocks.append(zone[index])
-        index += 1
+    title_size = title_blocks[0].font_size
+    index = zone_blocks.index(title_blocks[-1]) + 1
 
-    # feature_008 title guard: reject a single-token/glyph title. Made
-    # necessary by the boundary fallback above - on sockett_profession.pdf,
-    # a lone OCR-garbled 29.0pt glyph ("e") passes the title-size gate
-    # the same way a real title would, with no keyword boundary to have
-    # screened it out first. Every real title in this corpus is multiple
-    # words; this costs nothing for any of them.
-    title_text = " ".join(block.text.strip() for block in title_blocks)
-    if " " not in title_text.strip():
-        return FrontMatter()
+    # Author and affiliation keep the *old* scope, deliberately. Finding a
+    # large text run is not the same as finding a complete front-matter
+    # block: the byline tier is "bigger than body, smaller than title",
+    # and outside the masthead that band catches things the model has no
+    # role for. Nature's page proves it - a subtitle ("Setting the field")
+    # and a chapter kicker ("CHAPTER 1"), both 18.0pt against a 9.5pt body
+    # and a 24.0pt title, would both be claimed as authors. There is no
+    # SUBTITLE role and inventing one of the existing roles for them would
+    # be worse than saying nothing, so a title found beyond the masthead
+    # yields a title and nothing else, until the byline tier has an
+    # evidence contract of its own.
+    if index > boundary:
+        return FrontMatter(
+            title=" ".join(block.text.strip() for block in title_blocks),
+            title_source_texts=[block.text for block in title_blocks],
+            items=_build_items(title_blocks, [], []),
+        )
+
+    zone = zone_blocks[:boundary]
 
     # feature_008: author run is likewise the contiguous run at its own
     # single size (bounded by the *detected* title size, not the global
@@ -273,6 +282,7 @@ def _build_front_matter(
     affiliation_blocks = _filter_affiliation_candidates(zone[index:], title_size, anchor_block)
 
     author_text = " ".join(block.text.strip() for block in author_blocks)
+    title_text = " ".join(block.text.strip() for block in title_blocks)
 
     return FrontMatter(
         title=title_text,
@@ -324,6 +334,63 @@ def _build_items(
                 )
             )
     return items
+
+
+def _find_title_run(page_blocks: List[TextBlock], title_threshold: float) -> List[TextBlock]:
+    """The page's title tier: the first word-like run at or above
+    ``title_threshold``, in reading order (L5'b-1).
+
+    Three existing pieces of evidence, no new ones. The threshold is the
+    module's own ``_TITLE_MIN_SIZE_RATIO`` against the document's body
+    font. A "run" is the contiguous same-size group ``_TIER_SIZE_TOLERANCE``
+    already defines, so a byline one tier down is never merged into the
+    title. And the run must be *word-like*, which is feature_008's
+    single-token title guard made strong enough to survive a scanned page:
+    that guard only required a space, and sockett_profession's page 1
+    offers "~ ~Uu1;L L/~<73J" (18.5pt) and ". $L" (22.6pt) — noise with
+    spaces in it — ahead of the real 13.0pt title.
+
+    First in reading order, never largest: Aims of Education prints a
+    55.5pt pull-quote below its 16.0pt title, so "biggest text wins" picks
+    an epigraph. Reading order is also what makes this a *discovery* rule
+    rather than a positional one - it asks the page where its largest
+    coherent words start, not which blocks come first.
+
+    Deliberately not filtered by artifact classification: three of the
+    corpus's five real titles (FolkPedagogy, Calderhead, Fullan &
+    Hargreaves) are classified RUNNING_TITLE, because a chapter title
+    legitimately repeats as a running head. Excluding artifacts here would
+    delete them.
+    """
+    index = 0
+    while index < len(page_blocks):
+        size = page_blocks[index].font_size or 0
+        if size < title_threshold:
+            index += 1
+            continue
+        run: List[TextBlock] = []
+        while (
+            index < len(page_blocks)
+            and abs((page_blocks[index].font_size or 0) - size) < _TIER_SIZE_TOLERANCE
+        ):
+            run.append(page_blocks[index])
+            index += 1
+        if _word_count(" ".join(block.text.strip() for block in run)) >= _MIN_TITLE_WORDS:
+            return run
+    return []
+
+
+def _word_count(text: str) -> int:
+    """How many whitespace-separated tokens read as words.
+
+    A word is letters and nothing else once surrounding punctuation is
+    stripped - the test that separates a real title from
+    a scanned page's debris. It rejects "NuN 14k", ". $L", "h~O\"lJ" and
+    "~Uu1;L L/~<73J", and it also declines a bare chapter kicker
+    ("Chapter 9" is one word and a number), which is what feature_008's
+    kicker skip was reaching for by a different route.
+    """
+    return sum(1 for token in text.split() if _WORD_PATTERN.match(token.strip(_WORD_TRIM)))
 
 
 def _find_zone_boundary(zone_blocks: List[TextBlock], body_font_size: float) -> Optional[int]:
