@@ -20,7 +20,7 @@ renderer never needed cross-type sorting and still doesn't.
 
 from typing import List, Optional
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from src.models.bounding_box import BoundingBox
 from src.models.semantic_object import SemanticObject
@@ -63,3 +63,49 @@ class Paragraph(SemanticObject):
     source_block_ids: List[str] = Field(default_factory=list)
     document_order: Optional[int] = None
     source_line: Optional[int] = None
+
+    @model_validator(mode="after")
+    def _backfill_semantic_object_id(self) -> "Paragraph":
+        """Give the paragraph the stable identity its siblings already have.
+
+        W-2a. Paragraph was the one detected object of its class with no
+        ``id``: every other SemanticObject backfills one, and without it a
+        paragraph cannot be the ``object_id`` of a CorrectionRecord, which
+        is what a reviewer prose edit will need. Measured before this:
+        950 paragraphs across the corpus, 0 addressable.
+
+        **Derived from source, not from position.** The sibling
+        convention is ``{type}-{document_order}``, and that is the one
+        thing this cannot copy: ``document_order`` is a list counter
+        (``paragraph_order += 1`` on the Mathpix path, unset entirely on
+        the native one), so inserting or dropping an earlier paragraph
+        would silently rename every paragraph after it — and a correction
+        recorded against the old name would then apply to someone else's
+        prose.
+
+        Two bases, one per construction path, each already recorded and
+        each unique within its document:
+
+        * native (src/structure/paragraph_grouper.py) — the first
+          contributing ``TextBlock.block_id``. Paragraph grouping
+          partitions a page's lines, so a block contributes to exactly one
+          paragraph and its id therefore names exactly one paragraph.
+        * Mathpix (src/mathpix/ingestor.py) — ``source_line``, the block's
+          own line position in the source .mmd. That is a coordinate in
+          the source document, not an index into a list, so it does not
+          move when a neighbouring paragraph does.
+
+        Deterministic in both cases: re-running assembly over the same
+        blocks reproduces the same id, and a round trip through
+        persistence keeps whatever was stored. A Paragraph carrying
+        neither basis — a hand-built fixture, never a pipeline product —
+        keeps ``id=None`` rather than being given an unstable one, which
+        is the honest answer and is why this is not a ``or
+        document_order`` fallback chain.
+        """
+        if self.id is None:
+            if self.source_block_ids:
+                self.id = f"paragraph-{self.source_block_ids[0]}"
+            elif self.source_line is not None:
+                self.id = f"paragraph-line-{self.source_line}"
+        return self
