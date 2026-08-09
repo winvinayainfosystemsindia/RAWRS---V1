@@ -122,6 +122,7 @@ eliminated without it.
 
 import re
 from collections import Counter
+from dataclasses import dataclass
 from typing import List, Optional
 
 from src.models.contracts import Document, TextBlock
@@ -481,3 +482,104 @@ def _dominant_font_size(blocks: List[TextBlock]) -> Optional[float]:
     if not votes:
         return None
     return votes.most_common(1)[0][0]
+
+
+@dataclass(frozen=True)
+class UnresolvedFrontMatterLine:
+    """A title-adjacent line this module deliberately did not classify.
+
+    L5'b-2. The extractor claims a line only when an existing role fits
+    it. Two things on the benchmark corpus sit in the byline band next to
+    a detected title and fit none of them: Nature of Enquiry's subtitle
+    ("Setting the field", 18.0pt between a 9.5pt body and a 24.0pt title)
+    and FolkPedagogy's publisher imprint ("HARVARD UNIVERSITY PRESS",
+    which feature_008's affiliation guard rejects *as an affiliation* -
+    correctly, and without saying what it is instead).
+
+    Deliberately not a ``FrontMatterItem``: an item asserts a role, and
+    the whole point of this record is that the role is unknown. It is
+    evidence for a finding, and every field on it is measured rather than
+    inferred - which block, what it says, how big it is, and the two
+    sizes that put it in the byline band.
+    """
+
+    block_id: str
+    text: str
+    page_number: int
+    font_size: float
+    body_font_size: float
+    title_font_size: float
+
+
+def unresolved_front_matter_lines(document: Document) -> List[UnresolvedFrontMatterLine]:
+    """Lines the evidence places in the front matter but no role claims.
+
+    Five conditions, all from evidence already recorded (L5'b-2):
+
+    1. the document has a detected title on page 1 - without one there is
+       no byline band to be adjacent to, and this is not a general
+       "something looks important" detector;
+    2. the line follows the title run in reading order, inside the
+       contiguous band ``body < size < title_size`` - the same band the
+       author tier uses, so this reports exactly what that tier walked
+       past;
+    3. no ``FrontMatterItem`` records the block - an item is an existing
+       semantic claim, and a claimed line is resolved by definition;
+    4. it reads as words (``_MIN_TITLE_WORDS``), which is what keeps OCR
+       debris and a bare "CHAPTER 1" kicker out;
+    5. it is not artifact-classified. Unlike title discovery - where
+       excluding artifacts would delete three real corpus titles, since a
+       chapter title legitimately repeats as a running head - a running
+       header *in the byline band* is an artifact, not unresolved
+       semantics.
+
+    Returns [] for a document with no front matter, which is what keeps a
+    page with no extractable text silent: DOC_001 owns that case.
+    """
+    front_matter = getattr(document, "front_matter", None)
+    items = list(getattr(front_matter, "items", []) or []) if front_matter else []
+    if not items:
+        return []
+
+    titles = [item for item in items if item.role is FrontMatterRole.TITLE]
+    if not titles:
+        return []
+
+    body_font_size = _dominant_font_size(document.blocks)
+    if not body_font_size:
+        return []
+
+    page_blocks = sorted(
+        (b for b in document.blocks if b.page_number == titles[-1].page_number),
+        key=lambda b: b.order,
+    )
+    by_id = {block.block_id: block for block in page_blocks}
+    last_title = by_id.get(titles[-1].source_block_id)
+    if last_title is None:
+        return []
+
+    title_size = last_title.font_size or 0
+    claimed = {item.source_block_id for item in items}
+    unresolved: List[UnresolvedFrontMatterLine] = []
+
+    for block in page_blocks[page_blocks.index(last_title) + 1 :]:
+        size = block.font_size or 0
+        if not body_font_size < size < title_size:
+            break  # out of the byline band - the front matter has ended
+        if block.block_id in claimed:
+            continue
+        if _word_count(block.text) < _MIN_TITLE_WORDS:
+            continue
+        if getattr(block, "artifact", None) is not None:
+            continue
+        unresolved.append(
+            UnresolvedFrontMatterLine(
+                block_id=block.block_id,
+                text=block.text.strip(),
+                page_number=block.page_number,
+                font_size=size,
+                body_font_size=body_font_size,
+                title_font_size=title_size,
+            )
+        )
+    return unresolved
