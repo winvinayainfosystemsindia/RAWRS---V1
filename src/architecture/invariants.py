@@ -242,6 +242,8 @@ def check_correction_rail() -> List[Violation]:
     import src.verification.frontmatter  # noqa: F401
     import src.verification.headings  # noqa: F401
     import src.verification.lists  # noqa: F401
+    import src.verification.metadata  # noqa: F401
+    import src.verification.reading_order  # noqa: F401
     import src.verification.tables  # noqa: F401
     from src.verification.engine import engine
 

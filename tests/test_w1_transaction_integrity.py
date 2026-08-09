@@ -12,6 +12,8 @@ still bypass the rail and are covered here as *measured, declared*
 violations, not as passing behaviour.
 """
 
+import json
+import tempfile
 from pathlib import Path
 from typing import Any, List
 
@@ -22,6 +24,7 @@ from src.api.main import app
 from src.models.correction import APPLIED_STATUSES, CorrectionStatus
 
 client = TestClient(app)
+TMP_DIR = tempfile.mkdtemp(prefix='w1-groupb-')
 
 SAMPLE_PDF = (
     Path(__file__).resolve().parents[1]
@@ -270,23 +273,24 @@ class TestScopeIsStatedHonestly:
     """Group B is out of scope, and these pin that it is still broken
     rather than letting the milestone imply a completeness it lacks."""
 
-    def test_reading_order_still_bypasses_the_rail(self, job_id: str) -> None:
+    def test_reading_order_is_now_on_the_rail(self, job_id: str) -> None:
+        # W-1 Group B closed this. The assertion is inverted deliberately
+        # rather than deleted: it was the pin that proved the gap, and it
+        # is now the pin that proves the gap is shut.
         from src.api import routes
 
         source = Path(routes.__file__).read_text(encoding="utf-8")
         marker = source.index("def update_reading_order")
         body = source[marker : marker + 4000]
-        assert "block.corrected_order" in body
-        assert "_record_reviewer_edit" not in body  # the declared Group B violation
+        assert "_record_reviewer_edit" in body
 
-    def test_metadata_still_bypasses_the_rail(self, job_id: str) -> None:
+    def test_metadata_is_now_on_the_rail(self, job_id: str) -> None:
         from src.api import routes
 
         source = Path(routes.__file__).read_text(encoding="utf-8")
         marker = source.index("def update_metadata")
         body = source[marker : marker + 2500]
-        assert "document.metadata.language" in body
-        assert "_record_reviewer_edit" not in body  # the declared Group B violation
+        assert "_record_reviewer_edit" in body
 
     def test_administrative_state_is_not_forced_onto_the_rail(self, job_id: str) -> None:
         # A validation issue's triage status changes no semantic content
@@ -298,3 +302,265 @@ class TestScopeIsStatedHonestly:
         body = source[marker : marker + 2000]
         assert "issue.status" in body
         assert "_record_reviewer_edit" not in body
+
+
+class TestReadingOrderEntersTheRail:
+    """W-1 Group B. build_content_stream reads corrected_order in
+    preference to order, so a reorder rewrites both projections — which is
+    exactly why it must be one auditable, reversible decision."""
+
+    def _page_with_blocks(self, job_id: str):
+        document = _document(job_id)
+        for page in document.pages:
+            blocks = [b for b in document.blocks if b.page_number == page.page_number]
+            if len(blocks) >= 3:
+                return page.page_number, blocks
+        pytest.skip("no page with at least three blocks")
+
+    def test_a_reorder_is_one_correction_carrying_the_whole_page(self, job_id: str) -> None:
+        page_num, blocks = self._page_with_blocks(job_id)
+        before = len(_corrections(job_id, "reading_order"))
+        sequence = [b.order for b in blocks][::-1]
+
+        response = client.patch(
+            f"/api/documents/{job_id}/pages/{page_num}/reading-order",
+            json={"action": "reorder", "block_sequence": sequence},
+        )
+        assert response.status_code == 200
+
+        corrections = _corrections(job_id, "reading_order")
+        assert len(corrections) == before + 1  # one decision, not one per block
+        correction = corrections[-1]
+        assert correction.field == "block_order"
+        assert correction.reason_code == "READING_ORDER_CORRECTED_BY_REVIEWER"
+        assert correction.object_id == str(page_num)
+
+        payload = json.loads(correction.proposed_value)
+        assert payload["status"] == "corrected"
+        # Keyed by stable block identity, never by text.
+        assert set(payload["order"]) == {b.block_id for b in blocks}
+
+    def test_the_corrected_order_reaches_the_content_stream(self, job_id: str) -> None:
+        from src.models.content_stream import ContentKind
+        from src.structure.content_stream import build_content_stream
+
+        page_num, blocks = self._page_with_blocks(job_id)
+        reversed_ids = [b.block_id for b in blocks][::-1]
+        client.patch(
+            f"/api/documents/{job_id}/pages/{page_num}/reading-order",
+            json={"action": "reorder", "block_sequence": [b.order for b in blocks][::-1]},
+        )
+
+        stream = build_content_stream(_document(job_id))
+        body_ids = [
+            n.object_id
+            for n in stream.nodes
+            if n.kind is ContentKind.BODY_LINE and n.page_number == page_num
+        ]
+        # Blocks another object absorbed (front matter, note bodies) are
+        # not body lines, so compare against the ones that are - the claim
+        # is about order, not membership.
+        expected = [bid for bid in reversed_ids if bid in set(body_ids)]
+        assert body_ids == expected
+
+    def test_undo_restores_the_exact_previous_override_map(self, job_id: str) -> None:
+        page_num, blocks = self._page_with_blocks(job_id)
+        # Two successive decisions, so undo must land on the first one's
+        # state rather than on "no override at all".
+        client.patch(
+            f"/api/documents/{job_id}/pages/{page_num}/reading-order",
+            json={"action": "reorder", "block_sequence": [b.order for b in blocks]},
+        )
+        first = {
+            b.block_id: b.corrected_order
+            for b in _document(job_id).blocks
+            if b.page_number == page_num
+        }
+        client.patch(
+            f"/api/documents/{job_id}/pages/{page_num}/reading-order",
+            json={"action": "reorder", "block_sequence": [b.order for b in blocks][::-1]},
+        )
+        correction = _corrections(job_id, "reading_order")[-1]
+
+        client.patch(
+            f"/api/documents/{job_id}/corrections/{correction.correction_id}",
+            json={"action": "undo"},
+        )
+
+        after = {
+            b.block_id: b.corrected_order
+            for b in _document(job_id).blocks
+            if b.page_number == page_num
+        }
+        assert after == first
+
+    def test_repeated_apply_is_safe(self, job_id: str) -> None:
+        from src.verification.engine import engine
+
+        page_num, blocks = self._page_with_blocks(job_id)
+        client.patch(
+            f"/api/documents/{job_id}/pages/{page_num}/reading-order",
+            json={"action": "reorder", "block_sequence": [b.order for b in blocks][::-1]},
+        )
+        document = _document(job_id)
+        correction = _corrections(job_id, "reading_order")[-1]
+        once = {b.block_id: b.corrected_order for b in document.blocks}
+
+        engine.apply_correction(document, correction)
+        engine.apply_correction(document, correction)
+
+        assert {b.block_id: b.corrected_order for b in document.blocks} == once
+
+    def test_a_reorder_bumps_the_document_version(self, job_id: str) -> None:
+        page_num, blocks = self._page_with_blocks(job_id)
+        before = _document(job_id).version
+        client.patch(
+            f"/api/documents/{job_id}/pages/{page_num}/reading-order",
+            json={"action": "reorder", "block_sequence": [b.order for b in blocks][::-1]},
+        )
+        assert _document(job_id).version > before
+
+    def test_approving_an_order_is_not_a_correction(self, job_id: str) -> None:
+        # It sets reading_order_status and changes no ordering, and that
+        # field is read by no projection and no validation rule — review
+        # state, not document content.
+        page_num, _ = self._page_with_blocks(job_id)
+        before = len(_corrections(job_id, "reading_order"))
+
+        response = client.patch(
+            f"/api/documents/{job_id}/pages/{page_num}/reading-order",
+            json={"action": "approve"},
+        )
+
+        assert response.status_code == 200
+        assert len(_corrections(job_id, "reading_order")) == before
+
+
+class TestMetadataEntersTheRail:
+    """One document-level owner; one request is one decision."""
+
+    @pytest.mark.parametrize(
+        "field,value",
+        [
+            ("language", "fr-FR"),
+            ("title", "A Reviewed Title"),
+            ("author", "A. Reviewer"),
+            ("subject", "A Reviewed Subject"),
+        ],
+    )
+    def test_each_editable_field_enters_the_rail_and_undoes(
+        self, job_id: str, field: str, value: str
+    ) -> None:
+        original = getattr(_document(job_id).metadata, field)
+        response = client.patch(f"/api/documents/{job_id}/metadata", json={field: value})
+        assert response.status_code == 200
+        assert getattr(_document(job_id).metadata, field) == value
+
+        correction = _corrections(job_id, "metadata")[-1]
+        assert correction.field == "document_metadata"
+        assert correction.reason_code == "DOCUMENT_METADATA_EDITED_BY_REVIEWER"
+        assert correction.object_id is None  # the document is the object
+
+        client.patch(
+            f"/api/documents/{job_id}/corrections/{correction.correction_id}",
+            json={"action": "undo"},
+        )
+        assert getattr(_document(job_id).metadata, field) == original
+
+    def test_a_multi_field_edit_is_one_transaction(self, job_id: str) -> None:
+        before = len(_corrections(job_id, "metadata"))
+        client.patch(
+            f"/api/documents/{job_id}/metadata",
+            json={"language": "de-DE", "title": "Both At Once", "author": "Two Fields"},
+        )
+
+        corrections = _corrections(job_id, "metadata")
+        assert len(corrections) == before + 1  # one request, one decision
+        payload = json.loads(corrections[-1].proposed_value)
+        assert payload["language"] == "de-DE"
+        assert payload["title"] == "Both At Once"
+        assert payload["author"] == "Two Fields"
+
+    def test_undo_restores_every_field_of_the_prior_state(self, job_id: str) -> None:
+        client.patch(
+            f"/api/documents/{job_id}/metadata",
+            json={"language": "en-GB", "title": "First State"},
+        )
+        first = {
+            f: getattr(_document(job_id).metadata, f)
+            for f in ("language", "title", "author", "subject")
+        }
+        client.patch(
+            f"/api/documents/{job_id}/metadata",
+            json={"language": "es-ES", "title": "Second State"},
+        )
+        correction = _corrections(job_id, "metadata")[-1]
+
+        client.patch(
+            f"/api/documents/{job_id}/corrections/{correction.correction_id}",
+            json={"action": "undo"},
+        )
+
+        after = {
+            f: getattr(_document(job_id).metadata, f)
+            for f in ("language", "title", "author", "subject")
+        }
+        assert after == first
+
+    def test_a_metadata_edit_bumps_the_document_version(self, job_id: str) -> None:
+        before = _document(job_id).version
+        client.patch(f"/api/documents/{job_id}/metadata", json={"subject": "Version Check"})
+        assert _document(job_id).version > before
+
+    def test_derived_metadata_is_not_carried_by_the_correction(self, job_id: str) -> None:
+        # filename/page_count/image_count are set by the pipeline, not
+        # decided by anyone, so a correction must not claim them.
+        client.patch(f"/api/documents/{job_id}/metadata", json={"title": "Payload Check"})
+        payload = json.loads(_corrections(job_id, "metadata")[-1].proposed_value)
+
+        assert set(payload) == {"language", "title", "author", "subject"}
+
+    def test_the_change_reaches_the_docx_core_properties(self, job_id: str) -> None:
+        import zipfile
+
+        from src.docx.docx_generator import generate_docx
+        from src.markdown.markdown_builder import build_markdown
+
+        client.patch(
+            f"/api/documents/{job_id}/metadata",
+            json={"title": "Core Property Title", "language": "en-CA"},
+        )
+        document = _document(job_id)
+        out = Path(TMP_DIR) / "metadata.docx"
+        generate_docx(document, build_markdown(document), output_path=out)
+
+        with zipfile.ZipFile(str(out)) as zf:
+            core = zf.read("docProps/core.xml").decode("utf-8")
+        assert "Core Property Title" in core
+
+    def test_validation_sees_the_changed_language(self, job_id: str) -> None:
+        from src.validation.validator import validate_document
+
+        client.patch(f"/api/documents/{job_id}/metadata", json={"language": ""})
+        cleared = [i for i in validate_document(_document(job_id)) if i.rule_id == "META_001"]
+
+        client.patch(f"/api/documents/{job_id}/metadata", json={"language": "en-US"})
+        restored = [i for i in validate_document(_document(job_id)) if i.rule_id == "META_001"]
+
+        assert len(cleared) > len(restored)
+
+
+class TestEveryRegisteredAssetTypeCanBeUndone:
+    """The global W-1 invariant, stated once over the engine itself: a
+    verifier that cannot revert is a mutation with no way back."""
+
+    def test_every_verifier_implements_the_full_rail(self) -> None:
+        from src.architecture.invariants import check_correction_rail
+
+        assert check_correction_rail() == []
+
+    def test_reading_order_and_metadata_are_registered(self) -> None:
+        from src.verification.engine import engine
+
+        assert "reading_order" in engine._verifiers  # noqa: SLF001
+        assert "metadata" in engine._verifiers  # noqa: SLF001

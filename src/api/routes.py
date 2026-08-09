@@ -962,6 +962,11 @@ def review_footnote(job_id: str, footnote_id: str, body: FootnoteReviewRequest) 
                 reason="Reviewer edited the note body.",
                 reason_code="FOOTNOTE_BODY_EDITED_BY_REVIEWER",
             )
+            # The CorrectionRecord above is the audit trail; review_status
+            # is the derived mirror FootnoteOut still returns, kept for the
+            # same reason review_heading() keeps its own. W-1 Group A meant
+            # to leave this write in place and dropped it by accident.
+            note.review_status = FootnoteReviewStatus.EDITED
         if body.action == "approve":
             note.review_status = FootnoteReviewStatus.APPROVED
         elif body.action == "reject":
@@ -1051,14 +1056,29 @@ def update_metadata(job_id: str, body: MetadataUpdateRequest) -> MetadataOut:
         raise HTTPException(status_code=404, detail="No document for this job.")
 
     with _lock:
-        if body.language is not None:
-            document.metadata.language = body.language or None
-        if body.title is not None:
-            document.metadata.title = body.title or None
-        if body.author is not None:
-            document.metadata.author = body.author or None
-        if body.subject is not None:
-            document.metadata.subject = body.subject or None
+        import src.verification.metadata  # noqa: F401 - registers the verifier
+        from src.verification.metadata import DOCUMENT_METADATA, encode_metadata
+
+        # W-1 Group B: one request is one reviewer decision, even when it
+        # changes several fields, so the correction carries the whole
+        # editable set before and after. filename/page_count/image_count
+        # are ingestion-derived and deliberately not part of it.
+        before = encode_metadata(document.metadata)
+        intended = json.loads(before)
+        for field in ("language", "title", "author", "subject"):
+            value = getattr(body, field, None)
+            if value is not None:
+                intended[field] = value or None
+        _record_reviewer_edit(
+            document,
+            object_type="metadata",
+            object_id=None,
+            field=DOCUMENT_METADATA,
+            original_value=before,
+            proposed_value=json.dumps(intended),
+            reason="Reviewer edited the document's accessibility metadata.",
+            reason_code="DOCUMENT_METADATA_EDITED_BY_REVIEWER",
+        )
         payload = _snapshot(document)
 
     _persist(job_id, payload)
@@ -1203,26 +1223,52 @@ def update_reading_order(job_id: str, page_num: int, body: ReadingOrderPatchRequ
     page_blocks = [b for b in document.blocks if b.page_number == page_num]
 
     with _lock:
+        import src.verification.reading_order  # noqa: F401 - registers the verifier
+        from src.verification.reading_order import BLOCK_ORDER, encode_page_order
+
         if body.action == "approve":
+            # W-1 Group B: approving changes reading_order_status and no
+            # ordering at all, and that field is read by no projection and
+            # no validation rule — it is review-queue state, not document
+            # content. Manufacturing a correction for it would teach the
+            # audit trail that bookkeeping is a decision.
             page.reading_order_status = ReadingOrderStatus.APPROVED
+            document.version += 1  # FEATURE_020 — invalidates cached exports
         elif body.action == "reorder":
             if not body.block_sequence:
                 raise HTTPException(
                     status_code=422,
                     detail="block_sequence is required for action='reorder'.",
                 )
+            # W-1 Group B: one page reorder is one reviewer decision, so it
+            # is one CorrectionRecord carrying the page's complete override
+            # map. The handler computes the intended state; the rail puts
+            # it on the document and is what makes it undoable.
+            before = encode_page_order(page, page_blocks)
             block_by_order = {b.order: b for b in page_blocks}
+            intended = {b.block_id: b.corrected_order for b in page_blocks}
             for new_pos, orig_order in enumerate(body.block_sequence):
                 block = block_by_order.get(orig_order)
                 if block is not None:
-                    block.corrected_order = new_pos
-            page.reading_order_status = ReadingOrderStatus.CORRECTED
+                    intended[block.block_id] = new_pos
+            proposed = json.dumps(
+                {"status": ReadingOrderStatus.CORRECTED.value, "order": intended}
+            )
+            _record_reviewer_edit(
+                document,
+                object_type="reading_order",
+                object_id=str(page_num),
+                field=BLOCK_ORDER,
+                original_value=before,
+                proposed_value=proposed,
+                reason=f"Reviewer corrected the reading order of page {page_num}.",
+                reason_code="READING_ORDER_CORRECTED_BY_REVIEWER",
+            )
         else:
             raise HTTPException(
                 status_code=422,
                 detail=f"Unknown action '{body.action}'. Use 'approve' or 'reorder'.",
             )
-        document.version += 1  # FEATURE_020 — invalidates cached exports
         payload = _snapshot(document)
 
     _persist(job_id, payload)
