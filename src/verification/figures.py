@@ -23,6 +23,8 @@ unmatched loop.
 
 from __future__ import annotations
 
+import json
+
 import difflib
 import hashlib
 import uuid
@@ -171,6 +173,55 @@ def _file_digest(path: Path) -> Optional[str]:
         return hashlib.sha256(path.read_bytes()).hexdigest()
     except OSError:
         return None
+
+
+# W-1: the field a reviewer's alt-text decision travels under. Distinct
+# from this verifier's own cross-source kinds above, which mean "the PDF
+# disagrees with the provider" - a different claim from "a human decided
+# this" - exactly as _record_heading_edit's reason codes are distinct.
+ALT_TEXT_REVIEW = "alt_text_review"
+
+
+def _encode_alt_text_state(figure: Any) -> str:
+    """The projection-visible half of a Figure, as a correction payload.
+
+    Both fields matter downstream and neither can be recovered from the
+    other: ``alt_text`` becomes the Markdown ``![alt]`` and the DOCX
+    ``docPr descr``, and ``alt_text_status`` is what
+    docx_generator._build_decorative_set() reads to mark an image
+    decorative. Everything else on Figure - the ai_* suggestion fields,
+    the caption - is untouched by an alt-text decision and is deliberately
+    not carried here.
+    """
+    if figure is None:
+        return json.dumps({"alt_text": None, "alt_text_status": None})
+    status = getattr(figure, "alt_text_status", None)
+    return json.dumps(
+        {
+            "alt_text": getattr(figure, "alt_text", None),
+            "alt_text_status": getattr(status, "value", status),
+        }
+    )
+
+
+def _apply_alt_text_state(image: Any, payload: str) -> None:
+    """Restore the alt-text state a correction carries.
+
+    Symmetric by construction, which is what makes undo free: the generic
+    ``SemanticVerifier.revert()`` swaps proposed/original and replays
+    this, so the reviewer's previous alt text comes back with no
+    figure-specific undo logic.
+    """
+    from src.models.figure import Figure
+
+    if not payload:
+        return
+    data = json.loads(payload)
+    if image.figure is None:
+        image.figure = Figure()
+    image.figure.alt_text = data.get("alt_text")
+    status = data.get("alt_text_status")
+    image.figure.alt_text_status = AltTextStatus(status) if status else None
 
 
 class FigureVerifier(SemanticVerifier):
@@ -499,6 +550,8 @@ class FigureVerifier(SemanticVerifier):
             image.figure.caption = correction.proposed_value
         elif correction.field == "wrong_page" and correction.proposed_value:
             image.page_number = int(correction.proposed_value)
+        elif correction.field == ALT_TEXT_REVIEW:
+            _apply_alt_text_state(image, correction.proposed_value)
 
 
     def inspect(self, document, **context):

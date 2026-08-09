@@ -119,6 +119,10 @@ def _decode_footnote(payload: str) -> Footnote:
     )
 
 
+# W-1: the field a reviewer's note-body edit travels under.
+BODY_EDIT = "body_edit"
+
+
 class FootnoteVerifier(SemanticVerifier):
     asset_type = "footnote"
 
@@ -244,6 +248,11 @@ class FootnoteVerifier(SemanticVerifier):
             footnote.anchor_page_number = anchor["anchor_page_number"]
             footnote.anchor_text = anchor["anchor_text"]
             footnote.anchor_offset = anchor.get("anchor_offset")
+        elif correction.field == BODY_EDIT and correction.proposed_value:
+            # W-1. The note body is rendered in both projections, so editing
+            # it is a semantic mutation and belongs on the rail. Symmetric:
+            # revert replays this with the previous body, restoring it.
+            footnote.body = correction.proposed_value
         # "unconfirmed" is informational only — no proposed_value, no-op.
 
 

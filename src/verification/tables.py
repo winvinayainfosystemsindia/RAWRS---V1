@@ -105,6 +105,12 @@ def _decode_repair(payload: str) -> Dict[str, Any]:
     return json.loads(payload)
 
 
+# W-1: the field a reviewer's table decision travels under. Distinct from
+# this verifier's cross-source kinds, which mean "the PDF disagrees with
+# the provider" rather than "a human decided this".
+TABLE_STATE = "table_state"
+
+
 class TableVerifier(SemanticVerifier):
     asset_type = "table"
 
@@ -297,6 +303,21 @@ class TableVerifier(SemanticVerifier):
             if not correction.proposed_value:
                 return
             document.tables.append(Table.model_validate_json(correction.proposed_value))
+            return
+
+        if correction.field == TABLE_STATE:
+            # W-1: one field for create, edit and delete, because they are
+            # one operation - "the table with this id should now look like
+            # this, or not exist". An empty payload means absent, so the
+            # generic SemanticVerifier.revert() swap turns a creation into
+            # a deletion and an edit into its own inverse, with no
+            # table-specific undo logic. Same symmetry
+            # ArtifactSuppressionVerifier relies on.
+            document.tables = [
+                t for t in document.tables if t.table_id != correction.object_id
+            ]
+            if correction.proposed_value:
+                document.tables.append(Table.model_validate_json(correction.proposed_value))
             return
 
         if correction.object_id is None:

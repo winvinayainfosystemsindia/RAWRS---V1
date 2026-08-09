@@ -11,6 +11,7 @@ distinct from 404 "no such job".
 """
 
 import json
+import uuid
 import os
 from datetime import datetime, timezone
 from pathlib import Path
@@ -375,17 +376,34 @@ def review_image(job_id: str, image_id: str, body: ImageReviewRequest) -> ImageO
         )
 
     with _lock:
+        import src.verification.figures  # noqa: F401 - registers FigureVerifier
+        from src.models.figure import Figure
+        from src.verification.figures import ALT_TEXT_REVIEW, _encode_alt_text_state
+
         if image.figure is None:
-            from src.models.figure import Figure
             image.figure = Figure()
-        _apply_review_action(image.figure, action, body.alt_text)
+        # W-1: compute the reviewer's intended state, then let the rail put
+        # it on the document. _apply_review_action still owns what each
+        # action *means*; it just no longer owns the mutation.
+        before = _encode_alt_text_state(image.figure)
+        probe = image.figure.model_copy(deep=True)
+        _apply_review_action(probe, action, body.alt_text)
+        _record_reviewer_edit(
+            document,
+            object_type="figure",
+            object_id=image.image_id,
+            field=ALT_TEXT_REVIEW,
+            original_value=before,
+            proposed_value=_encode_alt_text_state(probe),
+            reason=f"Reviewer {action.value} on image alt text.",
+            reason_code="FIGURE_ALT_TEXT_REVIEWED",
+        )
         from src.models.lifecycle import ObjectLifecycleStatus
         if action == ReviewAction.APPROVE:
             image.lifecycle_status = ObjectLifecycleStatus.APPROVED
         elif action in (ReviewAction.REJECT, ReviewAction.MARK_DECORATIVE,
                         ReviewAction.MARK_COMPLEX, ReviewAction.SKIP, ReviewAction.EDIT):
             image.lifecycle_status = ObjectLifecycleStatus.HUMAN_REVIEWED
-        document.version += 1  # FEATURE_020 — invalidates cached exports
         payload = _snapshot(document)
 
     _persist(job_id, payload)
@@ -406,14 +424,33 @@ def bulk_review_images(job_id: str, body: BulkActionRequest) -> ImagesResponse:
 
     image_id_set = set(body.image_ids)
     with _lock:
+        import src.verification.figures  # noqa: F401 - registers FigureVerifier
+        from src.models.figure import Figure
+        from src.verification.figures import ALT_TEXT_REVIEW, _encode_alt_text_state
+
+        # W-3: one judgement, one transaction. A bulk action is a single
+        # reviewer decision over many images, so its corrections share a
+        # transaction id and undo together rather than one image at a time.
+        transaction_id = str(uuid.uuid4())
         for image in document.images:
             if image.image_id not in image_id_set:
                 continue
             if image.figure is None:
-                from src.models.figure import Figure
                 image.figure = Figure()
-            _apply_review_action(image.figure, body.action, alt_text=None)
-        document.version += 1  # FEATURE_020 — invalidates cached exports
+            before = _encode_alt_text_state(image.figure)
+            probe = image.figure.model_copy(deep=True)
+            _apply_review_action(probe, body.action, alt_text=None)
+            _record_reviewer_edit(
+                document,
+                object_type="figure",
+                object_id=image.image_id,
+                field=ALT_TEXT_REVIEW,
+                original_value=before,
+                proposed_value=_encode_alt_text_state(probe),
+                reason=f"Reviewer bulk {body.action.value} on image alt text.",
+                reason_code="FIGURE_ALT_TEXT_REVIEWED",
+                transaction_id=transaction_id,
+            )
         payload = _snapshot(document)
 
     _persist(job_id, payload)
@@ -464,7 +501,22 @@ def create_table(job_id: str, body: TableReviewRequest) -> TableOut:
             status=TableStatus.MANUALLY_CREATED,
             extraction_source="manual",
         )
-        document.tables.append(table)
+        # W-1: creating a table is a reviewer decision, so it travels the
+        # rail like any other. An empty original_value means "did not
+        # exist", which is what makes undo a deletion for free.
+        import src.verification.tables  # noqa: F401 - registers TableVerifier
+        from src.verification.tables import TABLE_STATE
+
+        _record_reviewer_edit(
+            document,
+            object_type="table",
+            object_id=table.table_id,
+            field=TABLE_STATE,
+            original_value="",
+            proposed_value=table.model_dump_json(),
+            reason="Reviewer created a table.",
+            reason_code="TABLE_CREATED_BY_REVIEWER",
+        )
         payload = _snapshot(document)
 
     _persist(job_id, payload)
@@ -492,6 +544,14 @@ def review_table(job_id: str, table_id: str, body: TableReviewRequest) -> TableO
         raise HTTPException(status_code=404, detail=f"No table '{table_id}' on this document.")
 
     with _lock:
+        import src.verification.tables  # noqa: F401 - registers TableVerifier
+        from src.verification.tables import TABLE_STATE
+
+        # W-1: rebind to a detached copy so every field edit below lands on
+        # a candidate, not on the document. The rail commits it once, as
+        # one decision with one undo.
+        original_table_json = table.model_dump_json()
+        table = table.model_copy(deep=True)
         if body.caption is not None:
             table.caption = body.caption
         if body.summary is not None:
@@ -524,6 +584,19 @@ def review_table(job_id: str, table_id: str, body: TableReviewRequest) -> TableO
         table.status = TableStatus.REVIEWED
         from src.models.lifecycle import ObjectLifecycleStatus
         table.lifecycle_status = ObjectLifecycleStatus.HUMAN_REVIEWED
+        # W-1: every field above was applied to a detached copy; the rail
+        # is what puts it on the document, so the edit is auditable and
+        # undoable as one decision.
+        _record_reviewer_edit(
+            document,
+            object_type="table",
+            object_id=table.table_id,
+            field=TABLE_STATE,
+            original_value=original_table_json,
+            proposed_value=table.model_dump_json(),
+            reason="Reviewer edited table structure or content.",
+            reason_code="TABLE_EDITED_BY_REVIEWER",
+        )
         payload = _snapshot(document)
 
     _persist(job_id, payload)
@@ -606,7 +679,26 @@ def delete_table(job_id: str, table_id: str) -> None:
         raise HTTPException(status_code=404, detail="No document for this job.")
     original_count = len(document.tables)
     with _lock:
-        document.tables = [t for t in document.tables if t.table_id != table_id]
+        # W-1: the inverse of creation, through the same field - an empty
+        # proposed_value means "should not exist", so undo restores it.
+        # A table that is not there records nothing: there is no decision
+        # to audit, and the 404 below still reports it.
+        import src.verification.tables  # noqa: F401 - registers TableVerifier
+        from src.verification.tables import TABLE_STATE
+
+        table = next((t for t in document.tables if t.table_id == table_id), None)
+        if table is None:
+            raise HTTPException(status_code=404, detail=f"No table '{table_id}' on this document.")
+        _record_reviewer_edit(
+            document,
+            object_type="table",
+            object_id=table_id,
+            field=TABLE_STATE,
+            original_value=table.model_dump_json(),
+            proposed_value="",
+            reason="Reviewer deleted a table.",
+            reason_code="TABLE_DELETED_BY_REVIEWER",
+        )
         payload = _snapshot(document)
     if len(document.tables) == original_count:
         raise HTTPException(status_code=404, detail=f"No table '{table_id}' on this document.")
@@ -677,6 +769,56 @@ def _record_heading_edit(
     document.corrections.append(correction)
     # Bumps document.version, invalidating cached exports (FEATURE_020).
     engine.apply_correction(document, correction)
+
+
+def _record_reviewer_edit(
+    document: Any,
+    object_type: str,
+    object_id: Optional[str],
+    field: str,
+    original_value: str,
+    proposed_value: str,
+    reason: str,
+    reason_code: str,
+    transaction_id: Optional[str] = None,
+) -> CorrectionRecord:
+    """Route one reviewer mutation of any asset type through the rail (W-1).
+
+    The same contract _record_heading_edit states, generalised: the rail —
+    not the handler — performs the mutation, ``field`` is the kind the
+    owning verifier's apply() dispatches on, and undo comes from
+    engine.revert_correction() with no per-endpoint logic.
+
+    Before W-1 the image, table and footnote handlers mutated the Semantic
+    Document directly. Each changed projection-visible content (alt text
+    and decorative status reach Markdown and DOCX; a table's caption,
+    headers and cells reach both; a note body reaches both), so each was a
+    reviewer decision the system could neither audit nor undo — the exact
+    defect already fixed once for headings.
+
+    ``reason_code`` says a human decided this, deliberately distinct from
+    the verifier's own cross-source codes, which mean "the PDF disagrees
+    with the provider".
+    """
+    correction = CorrectionRecord(
+        object_type=object_type,
+        object_id=object_id,
+        field=field,
+        original_value=original_value,
+        proposed_value=proposed_value,
+        reason=reason,
+        reason_code=reason_code,
+        provider="manual_reviewer",
+        # EDITED is terminal, so REVIEW_001 does not block export on a
+        # decision the reviewer has already made.
+        status=CorrectionStatus.EDITED,
+        reviewed_at=datetime.now(timezone.utc),
+        transaction_id=transaction_id,
+    )
+    document.corrections.append(correction)
+    # Bumps document.version, invalidating cached exports (FEATURE_020).
+    engine.apply_correction(document, correction)
+    return correction
 
 
 @router.patch("/documents/{job_id}/headings/{document_order}", response_model=HeadingOut)
@@ -805,8 +947,21 @@ def review_footnote(job_id: str, footnote_id: str, body: FootnoteReviewRequest) 
         if body.body is not None:
             if not body.body.strip():
                 raise HTTPException(status_code=422, detail="Footnote body must not be blank.")
-            note.body = body.body.strip()
-            note.review_status = FootnoteReviewStatus.EDITED
+            # W-1: the note body is rendered in both projections, so this
+            # is a semantic mutation and belongs on the rail.
+            import src.verification.footnotes  # noqa: F401 - registers FootnoteVerifier
+            from src.verification.footnotes import BODY_EDIT
+
+            _record_reviewer_edit(
+                document,
+                object_type="footnote",
+                object_id=note.footnote_id,
+                field=BODY_EDIT,
+                original_value=note.body,
+                proposed_value=body.body.strip(),
+                reason="Reviewer edited the note body.",
+                reason_code="FOOTNOTE_BODY_EDITED_BY_REVIEWER",
+            )
         if body.action == "approve":
             note.review_status = FootnoteReviewStatus.APPROVED
         elif body.action == "reject":
