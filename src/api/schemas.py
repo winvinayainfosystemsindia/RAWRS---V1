@@ -320,6 +320,25 @@ class FootnoteReviewRequest(BaseModel):
     reviewer_note: Optional[str] = None
 
 
+# --- Paragraph prose editing (W-2b) -----------------------------------------
+
+
+class ParagraphOut(BaseModel):
+    paragraph_id: str               # Paragraph.id (W-2a), the edit target
+    page_number: int
+    text: str
+    document_order: Optional[int] = None
+    source_line: Optional[int] = None
+
+
+class ParagraphsResponse(BaseModel):
+    paragraphs: List[ParagraphOut]
+
+
+class ParagraphEditRequest(BaseModel):
+    text: str                       # the paragraph's whole new text
+
+
 # --- Metadata / document accessibility properties (FEATURE_016F) -------------
 
 

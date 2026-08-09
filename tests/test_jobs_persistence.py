@@ -516,10 +516,13 @@ class TestAllMutationSitesWired:
         which would have missed nine reviewer mutation endpoints —
         headings, footnotes, tables, metadata, validation issues — whose
         edits would then vanish on restart. This pins the wider set.
+
+        The count is a census, so a new reviewer mutation endpoint raises
+        it deliberately: 16 since W-2b added the paragraph text edit.
         """
         source = Path("src/api/routes.py").read_text(encoding="utf-8")
-        assert source.count("_persist(job_id, payload)") == 15
-        assert source.count("payload = _snapshot(document)") == 15
+        assert source.count("_persist(job_id, payload)") == 16
+        assert source.count("payload = _snapshot(document)") == 16
 
     def test_snapshot_precedes_persist_in_every_case(self):
         """Serialize inside the lock, write after it (invariant 2)."""

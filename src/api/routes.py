@@ -77,6 +77,9 @@ from src.api.schemas import (
     PageOcrInfoOut,
     PageReadingOrderOut,
     PagesResponse,
+    ParagraphEditRequest,
+    ParagraphOut,
+    ParagraphsResponse,
     ReadingOrderPatchRequest,
     ReadingOrderResponse,
     ReviewAction,
@@ -979,6 +982,82 @@ def review_footnote(job_id: str, footnote_id: str, body: FootnoteReviewRequest) 
 
     _persist(job_id, payload)
     return _footnote_out(note)
+
+
+def _paragraph_out(paragraph) -> ParagraphOut:
+    return ParagraphOut(
+        paragraph_id=paragraph.id,
+        page_number=paragraph.page_number,
+        text=paragraph.text,
+        document_order=paragraph.document_order,
+        source_line=paragraph.source_line,
+    )
+
+
+@router.get("/documents/{job_id}/paragraphs", response_model=ParagraphsResponse)
+def get_paragraphs(job_id: str) -> ParagraphsResponse:
+    """The document's assembled paragraphs, in model order.
+
+    Paragraphs with no id are skipped: identity comes from a recorded
+    source (W-2a), and one without a basis is not addressable, so
+    offering it here would advertise an edit target the PATCH below
+    cannot resolve. Every pipeline-produced paragraph has one.
+    """
+    document = _require_document(job_id)
+    paragraphs = document.paragraphs if document else []
+    return ParagraphsResponse(
+        paragraphs=[_paragraph_out(p) for p in paragraphs if p.id]
+    )
+
+
+@router.patch("/documents/{job_id}/paragraphs/{paragraph_id}", response_model=ParagraphOut)
+def edit_paragraph(job_id: str, paragraph_id: str, body: ParagraphEditRequest) -> ParagraphOut:
+    """Replace one paragraph's text (W-2b).
+
+    The first prose edit in RAWRS, and it is an ordinary correction: the
+    rail — not this handler — performs the mutation, so the edit is
+    audited, undoable through the generic ``revert()``, and reaches both
+    projections because ``markdown_builder`` reads ``Paragraph.text`` and
+    the DOCX is generated from that Markdown. No Finding is created: this
+    is a decision the reviewer made, not an answer to a question RAWRS
+    asked.
+
+    Whole text, not a range — see src/verification/paragraphs.py for why
+    a character offset into ``Paragraph.text`` maps to no source block.
+
+    Blank is refused, matching the note-body endpoint's policy: a
+    paragraph that says nothing is a deletion, and deleting a paragraph
+    is not what a text edit means.
+    """
+    document = _require_document(job_id)
+    if document is None:
+        raise HTTPException(status_code=404, detail="No document for this job.")
+    paragraph = next((p for p in document.paragraphs if p.id == paragraph_id), None)
+    if paragraph is None:
+        raise HTTPException(
+            status_code=404, detail=f"No paragraph '{paragraph_id}' on this document."
+        )
+    if not body.text.strip():
+        raise HTTPException(status_code=422, detail="Paragraph text must not be blank.")
+
+    with _lock:
+        import src.verification.paragraphs  # noqa: F401 - registers ParagraphVerifier
+        from src.verification.paragraphs import TEXT_EDIT
+
+        _record_reviewer_edit(
+            document,
+            object_type="paragraph",
+            object_id=paragraph.id,
+            field=TEXT_EDIT,
+            original_value=paragraph.text,
+            proposed_value=body.text.strip(),
+            reason="Reviewer edited the paragraph text.",
+            reason_code="PARAGRAPH_TEXT_EDITED_BY_REVIEWER",
+        )
+        payload = _snapshot(document)
+
+    _persist(job_id, payload)
+    return _paragraph_out(paragraph)
 
 
 @router.get("/documents/{job_id}/lists", response_model=ListsResponse)
