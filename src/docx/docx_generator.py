@@ -6,13 +6,23 @@ built-in heading styles (so they appear in the Navigation Pane), page
 breaks preserving PDF page boundaries, and centered inline images with
 captions.
 
-Per docs/ARCHITECTURE.md, the markdown string - not the Document model -
-is the source of truth for body structure (headings, paragraphs, image
-references, page markers): it is the editable intermediate artifact a
-human reviewer may have touched before DOCX conversion, so this module
-parses it rather than re-deriving structure from Document.headings/
-Document.images directly. The Document model is used only for deriving
-the default output filename.
+**P4b: prose, headings and pages come from the ContentStream, not from
+the markdown.** What stood here said the markdown string - not the
+Document model - was the source of truth for body structure, because it
+was the artifact a reviewer edited. That stopped being true when every
+reviewer edit became a correction on the semantic object (W-1/W-2b): the
+model now holds the reviewed text, and the markdown is one rendering of
+it, not the record. So this module resolves each ``PARAGRAPH`` node to
+its ``Paragraph`` and each ``HEADING``/``PAGE_MARKER`` node to its
+``Heading`` **by id**, in traversal order, and emits a page break because
+another ``Page`` exists rather than because a ``<!-- pagebreak -->``
+comment appeared.
+
+What still comes from the markdown, and is out of scope here: images and
+their captions, tables, lists, note definitions, and the whole of any
+page with no ``TextBlock`` (41 of the benchmark corpus' 161 - see
+``is_stream_page``). Those lines keep their positions around the prose
+run, which is why ``markdown_content`` is still a parameter.
 
 Per docs/PHASE1_SCOPE.md, out of scope: alt text *generation*,
 accessibility tagging, table remediation, equation remediation, and any
@@ -104,6 +114,9 @@ from src.markdown.markdown_builder import PAGE_BREAK_MARKER
 from src.models.content_stream import ContentKind
 from src.structure.content_stream import build_content_stream
 from src.models.contracts import Document, Footnote, FrontMatter, NoteType
+from src.models.inline_format import format_runs
+from src.models.note_references import resolve_note_references
+from src.structure.paragraph_assembly import absorbed_block_ids
 from src.utils.text_sanitization import sanitize_xml_text
 
 DEFAULT_OUTPUT_DIR = Path("outputs/docx")
@@ -304,6 +317,168 @@ _INLINE_FORMAT_PATTERN = re.compile(
 )
 
 
+def _stream_page_markers(document: Document, stream) -> Dict[int, object]:
+    """Each page's marker heading, resolved from its ``PAGE_MARKER`` node.
+
+    P4b. The marker used to be recovered by matching ``^#{6}\\s`` against the
+    first line of a page's markdown. A page's identity is not a line shape —
+    it is the ``Heading`` the traversal placed at the top of that page, and
+    ``Heading.text`` already carries whatever printed label the page
+    numbering policy resolved (feature_009/FEATURE_018).
+    """
+    by_id = {str(h.id): h for h in (getattr(document, "headings", []) or [])}
+    return {
+        node.page_number: by_id[node.object_id]
+        for node in stream.nodes
+        if node.kind is ContentKind.PAGE_MARKER and node.object_id in by_id
+    }
+
+
+def _stream_prose(document: Document, stream) -> Dict[int, List[Tuple[str, object]]]:
+    """Each page's prose as ``("heading"|"paragraph", object)``, in stream order.
+
+    P4b. This is the whole of "the stream owns order" for DOCX: a page's
+    headings and paragraphs come out in the traversal's sequence, resolved by
+    identity, and nothing here reads a markdown line, a block position or a
+    ``document_order`` counter.
+
+    Two filters, both of which the Markdown projection already applies and
+    neither of which is a placement decision:
+
+    * **absorbed beats heading** (ADR-020 §3) — a heading detected from a line
+      a table, note body, caption or the front matter already carries does not
+      render, because the object that owns the line emits it. Dropping this
+      re-emitted 8 suppressed headings when P3b tried it on the Markdown side.
+    * **the front-matter title** (FE-0-005) — the title is an H1 in
+      ``document.headings`` *and* a front-matter block; ``_front_matter_groups``
+      renders it, so the heading must not render it a second time.
+    """
+    headings = {
+        str(h.id): h
+        for h in (getattr(document, "headings", []) or [])
+        if not h.is_page_marker
+    }
+    paragraphs = {
+        str(p.id): p
+        for p in (getattr(document, "paragraphs", []) or [])
+        if p.id is not None
+    }
+    blocks_by_page: Dict[int, list] = {}
+    for block in getattr(document, "blocks", []) or []:
+        blocks_by_page.setdefault(block.page_number, []).append(block)
+    absorbed = {
+        page: absorbed_block_ids(document, page, page_blocks)
+        for page, page_blocks in blocks_by_page.items()
+    }
+    front_matter = getattr(document, "front_matter", None)
+    title = getattr(front_matter, "title", None) if front_matter is not None else None
+
+    prose: Dict[int, List[Tuple[str, object]]] = {}
+    for node in stream.nodes:
+        if node.kind is ContentKind.PARAGRAPH:
+            paragraph = paragraphs.get(node.object_id)
+            if paragraph is not None:
+                prose.setdefault(node.page_number, []).append(("paragraph", paragraph))
+        elif node.kind is ContentKind.HEADING:
+            heading = headings.get(node.object_id)
+            if heading is None:
+                continue
+            if title is not None and heading.text == title:
+                continue
+            if heading.source_block_id in absorbed.get(node.page_number, ()):
+                continue
+            prose.setdefault(node.page_number, []).append(("heading", heading))
+    return prose
+
+
+def _add_stream_paragraph(
+    docx_document: DocxDocument,
+    paragraph_object,
+    blocks_by_id: Dict[str, object],
+    notes_by_anchor_text: Dict[str, List[Footnote]],
+    registries: _NoteRegistries,
+) -> None:
+    """One ``Paragraph`` as OOXML runs, with no markdown in between.
+
+    Emphasis comes from ``format_runs`` and note positions from
+    ``resolve_note_references`` — the two rules P4a moved to the model
+    (``src/models/inline_format.py``, ``src/models/note_references.py``), so
+    this module never inspects ``TextBlock.spans[].font_flags`` and never
+    looks for ``[^label]`` in rendered text.
+
+    ``source_block_ids`` names the lines the paragraph was assembled from,
+    which is what both rules need: the blocks answer "is this emphasised",
+    and only the notes anchored to *those* lines are offered for
+    substitution, so a neighbouring paragraph's marker cannot be claimed here.
+
+    The bullet/numbered test is the one thing kept from the markdown path
+    (FEATURE_016C): it is a DOCX *presentation* decision about how a
+    paragraph is styled, not a question about what the paragraph is, so §2's
+    "retain genuinely DOCX presentation mechanics" applies. It runs against
+    ``Paragraph.text`` instead of a rendered line.
+    """
+    contributing = [
+        blocks_by_id[block_id]
+        for block_id in paragraph_object.source_block_ids
+        if block_id in blocks_by_id
+    ]
+    notes = [
+        note
+        for block in contributing
+        for note in notes_by_anchor_text.get(block.text, [])
+    ]
+
+    text = paragraph_object.text
+    style: Optional[str] = None
+    bullet_match = _BULLET_LIST_PATTERN.match(text)
+    numbered_match = None if bullet_match else _NUMBERED_LIST_PATTERN.match(text)
+    if bullet_match:
+        text, style = bullet_match.group(2), "List Bullet"
+    elif numbered_match:
+        text, style = numbered_match.group(2), "List Number"
+
+    if style is None:
+        docx_paragraph = docx_document.add_paragraph()
+    else:
+        try:
+            docx_paragraph = docx_document.add_paragraph(style=style)
+        except KeyError:
+            docx_paragraph = docx_document.add_paragraph()
+
+    for run in format_runs(text, contributing):
+        _add_runs_with_note_references(
+            docx_paragraph, run.text, notes, registries, bold=run.bold, italic=run.italic
+        )
+
+
+def _add_runs_with_note_references(
+    docx_paragraph: Paragraph,
+    text: str,
+    notes: List[Footnote],
+    registries: _NoteRegistries,
+    bold: bool = False,
+    italic: bool = False,
+) -> None:
+    """``text`` as runs, with each note's printed marker replaced by a native
+    reference run.
+
+    The model says where each marker is (``NoteReference.start``/``.length``)
+    and which note it is; ``registries`` says which part it belongs in, from
+    ``Footnote.note_type`` (L4b). Applied in ascending position because the
+    slices are taken from the original string rather than rewritten into it.
+    """
+    position = 0
+    for reference in resolve_note_references(text, notes):
+        if reference.start < position:
+            continue  # overlapping claim; the earlier reference already owns it
+        _add_plain_run(
+            docx_paragraph, text[position : reference.start], bold=bold, italic=italic
+        )
+        _add_note_reference_run(docx_paragraph, reference.label, registries)
+        position = reference.start + reference.length
+    _add_plain_run(docx_paragraph, text[position:], bold=bold, italic=italic)
+
+
 def generate_docx(
     document: Document,
     markdown_content: str,
@@ -340,6 +515,19 @@ def generate_docx(
     # be recorded on the model for post-generation validation.
     images_by_path = {img.file_path: img for img in document.images}
 
+    # P4b: the traversal, not the markdown, says what order this document's
+    # prose is in, which pages exist and where each page begins.
+    stream = build_content_stream(document)
+    stream_pages = sorted({node.page_number for node in stream.nodes})
+    page_markers = _stream_page_markers(document, stream)
+    prose_by_page = _stream_prose(document, stream)
+    pages_with_blocks = {b.page_number for b in document.blocks}
+    blocks_by_id = {b.block_id: b for b in document.blocks}
+    notes_by_anchor_text: Dict[str, List[Footnote]] = {}
+    for note in document.footnotes:
+        notes_by_anchor_text.setdefault(note.anchor_text, []).append(note)
+    has_endnotes = any(note.note_type == NoteType.ENDNOTE for note in document.footnotes)
+
     content_lines = [line.strip() for line in markdown_content.splitlines() if line.strip()]
     pending_caption_after_image = False
     in_front_matter_zone = False
@@ -365,6 +553,93 @@ def generate_docx(
         pipe_table_rows = []
         pipe_table_header_count = 0
         pending_table_id = None
+
+    # --- page identity and the prose run, both from the stream (P4b) ------- #
+    page_cursor = 0
+    current_page: Optional[int] = None
+    marker_line_pending = False
+    marker_from_node = [False]  # one-element box: rebound inside open_page()
+    prose_emitted = False
+
+    def open_page() -> None:
+        """Begin the page the traversal says comes next.
+
+        The OOXML page break is emitted here rather than at the markdown's
+        ``<!-- pagebreak -->``: a break exists because there is another page
+        in the document, which is a fact about ``Page``, not about a comment.
+        A trailing break is impossible by construction — past the last page
+        there is nothing to open — which is what the old explicit
+        ``is_trailing_break`` test was for.
+        """
+        nonlocal current_page, marker_line_pending, prose_emitted, in_front_matter_zone
+        current_page = stream_pages[page_cursor] if page_cursor < len(stream_pages) else None
+        marker_line_pending = False
+        prose_emitted = False
+        in_front_matter_zone = False
+        if current_page is None:
+            # Past the last page. What follows is the generated endnotes
+            # section, which has always started on a fresh page — and whether
+            # one exists at all is a fact about this document's notes, not
+            # about how many lines trail the final page break.
+            if page_cursor > 0 and has_endnotes:
+                docx_document.add_page_break()
+            return
+        if page_cursor > 0:
+            docx_document.add_page_break()
+        # Every page's markdown opens with a marker line, so one is expected
+        # either way; what differs is who renders it.
+        marker_line_pending = True
+        marker = page_markers.get(current_page)
+        if marker is not None:
+            _add_heading(docx_document, marker.level.value, marker.text)
+            marker_from_node[0] = True
+        else:
+            # No PAGE_MARKER node: no marker exists in document.headings, so
+            # markdown_builder synthesized one for this page (a direct
+            # build_markdown() call, a fixture, a Document that never ran
+            # heading detection). Its line is the only record of it, and
+            # dropping it would lose a page label the stream never saw.
+            marker_from_node[0] = False
+        if page_cursor == 0 and front_matter_kinds:
+            in_front_matter_zone = True
+
+    def is_stream_page() -> bool:
+        """Whether this page's prose comes from the traversal.
+
+        False for the 41 of 161 corpus pages with no ``TextBlock`` (§7): with
+        no blocks there are no paragraphs, so the traversal places nothing and
+        the markdown line path — the only thing that ever rendered those
+        pages — keeps rendering them. Requiring an actual paragraph, not
+        merely a non-empty entry, is also what keeps a Mathpix-imported
+        document on its existing path: those paragraphs record a
+        ``source_line`` and no blocks, so the traversal deliberately places
+        none of them.
+        """
+        if current_page is None or current_page not in pages_with_blocks:
+            return False
+        return any(kind == "paragraph" for kind, _ in prose_by_page.get(current_page, []))
+
+    def emit_prose() -> None:
+        """This page's headings and paragraphs, once, in traversal order."""
+        nonlocal prose_emitted
+        if prose_emitted:
+            return
+        prose_emitted = True
+        for kind, obj in prose_by_page.get(current_page, []):
+            if kind == "heading":
+                _add_heading(docx_document, obj.level.value, obj.text)
+            else:
+                _add_stream_paragraph(
+                    docx_document, obj, blocks_by_id, notes_by_anchor_text, note_registries
+                )
+
+    # A Document with no pages, blocks or headings — a direct generate_docx()
+    # call over hand-written markdown — yields an empty traversal. There is
+    # then nothing to consume, and the markdown line path is the whole
+    # renderer, exactly as it was before P4b.
+    stream_knows_pages = bool(stream_pages)
+    if stream_knows_pages:
+        open_page()
 
     for index, line in enumerate(content_lines):
         # Table-summary and table-id accessibility comments — handled
@@ -406,29 +681,42 @@ def generate_docx(
                 continue
 
         if line == PAGE_BREAK_MARKER:
-            is_trailing_break = index == len(content_lines) - 1
-            if not is_trailing_break:
-                # A break after the very last page's content would only
-                # produce a spurious blank trailing page in Word, since
-                # there is no further page to align with.
+            # A page fence, no longer a page fact: the break itself and the
+            # page's identity are emitted by open_page() from the traversal.
+            if stream_knows_pages:
+                page_cursor += 1
+                open_page()
+            elif index < len(content_lines) - 1:
+                # No traversal to ask; the markdown's fence is the only page
+                # signal there is. A break after the last line would only add
+                # a blank trailing page in Word.
                 docx_document.add_page_break()
             pending_caption_after_image = False
-            in_front_matter_zone = False
             pending_table_id = None
             continue
 
         heading_match = _HEADING_PATTERN.match(line)
         if heading_match:
+            pending_caption_after_image = False
+            if marker_line_pending:
+                marker_line_pending = False
+                if marker_from_node[0]:
+                    continue  # already rendered from this page's PAGE_MARKER node
+                if len(heading_match.group(1)) == 6:
+                    # The synthesized marker. Only an H6 qualifies: under a
+                    # suppressing page-numbering policy a page has no marker
+                    # line at all, and its first heading is content the
+                    # stream owns — which the fall-through below hands over.
+                    _add_heading(docx_document, 6, heading_match.group(2).strip())
+                    continue
+            if is_stream_page():
+                in_front_matter_zone = False
+                emit_prose()
+                continue
             level = len(heading_match.group(1))
             text = heading_match.group(2).strip()
             _add_heading(docx_document, level, text)
-            pending_caption_after_image = False
-            # Front matter (if any) renders immediately after page 1's
-            # H6 marker - see module docstring. Only that exact position
-            # ever opens the zone, so later headings elsewhere never do.
-            in_front_matter_zone = (
-                level == 6 and index == 0 and front_matter_index < len(front_matter_kinds)
-            )
+            in_front_matter_zone = False
             continue
 
         if in_front_matter_zone:
@@ -474,6 +762,16 @@ def generate_docx(
                 label=footnote_def_match.group(1),
                 body_text=footnote_def_match.group(2),
             )
+            pending_caption_after_image = False
+            continue
+
+        # P4b: on a page the traversal covers, every remaining line is prose,
+        # and prose is rendered from the stream — once, at the first such
+        # line, so anything the markdown put before it (an image and its
+        # caption) keeps its position and anything after it (tables, note
+        # definitions) keeps its own.
+        if is_stream_page():
+            emit_prose()
             pending_caption_after_image = False
             continue
 

@@ -64,8 +64,20 @@ class TestDeclaredExceptions:
     def test_the_list_is_short(self) -> None:
         """A guardrail with a long exception list is one nobody reads. If this
         trips, the question is whether the architecture moved — not whether to
-        raise the number."""
-        assert len(EXCEPTIONS) <= 5, [e.subject for e in EXCEPTIONS]
+        raise the number.
+
+        It moved at P4b, and the bound went 5 -> 6: the DOCX projection now
+        consumes ``absorbed_block_ids`` so that "absorbed beats heading"
+        (ADR-020 §3) has one implementation instead of one per renderer. That
+        is the same trade the Markdown projection already declares for the
+        same import, and it is a step toward the layering rather than away
+        from it — DOCX previously got that answer by re-reading Markdown's
+        output, a dependency this checker could not see at all. Both structure
+        imports retire together at P4c/P5, when the caller hands the
+        projection a resolved plan; the bound comes back down then rather than
+        drifting upward again.
+        """
+        assert len(EXCEPTIONS) <= 6, [e.subject for e in EXCEPTIONS]
 
 
 # --------------------------------------------------------------------------- #

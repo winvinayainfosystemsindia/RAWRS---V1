@@ -1,7 +1,7 @@
 # Projection Architecture — eliminating the canonical output format
 
-**Status:** P1 and P2 shipped (2026-08-03), P3a and P3b shipped (2026-08-10);
-P4–P5 open. **Date:** 2026-08-02, progress updated 2026-08-10.
+**Status:** P1 and P2 shipped (2026-08-03); P3a, P3b, P4a and P4b shipped
+(2026-08-10); P4c–P5 open. **Date:** 2026-08-02, progress updated 2026-08-10.
 
 | Step | State | Commit |
 |---|---|---|
@@ -9,8 +9,9 @@ P4–P5 open. **Date:** 2026-08-02, progress updated 2026-08-10.
 | P2 semantics move into the model | **shipped** | `0419f7f` |
 | P3a stream emits `PARAGRAPH` nodes (prose is semantic, not source lines) | **shipped** | `8033ff5` |
 | P3b MarkdownProjection renders prose from the stream | **shipped** | pending |
-| P4a shared semantic rules leave the Markdown projection | **shipped** | pending |
-| P4b–P4d DocxProjection; Markdown text parsing deleted | open — **next** | — |
+| P4a shared semantic rules leave the Markdown projection | **shipped** | `ce560e8` |
+| P4b DocxProjection renders prose, headings and pages from the stream | **shipped** | pending |
+| P4c–P4d images/tables/lists/notes; Markdown text parsing deleted | open — **next** | — |
 | P5 `Projection` registry | open | — |
 
 **P3b, and what it did not do.** The Markdown projection's body walk is now a
@@ -67,9 +68,35 @@ headings for months with byte parity green. Projection correctness (PI-1…PI-6,
 
 `markdown_builder` serialises semantics into text; `docx_generator` deserialises them back. Both then implement the same semantics twice, and the round trip is lossy.
 
+**P4b, shipped.** DOCX no longer recovers prose, headings or page identity from
+Markdown. `generate_docx` builds the traversal, resolves each `PARAGRAPH` node to
+its `Paragraph` and each `HEADING`/`PAGE_MARKER` node to its `Heading` **by id**,
+and emits the page break because another `Page` exists — not because a
+`<!-- pagebreak -->` comment appeared. Emphasis comes from `format_runs` and note
+positions from `resolve_note_references`, so `_parse_inline_format` and the
+`[^label]` regex no longer run on prose. Images, tables, lists, captions, notes
+and front matter are untouched and still travel the markdown line path, which is
+why `markdown_content` remains in the signature.
+
+Measured, 10 native documents: **one** semantic difference against the P4a
+baseline — a paragraph ending in `*****` now keeps all five asterisks, where the
+old path let `_parse_inline_format` eat four of them as emphasis markup. Headings
+(level and text), paragraph counts and text, page breaks, tables, figure alts,
+note parts and metadata are otherwise identical. PI-10 pins the claim: 938 stream
+prose objects, 1 violation, and that one is a checker limitation on a document
+whose DOCX rows are byte-identical before and after.
+
+**P4b's limitation — still the blockless pages.** 41 of 161 corpus pages have no
+`TextBlock`, so the traversal places no paragraph on them. `is_stream_page()`
+returns False there and the markdown line path renders them exactly as before.
+The same guard keeps Mathpix-imported documents on their existing path, since
+those paragraphs record a `source_line` and no blocks.
+
 | Encoded by markdown_builder | Decoded by docx_generator | Already in the model as |
 |---|---|---|
-| `_apply_inline_format` → `**b**` | `_parse_inline_format` | `TextBlock.spans` |
+| ~~`_apply_inline_format` → `**b**`~~ | ~~`_parse_inline_format`~~ — **retired P4b** | `TextBlock.spans` |
+| ~~`PAGE_BREAK_MARKER` as a page fact~~ | ~~marker string match~~ — **retired P4b**; the line survives only as a fence | `Page` |
+| ~~`# heading`~~ | ~~`_HEADING_PATTERN`~~ — **retired P4b** for prose pages | `Heading.level` / `.text` |
 | `_render_pipe_table` | `_add_pipe_table` | `Document.tables` |
 | ~~`_footnote_label`~~ → `Footnote.label` (P2) | `_display_number` | `Footnote.number` |
 | `_render_front_matter_blocks` | `_front_matter_kinds` (line-shape sniffing) | `Document.front_matter` |
@@ -96,7 +123,7 @@ Evidence it is already breaking: `_add_semantic_table` bypasses the pipe-table t
 | Reading order of mixed content | still reconstructed by lockstep cursor in the Markdown path; 0 drift measured corpus-wide | **open — P3** |
 | Paragraph grouping | **moved (P2)** → `src/structure/paragraph_assembly.py`, Stage 5c | done |
 | Suppression | **moved (P2)** → `absorbed_block_ids()`; the 4 text-keyed sets survive only on the OCR line-by-line path | mostly done |
-| Inline emphasis | derived at render, re-parsed in DOCX | **open — P4** |
+| Inline emphasis | **moved (P4a/P4b)** → `src/models/inline_format.py`; both projections call it | done |
 | Footnote numbering/labels | **moved (P2)** → `Footnote.label` | done |
 | Object identity | **moved (P1/P2)** → `block_id`, `source_block_id`, `source_block_ids`; `<!-- table-id -->` remains as DOCX transport | **open — P4** |
 

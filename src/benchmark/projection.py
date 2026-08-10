@@ -1152,3 +1152,198 @@ def _rendered_prose(markdown: str) -> List[str]:
         if normalized:
             out.append(normalized)
     return out
+
+
+# --------------------------------------------------------------------------- #
+# PI-10 · the DOCX projection consumes the stream's prose
+# --------------------------------------------------------------------------- #
+#
+# PI-8 proves the traversal holds every paragraph once; PI-9 proves the Markdown
+# projection renders what the traversal handed it. PI-10 makes the same claim
+# for DOCX, which until P4b recovered its structure by re-reading the Markdown
+# that PI-9 checks — so a regression there would have shown up as *nothing*,
+# both projections agreeing because one was reading the other.
+#
+# Expectations are derived here from the stream and the two documented filters
+# (absorbed-beats-heading, and the front-matter title FE-0-005), not from the
+# renderer's own plan: a checker that asked the renderer what it meant to do
+# could only ever confirm it did that.
+#
+# Resolution is by identity; the comparison against the package is by text,
+# because a .docx keeps no object ids. Order is what catches a text-keyed
+# regression, since two paragraphs reading identically must still land in their
+# own stream positions.
+
+
+def _docx_body_items(docx_path: Any) -> List[tuple]:
+    """(heading level or None, normalized text, is-list-styled) per paragraph."""
+    import xml.etree.ElementTree as ET
+    import zipfile
+
+    w = "{%s}" % _DOCX_W
+    items: List[tuple] = []
+    with zipfile.ZipFile(str(docx_path)) as zf:
+        root = ET.fromstring(zf.read("word/document.xml"))
+    body = root.find(w + "body")
+    for paragraph in [] if body is None else body.findall(w + "p"):
+        text = _norm("".join(t.text or "" for t in paragraph.iter(w + "t")))
+        if not text:
+            continue
+        style = paragraph.find(f"{w}pPr/{w}pStyle")
+        name = style.get(w + "val") if style is not None else ""
+        level = None
+        if name and name.lower().startswith("heading"):
+            digits = "".join(c for c in name if c.isdigit())
+            level = int(digits) if digits else None
+        items.append((level, text, bool(name) and "List" in name))
+    return items
+
+
+def check_docx_projection(document: Any, docx_path: Any, name: str = "") -> ProjectionReport:
+    """PI-10 · every stream node DOCX consumes becomes one DOCX operation.
+
+    * ``PAGE_MARKER`` -> one heading paragraph carrying the marker's text
+    * ``HEADING``     -> one heading paragraph at ``Heading.level``
+    * ``PARAGRAPH``   -> one body paragraph carrying ``Paragraph.text``
+    * order           -> the traversal's, not the markdown's
+
+    Pages with no ``TextBlock`` are reported as findings rather than
+    violations: with no blocks the traversal places no paragraph, so DOCX
+    keeps rendering them from the markdown lines — the declared P4b
+    limitation, obeyed rather than a lost object.
+    """
+    from src.models.content_stream import ContentKind
+    from src.structure.content_stream import build_content_stream
+
+    report = ProjectionReport(
+        document=name or str(getattr(document, "source_pdf_path", "") or "?")
+    )
+    headings = {str(h.id): h for h in (getattr(document, "headings", []) or [])}
+    paragraphs = {
+        str(p.id): p
+        for p in (getattr(document, "paragraphs", []) or [])
+        if p.id is not None
+    }
+    if not paragraphs:
+        report.counts["stream_prose"] = 0
+        return report
+
+    blocks_by_page: Dict[int, list] = {}
+    for block in getattr(document, "blocks", []) or []:
+        blocks_by_page.setdefault(block.page_number, []).append(block)
+    absorbed = {
+        page: absorbed_block_ids(document, page, page_blocks)
+        for page, page_blocks in blocks_by_page.items()
+    }
+    front_matter = getattr(document, "front_matter", None)
+    title = getattr(front_matter, "title", None) if front_matter is not None else None
+
+    nodes = build_content_stream(document).nodes
+    pages_with_prose = {
+        node.page_number
+        for node in nodes
+        if node.kind is ContentKind.PARAGRAPH and node.object_id in paragraphs
+    } & set(blocks_by_page)
+
+    expected: List[tuple] = []  # (object id, heading level or None, probe text)
+    for node in nodes:
+        if node.page_number not in pages_with_prose:
+            if node.kind in (ContentKind.PARAGRAPH, ContentKind.HEADING):
+                report.findings.append(
+                    Violation(
+                        "PI-10",
+                        "renderer_generated_object",
+                        f"{node.kind.value} {node.object_id!r} is on page "
+                        f"{node.page_number}, which DOCX renders from markdown lines",
+                    )
+                )
+            continue
+        if node.kind is ContentKind.PARAGRAPH:
+            paragraph = paragraphs.get(node.object_id)
+            if paragraph is None:
+                report.violations.append(
+                    Violation(
+                        "PI-10",
+                        "invented_object",
+                        f"stream paragraph {node.object_id!r} resolves to no Paragraph",
+                    )
+                )
+                continue
+            expected.append((node.object_id, None, _paragraph_probe(paragraph.text)))
+        elif node.kind in (ContentKind.HEADING, ContentKind.PAGE_MARKER):
+            heading = headings.get(node.object_id)
+            if heading is None:
+                continue
+            if node.kind is ContentKind.HEADING:
+                if title is not None and heading.text == title:
+                    continue
+                if heading.source_block_id in absorbed.get(node.page_number, ()):
+                    continue
+            expected.append((node.object_id, heading.level.value, _norm(heading.text)))
+
+    # Prose is compared through the same probe PI-9 uses: DOCX replaces a
+    # note's printed marker with a reference run that contributes no text, so
+    # a rendered paragraph is never ``Paragraph.text`` character for
+    # character. Headings carry no markers and are compared as they are.
+    rendered = [
+        (level, text, _paragraph_probe(text), is_list)
+        for level, text, is_list in _docx_body_items(docx_path)
+    ]
+    cursor = 0
+    for object_id, level, text in expected:
+        if not text:
+            continue
+        # Exact first, containment only if nothing matches exactly. A page's
+        # running header survives OCR as several near-identical garbled
+        # lines, and a substring match against the first of them would claim
+        # the wrong paragraph and drag the cursor past the right one.
+        hit = -1
+        for exact_only in (True, False):
+            for position in range(cursor, len(rendered)):
+                candidate_level, candidate_text, candidate_probe, is_list = rendered[position]
+                if level is not None:
+                    if candidate_level == level and text == candidate_text:
+                        hit = position
+                        break
+                    continue
+                if candidate_level is not None or not candidate_probe:
+                    continue
+                if text == candidate_probe:
+                    hit = position
+                    break
+                if exact_only:
+                    continue
+                # A list-styled paragraph renders without its own marker —
+                # Word draws the bullet or number, so repeating the source
+                # one would double it (FEATURE_016C). Containment therefore
+                # runs the other way for those, and only for those.
+                if text in candidate_probe or (is_list and candidate_probe in text):
+                    hit = position
+                    break
+            if hit >= 0:
+                break
+        if hit < 0:
+            behind = any(
+                text in (probe if level is None else body)
+                for body_level, body, probe, _ in rendered[:cursor]
+                if (level is None) == (body_level is None)
+            )
+            report.violations.append(
+                Violation(
+                    "PI-10",
+                    "duplicate" if behind else "content_loss",
+                    f"{'heading' if level else 'paragraph'} {object_id!r} is "
+                    + ("rendered out of stream order" if behind else "not rendered"),
+                )
+            )
+            continue
+        cursor = hit + 1
+
+    report.counts.update(
+        {
+            "stream_prose": len(expected),
+            "docx_body_items": len(rendered),
+            "pages_from_stream": len(pages_with_prose),
+        }
+    )
+    return report

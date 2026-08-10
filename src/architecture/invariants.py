@@ -119,6 +119,19 @@ EXCEPTIONS: Tuple[DeclaredException, ...] = (
     DeclaredException(
         invariant="AI-2",
         subject="src/docx/docx_generator.py",
+        imports="src.structure.paragraph_assembly",
+        reason=(
+            "P4b: absorbed-beats-heading (ADR-020 §3) decides whether a heading "
+            "renders at all, and both projections must reach the same answer. "
+            "Calling the model's own function beats DOCX keeping a second copy "
+            "of the rule — the same trade the Markdown projection already makes "
+            "for this exact import."
+        ),
+        retired_by="P4c/P5 - the caller resolves suppression and hands the projection a rendered plan",
+    ),
+    DeclaredException(
+        invariant="AI-2",
+        subject="src/docx/docx_generator.py",
         imports="src.markdown.markdown_builder",
         reason=(
             "DOCX still recovers structure by parsing Markdown, so it needs "
