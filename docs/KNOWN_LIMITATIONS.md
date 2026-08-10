@@ -98,7 +98,7 @@ regression; several became visible only once ADR-020's projection gate existed.
 |---|---|
 | `SemanticObject.confidence` carries two meanings | The detector writes detection strength; the cross-source verifier overwrites it with match confidence. Documented on `Heading.evidence_items`; read that field when detection strength is what you mean. |
 | `_apply_inline_format` derives bold/italic from spans at render time | Presentation computed from model data. `Paragraph.is_bold`/`is_italic` would move it, and P4 needs it moved anyway — DOCX currently recovers it by re-parsing `**`. |
-| The lockstep positional cursor (`block_cursor`) survives in the Markdown path | **0 drift measured across 161 pages.** A latent fragility rather than an active defect; P3 removes it by construction. |
+| ~~The lockstep positional cursor (`block_cursor`) survives in the Markdown path~~ | **Retired by P3b (2026-08-10).** The paragraph path walks the `ContentStream` instead. Re-measured immediately before removal: 0 drift, 0 lines past the last block, 0 blocks left behind, over the 120 block-bearing pages. The line-by-line fallback for the other 41 pages still walks text, having no blocks to walk instead. |
 
 ### Detector defects surfaced by ADR-020 (not projection defects)
 

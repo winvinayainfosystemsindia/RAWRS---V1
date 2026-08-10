@@ -1,16 +1,37 @@
 # Projection Architecture — eliminating the canonical output format
 
-**Status:** P1 and P2 shipped (2026-08-03), P3a shipped (2026-08-10); P3b–P5
-open. **Date:** 2026-08-02, progress updated 2026-08-10.
+**Status:** P1 and P2 shipped (2026-08-03), P3a and P3b shipped (2026-08-10);
+P4–P5 open. **Date:** 2026-08-02, progress updated 2026-08-10.
 
 | Step | State | Commit |
 |---|---|---|
 | P1 `ContentStream` + identity | **shipped** | `e3a8386` |
 | P2 semantics move into the model | **shipped** | `0419f7f` |
-| P3a stream emits `PARAGRAPH` nodes (prose is semantic, not source lines) | **shipped** | pending |
-| P3b MarkdownProjection renders from the stream | open | — |
-| P4 DocxProjection; text parsing deleted | open | — |
+| P3a stream emits `PARAGRAPH` nodes (prose is semantic, not source lines) | **shipped** | `8033ff5` |
+| P3b MarkdownProjection renders prose from the stream | **shipped** | pending |
+| P4 DocxProjection; Markdown text parsing deleted | open — **next** | — |
 | P5 `Projection` registry | open | — |
+
+**P3b, and what it did not do.** The Markdown projection's body walk is now a
+walk of the `ContentStream`: a `PARAGRAPH` node names a `Paragraph`, the
+projection resolves it by id and renders `Paragraph.text`. The lockstep cursor
+— the page's text lines walked in parallel with its `TextBlock`s, one block
+consumed per non-blank line — is gone from that path. It was measured before
+removal: across the corpus it never drifted, never ran out of blocks and never
+left one behind (0/0/0 over 120 block-bearing pages), so it was computing the
+stream's own per-block order.
+
+Still text-keyed, deliberately: the **line-by-line fallback** for pages with no
+`TextBlock` (41 of the corpus' 161, two documents entirely) — it has no blocks
+to build a traversal from, which is the largest remaining obstacle to a single
+rendering path. Unchanged too: the Mathpix `_render_page_semantic` path, and
+tables/lists/notes/front matter, which keep the paths they had.
+
+**DOCX is next (P4).** `src/docx/docx_generator.py` still recovers structure by
+parsing this module's Markdown — it imports `PAGE_BREAK_MARKER` and re-derives
+bold/italic from `**`. P3b deliberately did not touch it: DOCX inherits its
+correctness from Markdown today, and making it consume the stream is its own
+milestone with its own gate.
 
 **Gate correction.** The byte-identical gates in §7 below were retired on
 2026-08-03. P2 proved byte parity defends a renderer defect exactly as hard as

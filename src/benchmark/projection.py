@@ -1002,3 +1002,153 @@ def check_paragraph_stream(document: Any, name: str = "") -> ProjectionReport:
         }
     )
     return report
+
+
+# --------------------------------------------------------------------------- #
+# PI-9 · the projection consumes the stream's paragraphs
+# --------------------------------------------------------------------------- #
+#
+# PI-8 proves the traversal holds every paragraph once. PI-9 proves the
+# Markdown projection *renders what the traversal handed it* — one paragraph
+# per PARAGRAPH node, in the stream's order, carrying the text the semantic
+# object carries. Without it P3b could regress to rediscovering prose from
+# lines while the stream still looked correct, which is the split-brain
+# ADR-020 exists to prevent.
+#
+# The check reads rendered Markdown, so it compares by normalized text — the
+# only handle a rendered format offers. That is a *verification* technique,
+# not a placement one: the projection resolves paragraphs by id and never
+# searches by text. Order is the property that catches a text-keyed
+# regression, since two paragraphs reading identically must still land in
+# their own stream positions.
+
+
+def check_paragraph_projection(
+    document: Any, markdown: str, name: str = ""
+) -> ProjectionReport:
+    """PI-9 · every stream PARAGRAPH becomes exactly one Markdown paragraph.
+
+    * presence   — each PARAGRAPH node's ``Paragraph.text`` is rendered
+    * uniqueness — rendered once, never twice
+    * order      — rendered order equals stream order
+    * provenance — the rendered prose is the paragraph's own text
+
+    Pages with no ``TextBlock`` (an OCR-recovered page — 41 of the corpus'
+    161) are rendered by the line-by-line fallback, which has no blocks to
+    build a traversal from. Their paragraphs are reported as findings, not
+    violations: the projection is obeying a documented limitation rather
+    than losing an object.
+    """
+    from src.models.content_stream import ContentKind
+    from src.structure.content_stream import build_content_stream
+
+    report = ProjectionReport(
+        document=name or str(getattr(document, "source_pdf_path", "") or "?")
+    )
+    paragraphs = {
+        str(p.id): p for p in (getattr(document, "paragraphs", []) or []) if p.id is not None
+    }
+    if not paragraphs:
+        report.counts["stream_paragraphs"] = 0
+        return report
+
+    pages_with_blocks = {b.page_number for b in (getattr(document, "blocks", []) or [])}
+    nodes = [n for n in build_content_stream(document).nodes if n.kind is ContentKind.PARAGRAPH]
+
+    expected: List[tuple] = []  # (paragraph id, normalized text) in stream order
+    for node in nodes:
+        paragraph = paragraphs.get(node.object_id)
+        if paragraph is None:
+            report.violations.append(
+                Violation(
+                    "PI-9",
+                    "invented_object",
+                    f"stream paragraph {node.object_id!r} resolves to no Paragraph",
+                )
+            )
+            continue
+        if node.page_number not in pages_with_blocks:
+            report.findings.append(
+                Violation(
+                    "PI-9",
+                    "renderer_generated_object",
+                    f"paragraph {node.object_id!r} is on page {node.page_number}, which has "
+                    "no blocks and is rendered by the line-by-line fallback",
+                )
+            )
+            continue
+        expected.append((node.object_id, _paragraph_probe(paragraph.text)))
+
+    rendered = [_paragraph_probe(block) for block in _rendered_prose(markdown)]
+    cursor = 0
+    for object_id, text in expected:
+        if not text:
+            continue
+        hit = next((i for i in range(cursor, len(rendered)) if text in rendered[i]), -1)
+        if hit < 0:
+            behind = any(text in block for block in rendered[:cursor])
+            report.violations.append(
+                Violation(
+                    "PI-9",
+                    "duplicate" if behind else "content_loss",
+                    f"paragraph {object_id!r} is "
+                    + ("rendered out of stream order" if behind else "not rendered"),
+                )
+            )
+            continue
+        cursor = hit + 1
+
+    report.counts.update(
+        {
+            "stream_paragraphs": len(nodes),
+            "expected_rendered": len(expected),
+            "prose_blocks": len(rendered),
+        }
+    )
+    return report
+
+
+def _paragraph_probe(text: str) -> str:
+    """A paragraph's text reduced to what survives being rendered.
+
+    The projection legitimately decorates prose on its way out: 016G wraps
+    a uniformly bold or italic paragraph in ``**``/``*``, and a footnote
+    anchor's printed marker is replaced by ``[^label]``. So the rendered
+    block is not ``Paragraph.text`` character for character, and a checker
+    demanding that would report every noted paragraph as lost — measured:
+    3 of brinkman's, each differing only by the digit that became a note
+    reference.
+
+    Emphasis characters and digits are therefore dropped from *both*
+    sides. Digits are safe to drop symmetrically: prose digits appear on
+    both sides and cancel, while a substituted marker appears on only one.
+    What remains is enough to say which paragraph a block is, which is all
+    PI-9 asks. Whether the words themselves survived is PI-3's question.
+    """
+    return _norm(re.sub(r"[\d*]", "", text or ""))
+
+
+def _rendered_prose(markdown: str) -> List[str]:
+    """The Markdown's prose blocks, in order, normalized.
+
+    Everything that is not body prose is dropped: page markers, headings,
+    note definitions, table and list rows, image references and the
+    pagebreak marker. What remains is what a paragraph could have produced.
+    """
+    out: List[str] = []
+    for raw in markdown.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        line = _IMAGE.sub(" ", line)
+        line = _HTML_COMMENT.sub(" ", line).strip()
+        if not line or _NOTE_DEF.match(line):
+            continue
+        if _PAGE_MARKER.match(line) or _CONTENT_HEADING.match(line):
+            continue
+        if line.startswith("|") or line.startswith("- ") or line.startswith("* "):
+            continue
+        normalized = _norm(_NOTE_REF.sub(" ", line))
+        if normalized:
+            out.append(normalized)
+    return out

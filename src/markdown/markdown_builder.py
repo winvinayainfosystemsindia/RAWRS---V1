@@ -132,8 +132,6 @@ from src.structure.paragraph_assembly import (
     NOTES_SECTION_HEADING_PATTERN,
     absorbed_block_ids,
     assemble_paragraphs,
-    headings_by_anchor,
-    paragraph_starts,
 )
 
 # Public so downstream stages (e.g. src/docx/docx_generator.py) that parse
@@ -335,11 +333,23 @@ def build_markdown(
     # logic for that case — same function, same answer, one implementation.
     paragraphs = document.paragraphs or assemble_paragraphs(document)
     paragraphs_by_page = _group_paragraphs_by_page(paragraphs)
+    # P3b: the traversal is built once here and each page renders its slice.
+    # A Document that never ran Stage 5c has no Document.paragraphs for
+    # build_content_stream() to place, so the stream is built against a copy
+    # carrying the ones assembled above - the same objects this module is
+    # about to render. A copy rather than an assignment keeps build_markdown()
+    # free of side effects on its caller's Document.
+    stream_source = (
+        document
+        if document.paragraphs or not paragraphs
+        else document.model_copy(update={"paragraphs": paragraphs})
+    )
+    stream_nodes_by_page = _stream_nodes_by_page(stream_source)
     # L5'a: front matter is placed by the traversal, not by this module.
     # build_content_stream() resolves each FrontMatterItem to the block it
     # records, so what arrives here is already "which items, in what order,
     # on which page" - no text matching and no page-position guess.
-    front_matter_items_by_page = _front_matter_items_by_page(document)
+    front_matter_items_by_page = _front_matter_items_by_page(document, stream_nodes_by_page)
     has_endnotes = any(note.note_type == NoteType.ENDNOTE for note in document.footnotes)
     sorted_pages = sorted(document.pages, key=lambda page: page.page_number)
 
@@ -394,6 +404,7 @@ def build_markdown(
             paragraphs_by_page.get(page.page_number, []),
             is_mathpix_import,
             front_matter_items_by_page.get(page.page_number, []),
+            stream_nodes_by_page.get(page.page_number, []),
         )
         for page in sorted_pages
     ]
@@ -420,25 +431,47 @@ def _group_images_by_page(images: List[Image]) -> Dict[int, List[Image]]:
     return grouped
 
 
-def _front_matter_items_by_page(document: Document) -> Dict[int, List[Any]]:
+def _stream_nodes_by_page(document: Document) -> Dict[int, List[Any]]:
+    """The traversal, indexed by page (P3b).
+
+    Built once per document. Every page renderer below reads its own slice
+    and renders what the stream says is there, in the order the stream says
+    it is there - so ordering is decided in one place, for all content
+    kinds, rather than reconstructed per page from lines and blocks.
+    """
+    by_page: Dict[int, List[Any]] = {}
+    for node in build_content_stream(document).nodes:
+        by_page.setdefault(node.page_number, []).append(node)
+    return by_page
+
+
+def _front_matter_items_by_page(
+    document: Document, stream_nodes_by_page: Optional[Dict[int, List[Any]]] = None
+) -> Dict[int, List[Any]]:
     """Front-matter items per page, in traversal order (L5'a).
 
     The traversal is the authority on which items are placed and where;
     this only indexes its answer by page. Items the stream could not place
     (a provider that recorded no source block) are absent here, which is
     what routes them to the declared legacy path below.
+
+    P3b passes the already-built traversal in rather than building a second
+    one; the parameter defaults to None for direct callers that predate it.
     """
     front_matter = getattr(document, "front_matter", None)
     items = {str(item.id): item for item in (getattr(front_matter, "items", []) or [])}
     if not items:
         return {}
+    if stream_nodes_by_page is None:
+        stream_nodes_by_page = _stream_nodes_by_page(document)
     by_page: Dict[int, List[Any]] = {}
-    for node in build_content_stream(document).nodes:
-        if node.kind is not ContentKind.FRONT_MATTER:
-            continue
-        item = items.get(node.object_id)
-        if item is not None:
-            by_page.setdefault(node.page_number, []).append(item)
+    for nodes in stream_nodes_by_page.values():
+        for node in nodes:
+            if node.kind is not ContentKind.FRONT_MATTER:
+                continue
+            item = items.get(node.object_id)
+            if item is not None:
+                by_page.setdefault(node.page_number, []).append(item)
     return by_page
 
 
@@ -708,6 +741,7 @@ def _render_page(
     page_paragraphs: Optional[List[Paragraph]] = None,
     is_mathpix_import: bool = False,
     front_matter_items: Optional[List[Any]] = None,
+    stream_nodes: Optional[List[Any]] = None,
 ) -> str:
     """Render one page's marker (when policy permits), front matter
     (page 1 only), headings, body text, footnotes, tables, lists, and
@@ -716,7 +750,11 @@ def _render_page(
     ``front_matter_items`` are this page's ContentStream front-matter
     items (L5'a) - already placed, already carrying their roles. Defaults
     to None for the direct callers and fixtures that predate the stream,
-    which fall back to the declared legacy rendering path."""
+    which fall back to the declared legacy rendering path.
+
+    ``stream_nodes`` are this page's ContentStream nodes (P3b) - the order
+    the body is rendered in. None means "not supplied", and the body
+    renderer derives them itself."""
     if page_tables is None:
         page_tables = []
     if page_lists is None:
@@ -772,6 +810,7 @@ def _render_page(
             page_lists,
             page_paragraphs,
             is_mathpix_import,
+            stream_nodes,
         )
     )
     # _render_page_semantic() (the Mathpix-import path) already
@@ -866,6 +905,7 @@ def _render_page_body(
     page_lists: Optional[List[ListBlock]] = None,
     page_paragraphs: Optional[List[Paragraph]] = None,
     is_mathpix_import: bool = False,
+    stream_nodes: Optional[List[Any]] = None,
 ) -> List[str]:
     """Dispatch to one of three body-rendering strategies.
 
@@ -897,7 +937,7 @@ def _render_page_body(
     if page_blocks:
         return _render_page_body_with_paragraphs(
             document, page, content_headings, anchor_notes, page_blocks,
-            page_paragraphs, page_images,
+            page_paragraphs, page_images, stream_nodes,
         )
     return _render_page_body_line_by_line(
         page, content_headings, anchor_notes, body_notes, has_endnotes, page_images, front_matter
@@ -1071,6 +1111,7 @@ def _render_page_body_with_paragraphs(
     page_blocks: List[TextBlock],
     page_paragraphs: List[Paragraph],
     page_images: Optional[List[Image]] = None,
+    stream_nodes: Optional[List[Any]] = None,
 ) -> List[str]:
     """Project a page whose lines the model has already grouped.
 
@@ -1094,125 +1135,101 @@ def _render_page_body_with_paragraphs(
     hands over the resolved set. Case 4 is a line inside a paragraph that
     was emitted at that paragraph's first block.
 
-    Headings are looked up by block, not taken from a queue. The old
+    Headings are looked up by identity, not taken from a queue. The old
     "next pending heading" queue stalled permanently whenever a heading's
     line was suppressed for some other reason, swallowing every later
     heading on the page — two such cascades on the benchmark corpus.
 
-    The one remaining fallback is lockstep drift. Text lines are walked in
-    parallel with ``page_blocks``, one block consumed per non-blank line; if
-    a line and its block disagree, or the blocks run out, the line renders
-    standalone exactly as it did before P2 rather than being attributed to
-    the wrong block.
+    **P3b: the order comes from the stream.** What stood here was a lockstep
+    cursor — the page's text lines walked in parallel with ``page_blocks``,
+    one block consumed per non-blank line, each block then classified as
+    absorbed / heading / paragraph-start. That was this module deciding
+    reading order from lines, which is the decision ``ContentStream`` now
+    owns for every content kind at once. Measured before removal: across the
+    corpus the cursor never drifted, never ran out of blocks and never left
+    one behind (0/0/0 over 120 block-bearing pages), so what it computed was
+    exactly the stream's own per-block order — which is why this is a
+    traversal swap and not a behaviour change.
+
+    Each node is resolved to its object by id and rendered:
+
+      * ``PARAGRAPH``  -> the ``Paragraph`` it names, rendered from its text
+      * ``HEADING``    -> the heading, when this page renders it at all
+      * ``IMAGE``      -> the image, at the position the model gave it
+      * ``BODY_LINE``  -> nothing, exactly as before
+
+    ``BODY_LINE`` emitting nothing is not new and not a narrowing: a block
+    that no paragraph starts and no heading was detected from produced no
+    output under the cursor either. Those nodes stay in the stream because
+    the three duplications they represent — table-owned, heading-anchor and
+    note/caption/front-matter blocks — are their own debt, not this one's.
     """
     notes_by_anchor_text: Dict[str, List[Footnote]] = {}
     for note in anchor_notes:
         notes_by_anchor_text.setdefault(note.anchor_text, []).append(note)
 
-    starts = paragraph_starts(page_paragraphs)
-    blocks_by_id: Dict[str, TextBlock] = {b.block_id: b for b in page_blocks}
-    # Images sit where the model says they sit (Image.source_block_id), not
-    # after everything else. An image whose anchor is None precedes all body
-    # text on its page — a real position, so it renders first.
-    images_after, images_first = _images_by_anchor(page_images or [])
-    absorbed = absorbed_block_ids(document, page.page_number, page_blocks)
-    by_anchor = headings_by_anchor(document, page.page_number)
-    # Headings the model could not anchor to a block keep the pre-P2
-    # sequential text match, which is all that can place them.
-    pending = [h for h in content_headings if h.source_block_id is None]
+    if stream_nodes is None:
+        stream_nodes = _stream_nodes_by_page(document).get(page.page_number, [])
 
-    # 016B: When any block has a corrected_order set, derive text lines from
-    # the already-sorted page_blocks instead of cleaned_text. The corrected
-    # block sequence IS the intended reading order; cleaned_text's original
-    # line order is the very bug being fixed. In the corrected path each
-    # text line maps 1:1 to its TextBlock (no lockstep drift possible).
-    if any(b.corrected_order is not None for b in page_blocks):
-        raw_text_lines = [b.text for b in page_blocks]
-    else:
-        raw_text_lines = (page.cleaned_text or page.raw_text).splitlines()
+    blocks_by_id: Dict[str, TextBlock] = {b.block_id: b for b in page_blocks}
+    # Resolution tables. A node names an object; these say which object, and
+    # nothing here searches by text. ``content_headings`` is the caller's
+    # already-filtered list, so a heading this page deliberately does not
+    # render — the front-matter title (FE-0-005) — is simply absent from it
+    # and its node resolves to nothing.
+    paragraphs_by_id: Dict[str, Paragraph] = {
+        str(p.id): p for p in page_paragraphs if p.id is not None
+    }
+    headings_by_id: Dict[str, Heading] = {str(h.id): h for h in content_headings}
+    # Absorbed beats heading (ADR-020 §3, PROJECTION_CONTRACT's
+    # ``absorbed_by_another_object``). A heading detected from a line that a
+    # table, note body, caption, front matter or the endnotes section already
+    # carries does not render, because that line's content is emitted by the
+    # object that owns it. The stream carries the HEADING node either way —
+    # placement is its job — and this precedence stays the projection's, as
+    # it was before P3b. Measured on the corpus while removing the cursor:
+    # dropping it re-emitted 8 suppressed headings, among them a "## Notes"
+    # beside RAWRS's own generated "## Endnotes".
+    absorbed = absorbed_block_ids(document, page.page_number, page_blocks)
+    images_by_id: Dict[str, Image] = {
+        str(getattr(i, "image_id", None) or i.id): i for i in (page_images or [])
+    }
 
     blocks: List[str] = []
-    block_cursor = 0
     emitted_images: Set[str] = set()
 
-    def emit_images(bucket: List[Image]) -> None:
-        for image in bucket:
+    for node in stream_nodes:
+        if node.kind is ContentKind.PARAGRAPH:
+            paragraph = paragraphs_by_id.get(node.object_id)
+            if paragraph is not None:
+                blocks.append(_render_paragraph(paragraph, blocks_by_id, notes_by_anchor_text))
+        elif node.kind is ContentKind.HEADING:
+            heading = headings_by_id.get(node.object_id)
+            if heading is not None and heading.source_block_id not in absorbed:
+                blocks.append(_render_heading(heading))
+        elif node.kind is ContentKind.IMAGE:
+            image = images_by_id.get(node.object_id)
+            # An image whose extraction failed has no file to point at. The
+            # stream still carries it — the model knows where it belongs —
+            # and the closing sweep below keeps it out too.
+            if image is not None and not image.extraction_failed:
+                blocks.extend(_render_images([image]))
+                emitted_images.add(image.image_id)
+
+    # Everything the walk did not place: an image the traversal could not
+    # position keeps the page-end slot it has always had. PI-1 admits no
+    # third state between materialized and diagnosed, so nothing may be
+    # left here.
+    for image in page_images or []:
+        if image.image_id not in emitted_images and not image.extraction_failed:
             blocks.extend(_render_images([image]))
             emitted_images.add(image.image_id)
-
-    emit_images(images_first)
-
-    for raw_line in raw_text_lines:
-        line = raw_line.strip()
-        if not line:
-            continue
-
-        source_block = page_blocks[block_cursor] if block_cursor < len(page_blocks) else None
-        block_cursor += 1
-
-        if source_block is not None and source_block.text == line:
-            anchored = images_after.get(source_block.block_id)
-            if source_block.block_id in absorbed:
-                if anchored:
-                    emit_images(anchored)
-                continue
-            heading = by_anchor.get(source_block.block_id)
-            if heading is None and pending and line == pending[0].text:
-                heading = pending.pop(0)
-            if heading is not None:
-                blocks.append(_render_heading(heading))
-            else:
-                paragraph = starts.get(source_block.block_id)
-                if paragraph is not None:
-                    blocks.append(
-                        _render_paragraph(paragraph, blocks_by_id, notes_by_anchor_text)
-                    )
-            # After whatever this block produced — a heading, a paragraph, or
-            # nothing — so an image anchored to a heading's line still lands.
-            if anchored:
-                emit_images(anchored)
-            continue
-
-        blocks.append(_substitute_markers(line, notes_by_anchor_text.get(line, [])))
-
-    # Everything the walk did not place: an unlinked image (the page-end slot
-    # it has always had), and any image whose anchor block was never reached —
-    # a suppressed line, a page whose lockstep ran out. PI-1 admits no third
-    # state between materialized and diagnosed, so nothing may be left here.
-    emit_images(
-        [
-            image
-            for image in (page_images or [])
-            if image.image_id not in emitted_images and not image.extraction_failed
-        ]
-    )
 
     for note in sorted(anchor_notes, key=lambda n: n.number):
         if note.note_type == NoteType.FOOTNOTE:
             blocks.append(f"[^{note.label}]: {note.body}")
 
     return blocks
-
-
-def _images_by_anchor(page_images: List[Image]) -> Tuple[Dict[str, List[Image]], List[Image]]:
-    """The page's placeable images, as (after-this-block, before-all-body).
-
-    Only images the model positioned appear here. One the model said nothing
-    about — no bbox to anchor from, or a Document that never ran Stage 5c —
-    is deliberately absent, and the caller's closing sweep gives it the
-    page-end slot it has always had. Within a bucket, ``document_order``
-    decides.
-    """
-    after: Dict[str, List[Image]] = {}
-    first: List[Image] = []
-    for image in sorted(page_images, key=lambda i: i.document_order or 0):
-        if image.extraction_failed or image.document_order is None:
-            continue
-        if image.source_block_id is None:
-            first.append(image)
-        else:
-            after.setdefault(image.source_block_id, []).append(image)
-    return after, first
 
 
 def _render_paragraph(
