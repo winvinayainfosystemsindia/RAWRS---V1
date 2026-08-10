@@ -14,12 +14,31 @@ produced. That is one semantic decision — what order the content is in —
 made twice inside two output formats. It belongs to the document.
 
 **Fidelity status.** This traversal is derived from what the model can
-state today: page markers, headings, body lines, lists, tables, images and
-note definitions, ordered per page. P2 closed the two gaps that made it an
-ordering rather than a rendering instruction — paragraph grouping now lives
-in ``src/structure/paragraph_assembly.py`` and note labelling on
-``Footnote.label`` — so what remains for P3 is to emit ``PARAGRAPH`` nodes
-instead of ``BODY_LINE`` ones and have the projections read them.
+state today: page markers, headings, paragraphs, body lines, lists,
+tables, images and note definitions, ordered per page. P2 closed the two
+gaps that made it an ordering rather than a rendering instruction —
+paragraph grouping now lives in ``src/structure/paragraph_assembly.py``
+and note labelling on ``Footnote.label``. P3's first half has now landed:
+prose is emitted as ``PARAGRAPH`` nodes referencing ``Paragraph.id``, and
+the lines a paragraph absorbed are no longer emitted as ``BODY_LINE``.
+What remains for P3 is the other half — having the projections read them.
+
+**Known, deliberately unfixed here.** Three duplications predate
+paragraphs and are not caused by them. Measured over the ten-PDF
+benchmark corpus through the full pipeline, 385 blocks still reach a
+``BODY_LINE`` node although another object already carries them:
+
+  * 273 belong to a ``Table`` and are emitted beside its ``TABLE`` node
+  * 79 are a content heading's anchor, emitted beside its ``HEADING`` node
+  * 33 were absorbed by a note body, a caption, the front matter or the
+    endnotes heading, and render nowhere at all
+
+None is new — before this change all 7,859 of those blocks were body
+lines. What this change fixes is the 95% of them (7,474) the model had
+already grouped into prose; the remaining 385 are their own commit,
+under their own evidence. What is zero, and must stay zero, is a body
+line *no* object claims: that would mean the assembler dropped prose the
+traversal then emitted raw. PI-8's corpus test pins it.
 
 P3 is gated on rendering from this stream producing byte-identical
 markdown, which is what will prove the ordering correct rather than merely
@@ -128,6 +147,30 @@ def _placed_front_matter(document: Any, page_number: int) -> List[tuple]:
     return placed
 
 
+def _paragraph_anchor(paragraph: Any, block_orders: Dict[str, int]) -> Optional[int]:
+    """Where this paragraph begins, or None if this page cannot place it.
+
+    The first contributing block, and only the first: that is the line the
+    paragraph starts at, so it is the position the paragraph occupies —
+    the same relationship ``paragraph_starts()`` already uses to let the
+    Markdown projection emit a paragraph when it reaches its opening
+    block. Nothing here reads the paragraph's text, its list position, or
+    its ``document_order``; W-2a rejected the last of those as identity
+    for the same reason it is rejected as placement — it is a list
+    counter, so an insertion earlier in the document would move
+    everything after it.
+
+    ``None`` means "not this page's paragraph", and is the whole of the
+    Mathpix safety guarantee: an imported paragraph records a
+    ``source_line`` and no ``source_block_ids``, so no block resolves and
+    no node is emitted, without this function knowing what a provider is.
+    """
+    ids = getattr(paragraph, "source_block_ids", None) or []
+    if not ids or not getattr(paragraph, "id", None):
+        return None
+    return block_orders.get(ids[0])
+
+
 def _is_endnote(note: Any) -> bool:
     note_type = getattr(note, "note_type", None)
     return note_type is not None and str(note_type).upper().endswith("ENDNOTE")
@@ -188,10 +231,46 @@ def build_content_stream(document: Any) -> ContentStream:
         for position, item in front_matter:
             entries.append((position, 0, ContentKind.FRONT_MATTER, str(item.id)))
 
+        # Effective reading order for this page's blocks — a reviewer's
+        # correction where one exists, extraction order otherwise. Read by
+        # paragraphs and images alike, so the two cannot disagree about
+        # where a block sits.
+        block_orders = {
+            b.block_id: (b.corrected_order if b.corrected_order is not None else b.order)
+            for b in blocks
+            if b.page_number == page_number
+        }
+
+        # P3 step 1: prose is a semantic node, not a run of source lines.
+        # A paragraph sits at the block it begins at — the recorded
+        # relationship, exactly as a heading sits at the block it was
+        # detected from — and the lines it absorbed are therefore no longer
+        # body lines. Tie-break 1 is the body line's own slot, so a
+        # paragraph occupies the position its first line used to.
+        paragraph_owned_blocks: set = set()
+        for paragraph in getattr(document, "paragraphs", []) or []:
+            anchor = _paragraph_anchor(paragraph, block_orders)
+            if anchor is None:
+                # Not placeable *on this page*: either this paragraph
+                # belongs to another page, or it records no block at all
+                # (the Mathpix import path, which positions by source_line
+                # in a coordinate system this traversal does not share).
+                # Emitting a guessed position would be the text-keyed
+                # placement L5'a removed; emitting nothing is honest, and
+                # leaves that path exactly as it was.
+                continue
+            entries.append((anchor, 1, ContentKind.PARAGRAPH, str(paragraph.id)))
+            paragraph_owned_blocks.update(paragraph.source_block_ids)
+
         for block in blocks:
             if block.page_number != page_number or block.suppressed:
                 continue
             if block.block_id in front_matter_blocks:
+                continue
+            if block.block_id in paragraph_owned_blocks:
+                # The paragraph node above already carries this line. The
+                # same line cannot be two things — the rule front matter
+                # has followed since L5'a, now applied to prose.
                 continue
             position = block.corrected_order if block.corrected_order is not None else block.order
             entries.append((position, 1, ContentKind.BODY_LINE, block.block_id))
@@ -209,11 +288,6 @@ def build_content_stream(document: Any) -> ContentStream:
         # Mathpix, a fixture, anything that never ran Stage 5c — has no anchor
         # to read, so those images keep the historical after-the-body slot.
         page_end_images: List[str] = []
-        block_orders = {
-            b.block_id: (b.corrected_order if b.corrected_order is not None else b.order)
-            for b in blocks
-            if b.page_number == page_number
-        }
         for image in sorted(
             (i for i in (getattr(document, "images", []) or []) if i.page_number == page_number),
             key=lambda i: i.document_order if i.document_order is not None else 10**9,

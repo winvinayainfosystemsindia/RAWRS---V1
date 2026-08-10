@@ -1,13 +1,14 @@
 # Projection Architecture — eliminating the canonical output format
 
-**Status:** P1 and P2 shipped (2026-08-03); P3–P5 open. **Date:** 2026-08-02,
-progress updated 2026-08-03.
+**Status:** P1 and P2 shipped (2026-08-03), P3a shipped (2026-08-10); P3b–P5
+open. **Date:** 2026-08-02, progress updated 2026-08-10.
 
 | Step | State | Commit |
 |---|---|---|
 | P1 `ContentStream` + identity | **shipped** | `e3a8386` |
 | P2 semantics move into the model | **shipped** | `0419f7f` |
-| P3 MarkdownProjection renders from the stream | open | — |
+| P3a stream emits `PARAGRAPH` nodes (prose is semantic, not source lines) | **shipped** | pending |
+| P3b MarkdownProjection renders from the stream | open | — |
 | P4 DocxProjection; text parsing deleted | open | — |
 | P5 `Projection` registry | open | — |
 

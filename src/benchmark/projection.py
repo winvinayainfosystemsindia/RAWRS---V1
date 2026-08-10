@@ -820,3 +820,185 @@ def check_front_matter_stream(document: Any, name: str = "") -> ProjectionReport
         }
     )
     return report
+
+
+# --------------------------------------------------------------------------- #
+# PI-8 · paragraph stream integrity
+# --------------------------------------------------------------------------- #
+#
+# Prose was the last detected content the ContentStream restated instead of
+# naming: 95% of its BODY_LINE nodes (7,474 of 7,859 corpus blocks) were source
+# lines the model had already grouped into Paragraphs, so the traversal
+# disagreed with the document about what its own content was.
+#
+# The properties below are what make PARAGRAPH nodes a semantic reference
+# rather than a second text representation. Exclusivity is the one that would
+# catch a regression to line-level duplication, and distinctness the one that
+# would catch a regression to text-keyed identity — two paragraphs reading
+# identically must still be two nodes.
+
+
+def check_paragraph_stream(document: Any, name: str = "") -> ProjectionReport:
+    """PI-8 · every placeable paragraph is in the traversal exactly once.
+
+    * identity     — every paragraph has a stable, unique ``id``
+    * presence     — every placeable paragraph appears exactly once
+    * reference    — ``node.object_id`` is that id, and carries no text
+    * exclusivity  — no paragraph-owned block is also a ``BODY_LINE``
+    * ordering     — placement follows the first source block's effective
+                     reading order, so a reviewer's ``corrected_order``
+                     moves the paragraph with its opening line
+    * distinctness — identical prose still yields distinct nodes
+
+    **Placeable** means the paragraph records ``source_block_ids`` whose
+    entries resolve to real blocks in this document. A paragraph with no
+    recorded block is a *finding*, not a violation: the Mathpix import
+    path positions by ``source_line`` in a coordinate system this
+    traversal does not share, and calling that a defect would blame the
+    traversal for what the provider never supplied. A paragraph naming a
+    block the document does not have is a violation — a broken edge, not
+    a missing one.
+    """
+    from src.models.content_stream import ContentKind
+    from src.structure.content_stream import build_content_stream
+
+    report = ProjectionReport(
+        document=name or str(getattr(document, "source_pdf_path", "") or "?")
+    )
+    paragraphs = list(getattr(document, "paragraphs", []) or [])
+    if not paragraphs:
+        report.counts["paragraphs"] = 0
+        return report
+
+    blocks = getattr(document, "blocks", []) or []
+    block_ids = {b.block_id for b in blocks}
+
+    ids = [str(p.id) for p in paragraphs if p.id]
+    if len(set(ids)) != len(ids):
+        report.violations.append(Violation("PI-8", "duplicate", "paragraphs share an id"))
+
+    placeable = []
+    owned: Dict[str, str] = {}  # block id -> the paragraph id that owns it
+    for paragraph in paragraphs:
+        if not paragraph.id:
+            report.violations.append(
+                Violation(
+                    "PI-8",
+                    "lost_object",
+                    f"paragraph on page {paragraph.page_number} has no id",
+                )
+            )
+            continue
+        if not paragraph.source_block_ids:
+            report.findings.append(
+                Violation(
+                    "PI-8",
+                    "no_recorded_position",
+                    f"paragraph {str(paragraph.id)!r} records no source block, "
+                    "so the traversal cannot place it",
+                )
+            )
+            continue
+        unknown = [b for b in paragraph.source_block_ids if b not in block_ids]
+        if unknown:
+            report.violations.append(
+                Violation(
+                    "PI-8",
+                    "lost_object",
+                    f"paragraph {str(paragraph.id)!r} names block(s) {unknown!r} "
+                    "which are not in the document",
+                )
+            )
+            continue
+        for block_id in paragraph.source_block_ids:
+            prior = owned.get(block_id)
+            if prior is not None:
+                report.violations.append(
+                    Violation(
+                        "PI-8",
+                        "duplicate",
+                        f"block {block_id!r} is claimed by both {prior!r} "
+                        f"and {str(paragraph.id)!r}",
+                    )
+                )
+            owned[block_id] = str(paragraph.id)
+        placeable.append(paragraph)
+
+    nodes = build_content_stream(document).nodes
+    paragraph_nodes = [n for n in nodes if n.kind is ContentKind.PARAGRAPH]
+    node_ids = [n.object_id for n in paragraph_nodes]
+
+    for paragraph in placeable:
+        seen = node_ids.count(str(paragraph.id))
+        if seen == 0:
+            report.violations.append(
+                Violation(
+                    "PI-8", "lost_object", f"paragraph {str(paragraph.id)!r} is not in the stream"
+                )
+            )
+        elif seen > 1:
+            report.violations.append(
+                Violation(
+                    "PI-8", "duplicate", f"paragraph {str(paragraph.id)!r} appears {seen} times"
+                )
+            )
+
+    known = {str(p.id) for p in placeable}
+    for object_id in node_ids:
+        if object_id not in known:
+            report.violations.append(
+                Violation(
+                    "PI-8",
+                    "invented_object",
+                    f"stream holds paragraph node {object_id!r} with no placeable paragraph",
+                )
+            )
+
+    # Exclusivity: a line a paragraph absorbed must not also stand alone.
+    body_ids = {n.object_id for n in nodes if n.kind is ContentKind.BODY_LINE}
+    for block_id, paragraph_id in sorted(owned.items()):
+        if block_id in body_ids:
+            report.violations.append(
+                Violation(
+                    "PI-8",
+                    "duplicate",
+                    f"block {block_id!r} is inside paragraph {paragraph_id!r} "
+                    "and is also emitted as a body line",
+                )
+            )
+
+    # Ordering: the node sits at its first block's effective position, so
+    # paragraphs must appear in the same relative order as those blocks.
+    effective = {
+        b.block_id: (b.corrected_order if b.corrected_order is not None else b.order)
+        for b in blocks
+    }
+    by_id = {str(p.id): p for p in placeable}
+    for page_number in sorted({n.page_number for n in paragraph_nodes}):
+        page_nodes = [n for n in paragraph_nodes if n.page_number == page_number]
+        expected = [
+            n.object_id
+            for n in sorted(
+                page_nodes, key=lambda n: effective[by_id[n.object_id].source_block_ids[0]]
+            )
+        ]
+        if [n.object_id for n in sorted(page_nodes, key=lambda n: n.order)] != expected:
+            report.violations.append(
+                Violation(
+                    "PI-8",
+                    "content_loss",
+                    f"page {page_number}: paragraph order does not follow the "
+                    "effective reading order of their first blocks",
+                )
+            )
+
+    report.counts.update(
+        {
+            "paragraphs": len(paragraphs),
+            "placeable": len(placeable),
+            "in_stream": len(paragraph_nodes),
+            "owned_blocks": len(owned),
+            "body_line_nodes": len(body_ids),
+        }
+    )
+    return report

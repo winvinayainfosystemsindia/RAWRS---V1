@@ -46,7 +46,15 @@ class ContentKind(str, Enum):
 
     PAGE_MARKER = "page_marker"          # H6 page marker heading
     HEADING = "heading"                  # content heading H1-H5
-    BODY_LINE = "body_line"              # one TextBlock of body prose
+    PARAGRAPH = "paragraph"              # one assembled Paragraph of prose
+    # A block no semantic object claimed. Before PARAGRAPH existed this was
+    # every block on the page, including the 95% the model had already
+    # grouped into paragraphs (7,474 of 7,859 corpus blocks) — the traversal
+    # restating source lines rather than naming semantics. It stays because
+    # "unclaimed" is a real state the stream must be able to express,
+    # measured at 0 on the corpus: every body line that survives is one some
+    # other object claimed. See src/structure/content_stream.py for which.
+    BODY_LINE = "body_line"
     LIST = "list"
     TABLE = "table"
     IMAGE = "image"
