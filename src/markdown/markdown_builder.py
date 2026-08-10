@@ -127,6 +127,8 @@ from src.models.contracts import (
 )
 from src.architecture.contract import GeneratedObject, Limitation, ProjectionContract
 from src.models.content_stream import ContentKind
+from src.models.inline_format import TextRun, format_runs
+from src.models.note_references import resolve_note_references
 from src.structure.content_stream import build_content_stream
 from src.structure.paragraph_assembly import (
     NOTES_SECTION_HEADING_PATTERN,
@@ -555,63 +557,26 @@ def _caption_source_texts(images: List[Image]) -> Set[str]:
     }
 
 
-def _all_blocks_bold(blocks: List[TextBlock]) -> bool:
-    """True when every block's non-superscript spans are all bold (016G).
-
-    Falls back to TextBlock.is_bold for blocks with no span data.
-    Returns False for an empty list or any block that cannot confirm bold.
-    """
-    if not blocks:
-        return False
-    for block in blocks:
-        if block.spans:
-            body_spans = [s for s in block.spans if not (s.font_flags & 1)]
-            if not body_spans:
-                continue  # all spans are superscripts — not decisive for body formatting
-            if not all(s.font_flags & 16 for s in body_spans):
-                return False
-        elif block.is_bold is True:
-            continue
-        else:
-            return False
-    return True
-
-
-def _all_blocks_italic(blocks: List[TextBlock]) -> bool:
-    """True when every block's non-superscript spans are all italic (016G).
-
-    No line-level italic fallback exists (TextBlock has no is_italic field),
-    so blocks with no span data always return False.
-    """
-    if not blocks:
-        return False
-    for block in blocks:
-        if block.spans:
-            body_spans = [s for s in block.spans if not (s.font_flags & 1)]
-            if not body_spans:
-                continue
-            if not all(s.font_flags & 2 for s in body_spans):
-                return False
-        else:
-            return False  # no span data — cannot confirm italic
-    return True
-
-
 def _apply_inline_format(text: str, contributing_blocks: List[TextBlock]) -> str:
-    """Wrap ``text`` in bold/italic markdown markers when contributing blocks
-    are uniformly formatted (016G). Returns ``text`` unchanged when blocks
-    have mixed or unknown formatting."""
-    if not contributing_blocks:
-        return text
-    is_bold = _all_blocks_bold(contributing_blocks)
-    is_italic = _all_blocks_italic(contributing_blocks)
-    if is_bold and is_italic:
-        return f"***{text}***"
-    if is_bold:
-        return f"**{text}**"
-    if is_italic:
-        return f"*{text}*"
-    return text
+    """Spell this module's emphasis syntax around the document's own runs.
+
+    P4a: *whether* prose is emphasised is answered by
+    src/models/inline_format.py, from the span flags that always carried
+    it. What is left here is the part that is genuinely Markdown's —
+    ``***``/``**``/``*`` — which DOCX will no longer have to parse back out
+    to recover the same fact.
+    """
+    return "".join(_marked(run) for run in format_runs(text, contributing_blocks))
+
+
+def _marked(run: TextRun) -> str:
+    if run.bold and run.italic:
+        return f"***{run.text}***"
+    if run.bold:
+        return f"**{run.text}**"
+    if run.italic:
+        return f"*{run.text}*"
+    return run.text
 
 
 def _group_blocks_by_page(blocks: List[TextBlock]) -> Dict[int, List[TextBlock]]:
@@ -656,72 +621,22 @@ def _group_notes_by_body_page(footnotes: List[Footnote]) -> Dict[int, List[Footn
 
 
 def _substitute_markers(text: str, notes: List[Footnote]) -> str:
-    """Replace every note's footnote/endnote marker in ``text`` with its
-    markdown reference (``[^label]``).
+    """Spell each located note reference as ``[^label]``.
 
-    ``text`` may be a single source line, or a paragraph built by
-    joining several lines together (src/structure/paragraph_grouper.py)
-    - notes are grouped by their own ``anchor_text`` (the specific
-    source line each marker actually came from, since one joined
-    paragraph can combine markers from several different lines, and a
-    multi-paragraph run, src/markdown/markdown_builder.py's
-    the line-by-line path, passes a note list that may include notes
-    belonging to a different block). A note whose ``anchor_text`` does
-    not appear in ``text`` at all is skipped entirely for this call - it belongs to a different
-    paragraph from the same run, and must never touch this one.
+    P4a: *where* a reference sits, and *which* note it is, are answered by
+    src/models/note_references.py — the anchor-line lookup, the recorded
+    ``anchor_offset``, and the region-bounded fallback all live there now,
+    so DOCX can ask the same question without reading this module's
+    brackets back out. What remains here is the bracket syntax.
 
-    For a note whose anchor line *is* present, ``anchor_offset``
-    (feature_005/bug_005) is applied relative to that line's location
-    for an exact, position-based replacement. If the offset is missing
-    or no longer valid, the fallback is a blind ``str.replace`` bounded
-    to *just that line's own text*, not the whole (possibly multi-line)
-    paragraph - because a plain-digit marker (bug_005's span-based
-    detection signal) is a common substring that can occur elsewhere in
-    a different line of the same paragraph by pure coincidence (a year,
-    a page reference, an unrelated count), unlike the literal Unicode
-    superscript glyph the original unbounded
-    ``str.replace(marker, ..., 1)`` approach safely assumed was rare
-    enough not to collide with anywhere in the text at all.
-
-    All resolved replacements are applied in descending absolute-position
-    order so a replacement's length change never invalidates a
-    still-pending offset (every remaining one is strictly to its left).
+    All resolved replacements are applied in descending position order so a
+    replacement's length change never invalidates a still-pending one
+    (every remaining one is strictly to its left).
     """
-    by_anchor: Dict[str, List[Footnote]] = {}
-    for note in notes:
-        by_anchor.setdefault(note.anchor_text, []).append(note)
-
-    resolved: List[Tuple[Optional[int], Footnote]] = []
-    for anchor_text, group in by_anchor.items():
-        anchor_position = text.find(anchor_text)
-        if anchor_position == -1:
-            continue  # this note's source line isn't in this paragraph at all - not ours
-        for note in group:
-            offset = (
-                anchor_position + note.anchor_offset if note.anchor_offset is not None else None
-            )
-            resolved.append((offset, note))
-
-    resolved.sort(key=lambda item: item[0] if item[0] is not None else -1, reverse=True)
-    for absolute, note in resolved:
-        label = f"[^{note.label}]"
-        if (
-            absolute is not None
-            and 0 <= absolute <= len(text) - len(note.marker)
-            and text[absolute : absolute + len(note.marker)] == note.marker
-        ):
-            text = text[:absolute] + label + text[absolute + len(note.marker) :]
-            continue
-        # Offset unknown/invalid, but the anchor line is confirmed
-        # present (checked above) - bound the fallback replace to just
-        # that line's own region, re-located fresh in case an earlier
-        # replacement in this same call already shifted positions.
-        anchor_position = text.find(note.anchor_text)
-        if anchor_position == -1:
-            continue  # already consumed by another replacement; nothing left to do
-        region_end = anchor_position + len(note.anchor_text)
-        region = text[anchor_position:region_end].replace(note.marker, label, 1)
-        text = text[:anchor_position] + region + text[region_end:]
+    for reference in sorted(
+        resolve_note_references(text, notes), key=lambda r: r.start, reverse=True
+    ):
+        text = text[: reference.start] + f"[^{reference.label}]" + text[reference.start + reference.length :]
     return text
 
 

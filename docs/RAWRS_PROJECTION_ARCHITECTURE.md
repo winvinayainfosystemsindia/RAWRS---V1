@@ -9,7 +9,8 @@ P4–P5 open. **Date:** 2026-08-02, progress updated 2026-08-10.
 | P2 semantics move into the model | **shipped** | `0419f7f` |
 | P3a stream emits `PARAGRAPH` nodes (prose is semantic, not source lines) | **shipped** | `8033ff5` |
 | P3b MarkdownProjection renders prose from the stream | **shipped** | pending |
-| P4 DocxProjection; Markdown text parsing deleted | open — **next** | — |
+| P4a shared semantic rules leave the Markdown projection | **shipped** | pending |
+| P4b–P4d DocxProjection; Markdown text parsing deleted | open — **next** | — |
 | P5 `Projection` registry | open | — |
 
 **P3b, and what it did not do.** The Markdown projection's body walk is now a
@@ -31,7 +32,28 @@ tables/lists/notes/front matter, which keep the paths they had.
 parsing this module's Markdown — it imports `PAGE_BREAK_MARKER` and re-derives
 bold/italic from `**`. P3b deliberately did not touch it: DOCX inherits its
 correctness from Markdown today, and making it consume the stream is its own
-milestone with its own gate.
+milestone with its own gate. The full evidence is in
+`docs/P4_DOCX_PROJECTION_AUDIT.md`.
+
+**P4a, shipped.** The two rules both projections need are no longer decided
+inside a projection:
+
+| Rule | Now lives in | Markdown keeps | DOCX will use |
+|---|---|---|---|
+| is this prose emphasised? | `src/models/inline_format.py` — `format_runs()` → `TextRun(text, bold, italic)` | `***`/`**`/`*` syntax only | `w:b` / `w:i` on a run |
+| where is a note's reference? | `src/models/note_references.py` — `resolve_note_references()` → `NoteReference(start, length, note)` | `[^label]` syntax only | `w:footnoteReference` |
+
+Both live in `src/models/` rather than `src/structure/` on purpose: `FOUNDATION`
+is importable by a projection, so DOCX can consume them without a declared AI-2
+exception and without importing Markdown. Markdown output is byte-identical on
+all 10 native corpus documents.
+
+**P4a's explicit limitation — the blockless pages.** 41 of 161 corpus pages have
+no `TextBlock` (Bryman and O'Leary entirely, 23,004 and 1,261 bytes of Markdown
+produced from `Page.cleaned_text` alone). Those pages have no spans, so
+`format_runs` returns unemphasised text for them, exactly as the line-by-line
+path always rendered. P4a does not change that path and does not attempt to make
+it stream-native; that remains its own representation milestone.
 
 **Gate correction.** The byte-identical gates in §7 below were retired on
 2026-08-03. P2 proved byte parity defends a renderer defect exactly as hard as
