@@ -1347,3 +1347,159 @@ def check_docx_projection(document: Any, docx_path: Any, name: str = "") -> Proj
         }
     )
     return report
+
+
+# --------------------------------------------------------------------------- #
+# PI-11 · the DOCX projection consumes the stream's tables
+# --------------------------------------------------------------------------- #
+#
+# P4c-1. DOCX used to learn which Table it was rendering from a
+# ``<!-- table-id: ... -->`` comment in the markdown, and learn that a table was
+# there at all by accumulating pipe rows. The grid it then rendered came from the
+# model — so the identity was real but its *transport* was a rendered string, and
+# a renderer that stopped emitting the comment would silently fall back to
+# parsing pipes.
+#
+# PI-11 states the claim by identity: one Table, one TABLE node, one rendered
+# table, in the traversal's order, with none of the table's own source lines
+# also appearing as prose. The last of those is the part no count can catch —
+# 277 of the corpus' 385 BODY_LINE nodes are table-owned, and a projection that
+# rendered them as paragraphs would still produce the right number of tables.
+
+
+def _docx_tables(docx_path: Any) -> List[List[str]]:
+    """Each body table's cell text, in document order."""
+    import xml.etree.ElementTree as ET
+    import zipfile
+
+    w = "{%s}" % _DOCX_W
+    with zipfile.ZipFile(str(docx_path)) as zf:
+        root = ET.fromstring(zf.read("word/document.xml"))
+    body = root.find(w + "body")
+    tables: List[List[str]] = []
+    for table in [] if body is None else body.findall(w + "tbl"):
+        cells = []
+        for row in table.findall(w + "tr"):
+            for cell in row.findall(w + "tc"):
+                cells.append(_norm("".join(t.text or "" for t in cell.iter(w + "t"))))
+        tables.append(cells)
+    return tables
+
+
+def check_table_projection(document: Any, docx_path: Any, name: str = "") -> ProjectionReport:
+    """PI-11 · every Table is one node, rendered once, in stream order.
+
+    * completeness — every ``Table`` has exactly one ``TABLE`` node
+    * resolution   — every ``TABLE`` node names a ``Table`` that exists
+    * uniqueness   — the package holds exactly as many tables as nodes
+    * order        — rendered order equals traversal order
+    * containment  — no table-owned ``TextBlock`` also renders as a paragraph
+
+    Cell text is how a rendered table is recognised, because a ``.docx`` keeps
+    no object ids; the *resolution* above it is by ``Table.table_id`` alone.
+    """
+    from src.models.content_stream import ContentKind
+    from src.structure.content_stream import build_content_stream
+
+    report = ProjectionReport(
+        document=name or str(getattr(document, "source_pdf_path", "") or "?")
+    )
+    tables = {str(t.table_id): t for t in (getattr(document, "tables", []) or [])}
+    nodes = [n for n in build_content_stream(document).nodes if n.kind is ContentKind.TABLE]
+    if not tables and not nodes:
+        report.counts["tables"] = 0
+        return report
+
+    seen = Counter(n.object_id for n in nodes)
+    for table_id in tables:
+        if seen[table_id] == 0:
+            report.violations.append(
+                Violation("PI-11", "lost_object", f"table {table_id!r} is not in the stream")
+            )
+        elif seen[table_id] > 1:
+            report.violations.append(
+                Violation(
+                    "PI-11", "duplicate", f"table {table_id!r} appears {seen[table_id]} times"
+                )
+            )
+    for node in nodes:
+        if node.object_id not in tables:
+            report.violations.append(
+                Violation(
+                    "PI-11",
+                    "invented_object",
+                    f"stream table {node.object_id!r} resolves to no Table",
+                )
+            )
+
+    expected = [
+        [
+            _norm(cell.text)
+            for row in tables[n.object_id].rows
+            for cell in row.cells
+        ]
+        for n in nodes
+        if n.object_id in tables
+    ]
+    rendered = _docx_tables(docx_path)
+    if len(rendered) != len(expected):
+        report.violations.append(
+            Violation(
+                "PI-11",
+                "content_loss" if len(rendered) < len(expected) else "invented_object",
+                f"{len(expected)} table(s) in the stream, {len(rendered)} in the package",
+            )
+        )
+    else:
+        for position, (want, got) in enumerate(zip(expected, rendered)):
+            # A cell the model holds but the package does not is a real loss;
+            # the package may hold extra empty cells where a row was short of
+            # Table.col_count, which _add_semantic_table pads deliberately.
+            missing = [c for c in want if c and c not in got]
+            if missing:
+                report.violations.append(
+                    Violation(
+                        "PI-11",
+                        "content_loss",
+                        f"table at stream position {position} is missing "
+                        f"{len(missing)} cell(s), e.g. {missing[0]!r}",
+                    )
+                )
+
+    # Containment, by ownership rather than by text. A table's source line
+    # leaks only if a *Paragraph* also claims that block, because a paragraph
+    # is the only thing the projection renders as prose. Comparing rendered
+    # strings instead would be meaningless here: a table cell reading "6"
+    # matches any short paragraph anywhere in the document, and on the corpus
+    # that alone produced 22 phantom leaks against 0 real ones.
+    paragraph_blocks = {
+        block_id
+        for paragraph in (getattr(document, "paragraphs", []) or [])
+        for block_id in (getattr(paragraph, "source_block_ids", []) or [])
+    }
+    leaked = 0
+    for table_id, table in tables.items():
+        for block_id in getattr(table, "source_block_ids", []) or []:
+            if block_id in paragraph_blocks:
+                leaked += 1
+                report.violations.append(
+                    Violation(
+                        "PI-11",
+                        "duplicate",
+                        f"table {table_id!r} source line {block_id!r} is also claimed "
+                        "by a Paragraph, so it renders twice",
+                    )
+                )
+
+    report.counts.update(
+        {
+            "tables": len(tables),
+            "table_nodes": len(nodes),
+            "rendered_tables": len(rendered),
+            "table_source_blocks": sum(
+                len(getattr(t, "source_block_ids", []) or []) for t in tables.values()
+            ),
+            "leaked_source_blocks": leaked,
+        }
+    )
+    return report

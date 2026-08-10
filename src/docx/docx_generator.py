@@ -538,8 +538,19 @@ def generate_docx(
     pipe_table_rows: list = []
     pipe_table_header_count = 0
     pending_table_id: Optional[str] = None
+    stream_table_caption_pending = False
     # Build id→Table lookup for semantic rendering (FEATURE_015.1).
     tables_by_id = {t.table_id: t for t in document.tables}
+    # P4c-1: which tables each page renders, resolved from its TABLE nodes by
+    # ``Table.table_id``. The markdown's ``<!-- table-id: ... -->`` comment
+    # carried exactly this and nothing else; the traversal carries it now.
+    stream_tables_by_page: Dict[int, List[object]] = {}
+    for node in stream.nodes:
+        if node.kind is not ContentKind.TABLE:
+            continue
+        table = tables_by_id.get(node.object_id)
+        if table is not None:
+            stream_tables_by_page.setdefault(node.page_number, []).append(table)
 
     def flush_pipe_table() -> None:
         nonlocal pipe_table_rows, pipe_table_header_count, pending_table_id
@@ -603,6 +614,28 @@ def generate_docx(
         if page_cursor == 0 and front_matter_kinds:
             in_front_matter_zone = True
 
+    def tables_from_stream() -> bool:
+        """Whether this page's tables come from its TABLE nodes.
+
+        False for a page whose tables the traversal never placed — a Document
+        with no ``Page`` rows for that page, or hand-written markdown handed
+        straight to this function. Those keep the pipe-table fallback, which
+        is the only reason it still exists.
+        """
+        return current_page is not None and current_page in stream_tables_by_page
+
+    def close_page() -> None:
+        """Emit this page's tables where the traversal put them.
+
+        A ``TABLE`` node is emitted after the page's body entries, so a page's
+        tables belong at its end — which is also exactly where
+        ``markdown_builder._render_page`` appends them. Nothing here consults a
+        line: the node names the table, and ``_add_semantic_table`` renders it
+        from the model, as it already did.
+        """
+        for table in stream_tables_by_page.get(current_page, []):
+            _add_semantic_table(docx_document, table)
+
     def is_stream_page() -> bool:
         """Whether this page's prose comes from the traversal.
 
@@ -650,8 +683,13 @@ def generate_docx(
         if _LIST_ID_COMMENT_PATTERN.match(line):
             continue
 
-        # Pipe table rows accumulate until a non-table line triggers flush.
+        # Pipe table rows. P4c-1: on a page whose tables the traversal placed,
+        # these carry nothing this module still asks — the grid, the header
+        # rows, the merges and the caption all come off the Table model — so
+        # they are dropped rather than reassembled into one.
         if _PIPE_TABLE_ROW_PATTERN.match(line):
+            if tables_from_stream():
+                continue
             if _PIPE_TABLE_SEPARATOR_PATTERN.match(line):
                 # Separator row marks all rows seen so far as header rows.
                 pipe_table_header_count = len(pipe_table_rows)
@@ -662,28 +700,33 @@ def generate_docx(
         # Any non-table-row line: flush a pending pipe table first.
         flush_pipe_table()
 
-        # Table-id anchor: record which table model the next pipe rows
-        # belong to.  flush_pipe_table() above already handled any
-        # previously pending table.
+        # Table-id anchor. It existed so this module could recover *which*
+        # Table a run of pipe rows was; the TABLE node answers that now, and
+        # on a stream page the comment is consumed and nothing more. Off the
+        # stream it still names the model for flush_pipe_table().
         table_id_match = _TABLE_ID_COMMENT_PATTERN.match(line)
         if table_id_match:
-            pending_table_id = table_id_match.group(1)
+            if tables_from_stream():
+                stream_table_caption_pending = True
+            else:
+                pending_table_id = table_id_match.group(1)
             pending_caption_after_image = False
             continue
 
-        # *Caption* line that belongs to a pending semantic table: skip
-        # here — _add_semantic_table() will render it from the Table model.
-        # Only skipped when we're between a table-id comment and the first
-        # pipe row (pipe_table_rows is empty and pending_table_id is set).
-        if pending_table_id is not None and not pipe_table_rows:
-            caption_match = _CAPTION_PATTERN.match(line)
-            if caption_match:
+        # *Caption* line that belongs to a semantic table: skip here —
+        # _add_semantic_table() renders it from Table.caption. Only the line
+        # directly after a table-id comment qualifies, so an italic paragraph
+        # elsewhere is untouched.
+        if stream_table_caption_pending or (pending_table_id is not None and not pipe_table_rows):
+            stream_table_caption_pending = False
+            if _CAPTION_PATTERN.match(line):
                 continue
 
         if line == PAGE_BREAK_MARKER:
             # A page fence, no longer a page fact: the break itself and the
             # page's identity are emitted by open_page() from the traversal.
             if stream_knows_pages:
+                close_page()
                 page_cursor += 1
                 open_page()
             elif index < len(content_lines) - 1:
@@ -798,6 +841,11 @@ def generate_docx(
 
     # Flush any pipe table still open at end of document.
     flush_pipe_table()
+    # A last page the markdown did not close with a page break still owes its
+    # tables. close_page() is a no-op once the cursor has run past the last
+    # page, so this cannot double-render one.
+    if stream_knows_pages:
+        close_page()
 
     # L4b: one part per note kind, and only for kinds this document
     # actually has. An endnote emitted into the footnotes part is not a
