@@ -10,7 +10,9 @@ being a real security boundary that would need hardening later.
 """
 
 import faulthandler
+import os
 import sys
+from typing import List
 
 # Enable C-level crash interception before any C extension can be loaded.
 # If the process receives a SIGSEGV or Windows access violation, Python
@@ -52,14 +54,34 @@ app = FastAPI(
     lifespan=_lifespan,
 )
 
+#: Origins permitted to call this API. The four localhost entries are the
+#: development frontends (`npm run dev` picks 3001 when 3000 is taken).
+#: A deployment adds its own through RAWRS_ALLOWED_ORIGINS: a hosted frontend
+#: lives on a domain this repository cannot know, and hardcoding one would
+#: make the allowlist something you edit to ship rather than configure.
+#: Deliberately an allowlist and never "*" — these endpoints mutate documents.
+_DEFAULT_ALLOWED_ORIGINS = (
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:3001",
+    "http://127.0.0.1:3001",
+)
+
+
+def _allowed_origins() -> List[str]:
+    configured = [
+        origin.strip().rstrip("/")
+        for origin in os.environ.get("RAWRS_ALLOWED_ORIGINS", "").split(",")
+        if origin.strip()
+    ]
+    # Local development keeps working on a deployed host, and duplicates are
+    # collapsed while preserving order so the list reads cleanly in logs.
+    return list(dict.fromkeys([*configured, *_DEFAULT_ALLOWED_ORIGINS]))
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:3001",
-        "http://127.0.0.1:3001",
-    ],
+    allow_origins=_allowed_origins(),
     allow_methods=["*"],
     allow_headers=["*"],
 )

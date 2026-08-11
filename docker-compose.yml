@@ -1,0 +1,38 @@
+# RAWRS backend, as deployed on an Oracle Cloud Always Free Ampere VM.
+#
+# Two services: the API, and a Cloudflare Tunnel that publishes it over HTTPS
+# without opening a port on the VM or buying a static IP. The tunnel is how
+# the Vercel-hosted frontend reaches this machine, and it is also where
+# Cloudflare Access attaches the login gate.
+
+services:
+  api:
+    build: .
+    image: rawrs-api:latest
+    restart: unless-stopped
+    environment:
+      # Origins allowed to call this API. The Vercel production domain plus
+      # local development; add preview domains here if you use them.
+      RAWRS_ALLOWED_ORIGINS: "${RAWRS_ALLOWED_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}"
+    volumes:
+      # A reviewer's work survives rebuilds because it lives in this volume,
+      # never in the image.
+      - rawrs-outputs:/app/outputs
+    # Published on loopback only. The tunnel reaches it over the compose
+    # network; nothing is exposed to the public internet directly.
+    ports:
+      - "127.0.0.1:8001:8001"
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      # Created in the Cloudflare Zero Trust dashboard; put it in .env next
+      # to this file. Never commit it.
+      TUNNEL_TOKEN: "${TUNNEL_TOKEN:?set TUNNEL_TOKEN in .env}"
+    depends_on:
+      - api
+
+volumes:
+  rawrs-outputs:

@@ -1,0 +1,28 @@
+# Keep the build context small. outputs/ alone is ~612 MB of generated
+# artifacts and must never be baked into an image — it is a runtime volume.
+outputs/
+data/
+.venv/
+venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Frontend is deployed separately (Vercel); it has no business in the API image.
+frontend/
+
+# Benchmark PDFs and research material are not needed to serve the API.
+samples/
+research/
+scratch_stitch_design/
+docs/
+tests/
+
+.git/
+.github/
+.claude/
+.env
+.env.*
