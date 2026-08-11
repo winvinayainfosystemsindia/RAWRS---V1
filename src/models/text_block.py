@@ -160,6 +160,18 @@ class TextBlock(BaseModel):
     # L1 document-wide repetition evidence (running-header/masthead
     # signature); read by L2 classification. None = not repeated/analysed.
     repetition: Optional[RepetitionEvidence] = None
+    # L2.3-b: the same evidence, computed over a *number-tolerant* signature.
+    # Running furniture often carries the printed page number inside the line
+    # ("Understanding resistance to conservation / 185"), so its literal
+    # signature is unique on every page and it never recurs — the line is
+    # furniture on nine pages and the model could not see it on any of them.
+    #
+    # Deliberately a second field rather than a wider ``repetition``: the
+    # literal signature is what the source actually said, and overwriting it
+    # would destroy evidence in order to gain evidence. ``classify_artifacts``
+    # reads ``repetition`` only, so this field changes no decision today — it
+    # exists so the L2.3-c policy has something to read.
+    repetition_normalized: Optional[RepetitionEvidence] = None
     # L2 artifact classification (running header/footer/page-number/
     # decorative), evidence-driven. Read by L3 heading candidacy and by L2.2
     # suppression. None = content (or not analysed).

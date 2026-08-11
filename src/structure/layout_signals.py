@@ -11,6 +11,7 @@ structures" rule (read broadly to include duplicate extraction logic,
 not just duplicate models).
 """
 
+import re
 import statistics
 from collections import defaultdict
 from typing import Dict, List, Optional, Tuple
@@ -91,6 +92,42 @@ def _repetition_signature(text: str) -> str:
     return " ".join(text.lower().split()).strip()
 
 
+_NUMBER_RUN = re.compile(r"\d+")
+_ALPHA = re.compile(r"[^\W\d_]", re.UNICODE)
+# A masked signature needs this much surviving alphabetic evidence to be a
+# *line* rather than a punctuation husk. Measured on the benchmark corpus:
+# without it, masking creates families like '#).' (merging '1990).' with
+# '1961).') and '(#)' (merging '(1983)' with '(1985)') — unrelated fragments
+# that share only their shape.
+_NORMALIZED_MIN_ALPHA = 3
+
+
+def _normalized_signature(signature: str) -> Optional[str]:
+    """The literal signature with page-varying numbers masked, or None.
+
+    L2.3-b. Running furniture is a constant line carrying one varying number,
+    so masking digit runs is what turns nine unique signatures into one
+    family. Returned as *additional* evidence; the literal signature is never
+    replaced, because it is what the source actually said.
+
+    None when masking would say nothing new (no digits at all) or nothing
+    reliable (a residue with almost no letters is a shape, not a line). A
+    wholly numeric line is kept deliberately: that is the bare printed page
+    number, the purest furniture there is.
+    """
+    if not signature or not _NUMBER_RUN.search(signature):
+        return None
+    residue = _NUMBER_RUN.sub("", signature)
+    if not residue.strip():
+        # Nothing but the number: a bare printed page label.
+        return _NUMBER_RUN.sub("#", signature)
+    if len(_ALPHA.findall(residue)) >= _NORMALIZED_MIN_ALPHA:
+        return _NUMBER_RUN.sub("#", signature)
+    # A residue of punctuation only — '1990).' and '1961).' share ').' and
+    # nothing else. Shape is not identity.
+    return None
+
+
 def annotate_repetition(blocks: List[TextBlock], page_count: int) -> None:
     """Document-wide pass: attach RepetitionEvidence to every block whose
     normalized text recurs across >= _REPETITION_MIN_PAGES distinct pages.
@@ -109,27 +146,64 @@ def annotate_repetition(blocks: List[TextBlock], page_count: int) -> None:
             groups[signature].append(block)
 
     for signature, group in groups.items():
-        pages = sorted({block.page_number for block in group})
-        if len(pages) < _REPETITION_MIN_PAGES:
+        evidence = _repetition_evidence(signature, group, page_count)
+        if evidence is None:
             continue
-        centres = [(block.bbox.y0 + block.bbox.y1) / 2 for block in group]
-        stdev = statistics.pstdev(centres) if len(centres) > 1 else 0.0
-        if all(page % 2 == 1 for page in pages):
-            alternation = "odd"
-        elif all(page % 2 == 0 for page in pages):
-            alternation = "even"
-        else:
-            alternation = None
-        evidence = RepetitionEvidence(
-            signature=signature,
-            recurrence_count=len(group),
-            page_numbers=pages,
-            recurrence_ratio=round(len(pages) / page_count, 4) if page_count else 0.0,
-            positional_stability=round(_STABILITY_SCALE / (_STABILITY_SCALE + stdev), 4),
-            alternation=alternation,
-        )
         for block in group:
             block.repetition = evidence
+
+    # L2.3-b: the same measurement over a number-tolerant signature, written to
+    # its own field. Evidence only — nothing reads it yet, by design, so the
+    # addition can be measured on its own before any policy consumes it.
+    normalized: dict = defaultdict(list)
+    for block in blocks:
+        signature = _normalized_signature(_repetition_signature(block.text))
+        if signature:
+            normalized[signature].append(block)
+
+    for signature, group in normalized.items():
+        pages = [block.page_number for block in group]
+        # Furniture appears once per page. Without this, masking merges
+        # genuinely distinct lines that happen to share a shape — measured on
+        # the corpus as three separate endnotes ('5.', '14.', '20. Tomasello,
+        # Kruger, and Ratner...') collapsing into one "recurring" family.
+        if len(pages) != len(set(pages)):
+            continue
+        evidence = _repetition_evidence(signature, group, page_count)
+        if evidence is None:
+            continue
+        for block in group:
+            block.repetition_normalized = evidence
+
+
+def _repetition_evidence(
+    signature: str, group: List[TextBlock], page_count: int
+) -> Optional[RepetitionEvidence]:
+    """One signature's evidence, or None when it spans too few pages.
+
+    Extracted so the literal and normalized passes measure identically —
+    recurrence, spread, y-band stability and page parity are properties of a
+    group of lines, not of how that group was keyed.
+    """
+    pages = sorted({block.page_number for block in group})
+    if len(pages) < _REPETITION_MIN_PAGES:
+        return None
+    centres = [(block.bbox.y0 + block.bbox.y1) / 2 for block in group]
+    stdev = statistics.pstdev(centres) if len(centres) > 1 else 0.0
+    if all(page % 2 == 1 for page in pages):
+        alternation = "odd"
+    elif all(page % 2 == 0 for page in pages):
+        alternation = "even"
+    else:
+        alternation = None
+    return RepetitionEvidence(
+        signature=signature,
+        recurrence_count=len(group),
+        page_numbers=pages,
+        recurrence_ratio=round(len(pages) / page_count, 4) if page_count else 0.0,
+        positional_stability=round(_STABILITY_SCALE / (_STABILITY_SCALE + stdev), 4),
+        alternation=alternation,
+    )
 
 
 _ARTIFACT_MIN_STABILITY = 0.5  # a repeated line below this y-band stability is not a running artifact

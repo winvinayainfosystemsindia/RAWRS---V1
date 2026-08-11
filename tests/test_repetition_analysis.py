@@ -11,7 +11,7 @@ import fitz
 from src.models.bounding_box import BoundingBox
 from src.models.contracts import TextBlock
 from src.parser.pdf_parser import parse_pdf
-from src.structure.layout_signals import annotate_repetition
+from src.structure.layout_signals import _normalized_signature, annotate_repetition
 from src.structure.structure_detector import detect_structure
 
 
@@ -83,3 +83,85 @@ class TestStructureDetectorWiring:
         # A unique body line is not flagged as repeated.
         body = next(b for b in document.blocks if b.text.strip().startswith("Unique body"))
         assert body.repetition is None
+
+
+class TestNormalizedSignature:
+    """L2.3-b — a running header carrying its page number is still one line.
+
+    The literal signature treats the printed number as part of identity, so
+    ``Understanding resistance to conservation / 185`` and ``… / 187`` are two
+    lines that each occur once. The furniture is invisible precisely because it
+    is furniture: it changes on every page in the one way that does not matter.
+    """
+
+    def test_same_furniture_different_numbers_share_a_signature(self):
+        assert (
+            _normalized_signature("understanding resistance to conservation / 185")
+            == _normalized_signature("understanding resistance to conservation / 187")
+            == "understanding resistance to conservation / #"
+        )
+
+    def test_bare_page_number_normalizes(self):
+        """The purest furniture there is, so it is kept deliberately."""
+        assert _normalized_signature("343") == "#"
+
+    def test_line_without_digits_has_none(self):
+        """Nothing to tolerate; the literal signature already says it."""
+        assert _normalized_signature("/ george holmes") is None
+
+    def test_punctuation_husks_are_rejected(self):
+        """'1990).' and '1961).' share ').' and nothing else.
+
+        Both formed a '#).' family on the benchmark corpus before this guard.
+        """
+        assert _normalized_signature("1990).") is None
+        assert _normalized_signature("(1983)") is None
+
+    def test_prose_keeps_words_that_differ(self):
+        assert _normalized_signature("the year 1985 was pivotal") != _normalized_signature(
+            "the year 1985 was quiet"
+        )
+
+
+class TestNormalizedEvidenceIsAdditive:
+    def test_literal_stays_blind_while_normalized_sees_the_family(self):
+        blocks = [_blk(f"Running head / {180 + p}", p, 40, 0) for p in range(1, 5)]
+        annotate_repetition(blocks, page_count=4)
+        assert all(b.repetition is None for b in blocks)
+        evidence = blocks[0].repetition_normalized
+        assert evidence.signature == "running head / #"
+        assert evidence.recurrence_count == 4
+        assert evidence.positional_stability == 1.0
+
+    def test_an_existing_literal_family_is_undisturbed(self):
+        blocks = [_blk("/ George Holmes", p, 124, 0) for p in (1, 3, 5, 7)]
+        annotate_repetition(blocks, page_count=8)
+        assert blocks[0].repetition.recurrence_count == 4
+        assert blocks[0].repetition.alternation == "odd"
+        assert blocks[0].repetition_normalized is None
+
+    def test_alternation_survives_normalization(self):
+        blocks = [_blk(f"Journal title / {p}", p, 40, 0) for p in (2, 4, 6, 8)]
+        annotate_repetition(blocks, page_count=8)
+        assert blocks[0].repetition_normalized.alternation == "even"
+
+    def test_repeats_within_one_page_are_not_furniture(self):
+        """Three distinct endnotes citing one source formed a family before
+        this rule — '5.', '14.' and '20. Tomasello, Kruger and Ratner…' across
+        two pages. Furniture appears once per page.
+        """
+        blocks = [
+            _blk("5. Tomasello, Kruger and Ratner, cultural learning.", 1, 300, 0),
+            _blk("14. Tomasello, Kruger and Ratner, cultural learning.", 1, 400, 1),
+            _blk("20. Tomasello, Kruger and Ratner, cultural learning.", 2, 300, 2),
+        ]
+        annotate_repetition(blocks, page_count=2)
+        assert all(b.repetition_normalized is None for b in blocks)
+
+    def test_normalization_decides_nothing(self):
+        """L2.3-b is evidence intake; the decision belongs to L2.3-c."""
+        blocks = [_blk(f"Understanding resistance / {180 + p}", p, 124, 0) for p in range(1, 10)]
+        annotate_repetition(blocks, page_count=9)
+        assert all(b.repetition_normalized is not None for b in blocks)
+        assert not any(b.suppressed for b in blocks)
+        assert all(b.artifact is None for b in blocks)
