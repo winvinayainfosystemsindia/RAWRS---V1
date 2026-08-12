@@ -223,6 +223,18 @@ _PAGE_NUMBER_CONFIDENCE = 0.9
 # _ARTIFACT_MIN_STABILITY) band is new; at/above 0.5 the existing branch already
 # fires (DECORATIVE_REPEATED in BODY), so the two never overlap.
 _RUNNING_TITLE_MIN_STABILITY = 0.25
+# L2.3-c. A tightly-banded BODY-zone repeat is DECORATIVE_REPEATED — a bucket
+# whose NEVER policy is correct, because across the corpus it holds repeated
+# body fragments ('or', 'practice.', 'accountability,'). One kind of line lands
+# there wrongly: a running head the header band missed. Measured over the ten
+# benchmark PDFs plus the Holmes 2007 stress document, the two populations do
+# not overlap — every false positive spans exactly 2 pages with stability
+# <= 0.8547, while the true furniture spans 8 and 9 pages at stability 1.0.
+# 0.9 sits in that gap. Deliberately NOT alternation: 'for children.' (even)
+# and 'practice.' (odd) both alternate cleanly, because any 2-page family
+# shares page parity about half the time — it reads as an independent signal
+# and is an artefact of the low page count it would be excusing.
+_RUNNING_FURNITURE_MIN_STABILITY = 0.9
 _RUNNING_TITLE_MIN_PAGES = 3
 _RUNNING_TITLE_MIN_WORDS = 2
 
@@ -243,7 +255,27 @@ def classify_artifacts(blocks: List[TextBlock], page_labels: Dict[int, str]) -> 
     labels = {pn: " ".join((lbl or "").lower().split()).strip() for pn, lbl in page_labels.items()}
     for block in blocks:
         zone = block.physical_zone
+        # L2.3-c: literal evidence first, always. The normalized family is
+        # consulted only where the literal signature saw nothing — a running
+        # head carrying its page number recurs on nine pages and literally on
+        # none of them. Never a substitution: a line that has literal
+        # repetition keeps being measured by what the source actually said.
         rep = block.repetition
+        rep_is_normalized = False
+        if rep is None and block.repetition_normalized is not None:
+            candidate = block.repetition_normalized
+            # Two limits, both measured rather than assumed. The route may not
+            # reach a HEADER/FOOTER zone, because those name the AUTO classes
+            # and this evidence is not strong enough to delete a line without
+            # asking: unconstrained, it auto-suppressed Bruner's endnote header
+            # 'NOTES TO PAGES 60-71' off two pages. And it may not carry a
+            # single-token family, because that is a bare printed page number —
+            # PAGE_NUMBER's job, where a printed-label match corroborates it.
+            if zone not in (PhysicalZone.HEADER, PhysicalZone.FOOTER) and (
+                len(candidate.signature.split()) >= _RUNNING_TITLE_MIN_WORDS
+            ):
+                rep = candidate
+                rep_is_normalized = True
         norm = " ".join(block.text.lower().split()).strip()
 
         # PAGE_NUMBER: the line is this page's printed label (feature_009) AND
@@ -282,6 +314,16 @@ def classify_artifacts(blocks: List[TextBlock], page_labels: Dict[int, str]) -> 
                 artifact_class = ArtifactClass.RUNNING_HEADER
             elif zone == PhysicalZone.FOOTER:
                 artifact_class = ArtifactClass.RUNNING_FOOTER
+            elif tight and is_multiword_recurrence and (
+                rep.positional_stability >= _RUNNING_FURNITURE_MIN_STABILITY
+            ):
+                # L2.3-c: a tightly-banded BODY-zone phrase that covers much of
+                # the document is running furniture the zone band simply failed
+                # to see. It is RUNNING_TITLE and not RUNNING_HEADER on purpose:
+                # RUNNING_HEADER's AUTO policy rests on zone corroboration this
+                # line does not have, and RUNNING_TITLE's PROPOSE tier is the
+                # honest tier for evidence this strong from one axis.
+                artifact_class = ArtifactClass.RUNNING_TITLE
             elif tight:
                 artifact_class = ArtifactClass.DECORATIVE_REPEATED
             else:
@@ -296,7 +338,18 @@ def classify_artifacts(blocks: List[TextBlock], page_labels: Dict[int, str]) -> 
                     f"multi-word phrase; strong recurrence compensates for stability "
                     f"below the {_ARTIFACT_MIN_STABILITY} gate (L2.1)"
                 )
+            if rep_is_normalized:
+                evidence.append(
+                    f"page-number-tolerant signature {rep.signature!r} (L2.3-b); "
+                    "the literal text differs on every page"
+                )
+            if artifact_class is ArtifactClass.RUNNING_TITLE and tight:
+                evidence.append(
+                    f"stability >= {_RUNNING_FURNITURE_MIN_STABILITY} over "
+                    f"{len(rep.page_numbers)} pages (L2.3-c)"
+                )
             if rep.alternation:
+                # Recorded, never decisive — see _RUNNING_FURNITURE_MIN_STABILITY.
                 evidence.append(f"{rep.alternation}-page alternation")
             block.artifact = ArtifactClassification(
                 artifact_class=artifact_class,

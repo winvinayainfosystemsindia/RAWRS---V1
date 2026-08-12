@@ -79,10 +79,13 @@ class TestClassifyArtifacts:
 class TestStructureDetectorWiring:
     def test_artifacts_classified_on_real_pdf(self, tmp_path):
         doc = fitz.open()
-        for _ in range(3):
+        # The body text must differ by more than a digit: since L2.3-b, lines
+        # that differ only in a number share one normalized family, and three
+        # of those at an identical y IS a running head carrying its page number.
+        for words in ("apples pears", "rivers valleys", "copper tin"):
             page = doc.new_page(width=612, height=792)
             page.insert_text((72, 40), "Running Header Line")
-            page.insert_text((72, 400), f"Unique body {_}")
+            page.insert_text((72, 400), f"Unique body {words}")
         path = tmp_path / "art.pdf"
         doc.save(str(path))
 
@@ -160,3 +163,108 @@ class TestRunningTitleClassification:
         b = _blk_rep("Confidential Draft Watermark", PhysicalZone.BODY, [1, 2, 3], 0.80)
         classify_artifacts([b], {})
         assert b.artifact.artifact_class == ArtifactClass.DECORATIVE_REPEATED
+
+
+class TestRunningFurniturePromotion:
+    """L2.3-c — a tightly-banded BODY repeat that covers much of the document.
+
+    DECORATIVE_REPEATED is where a running head lands when the header band
+    missed it. That bucket's NEVER policy is right for what it usually holds —
+    repeated body fragments — so the promotion has to separate the two
+    populations rather than loosen the bucket. Measured over the benchmark
+    corpus they do not overlap: every false positive spans 2 pages at
+    stability <= 0.8547, the true furniture 8-9 pages at 1.0.
+    """
+
+    def test_promotes_at_the_stability_boundary(self):
+        b = _blk_rep("Understanding resistance to conservation", PhysicalZone.BODY,
+                     [1, 3, 5], 0.90)
+        classify_artifacts([b], {})
+        assert b.artifact.artifact_class == ArtifactClass.RUNNING_TITLE
+
+    def test_does_not_promote_just_below_the_boundary(self):
+        b = _blk_rep("Understanding resistance to conservation", PhysicalZone.BODY,
+                     [1, 3, 5], 0.89)
+        classify_artifacts([b], {})
+        assert b.artifact.artifact_class == ArtifactClass.DECORATIVE_REPEATED
+
+    def test_two_pages_never_promote_however_stable(self):
+        """Every corpus false positive spans exactly two pages."""
+        b = _blk_rep("for children.", PhysicalZone.BODY, [1, 3], 1.0)
+        classify_artifacts([b], {})
+        assert b.artifact.artifact_class == ArtifactClass.DECORATIVE_REPEATED
+
+    def test_single_word_family_never_promotes(self):
+        b = _blk_rep("practice.", PhysicalZone.BODY, [1, 3, 5], 1.0)
+        classify_artifacts([b], {})
+        assert b.artifact.artifact_class == ArtifactClass.DECORATIVE_REPEATED
+
+    def test_three_pages_two_words_full_stability_promotes(self):
+        b = _blk_rep("George Holmes", PhysicalZone.BODY, [1, 3, 5], 1.0)
+        classify_artifacts([b], {})
+        assert b.artifact.artifact_class == ArtifactClass.RUNNING_TITLE
+
+    def test_alternation_alone_never_promotes(self):
+        """'for children.' (even) and 'practice.' (odd) both alternate cleanly
+        on the corpus, because any two-page family shares parity about half the
+        time. Alternation is recorded and never decisive.
+        """
+        b = _blk_rep("for children.", PhysicalZone.BODY, [2, 4], 0.8547)
+        classify_artifacts([b], {})
+        assert b.artifact.artifact_class == ArtifactClass.DECORATIVE_REPEATED
+
+    def test_every_occurrence_of_a_family_agrees(self):
+        blocks = [_blk("Understanding resistance to conservation / %d" % (184 + p),
+                       p, 124.0, 0, PhysicalZone.BODY) for p in (2, 4, 6, 8)]
+        _classified(blocks)
+        assert {b.artifact.artifact_class for b in blocks} == {ArtifactClass.RUNNING_TITLE}
+
+    def test_classification_suppresses_nothing(self):
+        blocks = [_blk("Understanding resistance to conservation / %d" % (184 + p),
+                       p, 124.0, 0, PhysicalZone.BODY) for p in (2, 4, 6, 8)]
+        _classified(blocks)
+        assert not any(b.suppressed for b in blocks)
+
+
+class TestNormalizedEvidenceRoute:
+    """The route may only reach BODY-zone, multi-word families."""
+
+    def test_page_number_bearing_header_is_seen_through_normalization(self):
+        blocks = [_blk("Understanding resistance to conservation / %d" % (184 + p),
+                       p, 124.0, 0, PhysicalZone.BODY) for p in (2, 4, 6, 8)]
+        _classified(blocks)
+        assert blocks[0].repetition is None          # the literal text differs per page
+        assert blocks[0].repetition_normalized is not None
+        assert blocks[0].artifact.artifact_class == ArtifactClass.RUNNING_TITLE
+        assert any("tolerant signature" in e for e in blocks[0].artifact.evidence)
+
+    def test_literal_evidence_is_never_replaced(self):
+        blocks = [_blk("/ George Holmes", p, 124.0, 0, PhysicalZone.BODY)
+                  for p in (1, 3, 5, 7)]
+        _classified(blocks)
+        assert blocks[0].repetition.signature == "/ george holmes"
+        assert blocks[0].repetition_normalized is None
+        assert blocks[0].artifact.artifact_class == ArtifactClass.RUNNING_TITLE
+
+    def test_normalized_route_never_reaches_an_auto_class(self):
+        """Unconstrained, this auto-suppressed a real corpus line — Bruner's
+        'NOTES TO PAGES 60-71', off two pages, through the HEADER zone.
+        """
+        blocks = [_blk("NOTES TO PAGES %d-%d" % (40 + p, 50 + p), p, 20.0, 0,
+                       PhysicalZone.HEADER) for p in (1, 2, 3)]
+        _classified(blocks)
+        assert all(b.artifact is None for b in blocks)
+
+    def test_bare_numeric_family_is_left_to_page_number(self):
+        blocks = [_blk(str(184 + p), p, 124.0, 0, PhysicalZone.BODY) for p in (1, 3, 5)]
+        _classified(blocks)
+        assert all(b.artifact is None for b in blocks)
+
+
+class TestPolicyTiersUnchanged:
+    def test_running_title_proposes_and_never_auto_applies(self):
+        from src.verification.artifacts import SuppressionPolicy, _POLICY
+
+        assert _POLICY[ArtifactClass.RUNNING_TITLE] == SuppressionPolicy.PROPOSE
+        assert _POLICY[ArtifactClass.DECORATIVE_REPEATED] == SuppressionPolicy.NEVER
+        assert _POLICY[ArtifactClass.RUNNING_HEADER] == SuppressionPolicy.AUTO
