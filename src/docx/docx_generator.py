@@ -231,27 +231,49 @@ class _NoteRegistries:
     about which part each note belongs in (L4b).
 
     ``Footnote.note_type`` is that answer, and this is the only place the
-    projection asks the question. The markdown label is used purely as an
-    identity - the same role ``<!-- table-id: ... -->`` already plays for
-    tables - so nothing here reads placement, section headings or
-    rendered text to decide what a note *is*. A label with no matching
-    Footnote (a fixture, hand-written markdown, a direct generate_docx()
-    call) is a footnote, which is exactly what every note was before this
-    milestone: unknown provenance changes nothing.
+    projection asks the question, so nothing here reads placement, section
+    headings or rendered text to decide what a note *is*.
+
+    P4c-2: a note is keyed by ``Footnote.footnote_id`` — its identity. It
+    used to be keyed by ``Footnote.label``, which src/models/footnote.py says
+    in as many words is not identity: the label is derived from the printed
+    number and the body page, so a reviewer's renumbering rewrites it while
+    the note stays the same note. ``key_for_label`` exists for the one caller
+    that still starts from a rendered ``[^label]`` — hand-written markdown and
+    the blockless/list text paths — and maps it back onto identity when the
+    model holds a matching note. A key with no matching Footnote (a fixture, a
+    direct generate_docx() call) is a footnote, which is exactly what every
+    note was before L4b: unknown provenance changes nothing.
     """
 
     def __init__(self, notes: List[Footnote]) -> None:
         self.footnotes = _FootnoteRegistry()
         self.endnotes = _FootnoteRegistry()
-        self._endnote_labels = {
-            note.label for note in notes if note.note_type == NoteType.ENDNOTE
+        self._endnote_keys = {
+            self.key_for(note) for note in notes if note.note_type == NoteType.ENDNOTE
         }
+        self._keys_by_label: Dict[str, str] = {}
+        for note in notes:
+            self._keys_by_label.setdefault(note.label, self.key_for(note))
 
-    def part_for(self, label: str) -> _NotePartSpec:
-        return _ENDNOTE_PART if label in self._endnote_labels else _FOOTNOTE_PART
+    @staticmethod
+    def key_for(note: Footnote) -> str:
+        """A note's identity, or its label when it has none — a Footnote built
+        without ``footnote_id`` (an older fixture, a provider that assigns no
+        id) still has to reach a part."""
+        return note.footnote_id or note.label
 
-    def registry_for(self, label: str) -> _FootnoteRegistry:
-        return self.endnotes if label in self._endnote_labels else self.footnotes
+    def key_for_label(self, label: str) -> str:
+        """The identity behind a rendered ``[^label]``, when the model holds
+        one. An unknown label keys itself, so hand-written markdown still
+        renders its notes."""
+        return self._keys_by_label.get(label, label)
+
+    def part_for(self, key: str) -> _NotePartSpec:
+        return _ENDNOTE_PART if key in self._endnote_keys else _FOOTNOTE_PART
+
+    def registry_for(self, key: str) -> _FootnoteRegistry:
+        return self.endnotes if key in self._endnote_keys else self.footnotes
 
 
 _HEADING_PATTERN = re.compile(r"^(#{1,6})\s+(.+)$")
@@ -259,12 +281,12 @@ _IMAGE_PATTERN = re.compile(r"^!\[([^\]]*)\]\(([^)]+)\)$")
 _CAPTION_PATTERN = re.compile(r"^\*(.+)\*$")
 
 # An inline footnote/endnote reference, e.g. "[^p3-1]" - label content
-# is opaque here (src/markdown/markdown_builder.py owns its format);
-# this module only needs to split text around it and recover the
-# human-visible printed number (the digits after the label's last "-").
+# is opaque here (src/markdown/markdown_builder.py owns its format); this
+# module only needs to split text around it, and only on the two paths that
+# have no Paragraph to ask instead (list items, blockless prose). The printed
+# number is Word's own auto-number element, never parsed out of the label.
 _FOOTNOTE_REFERENCE_PATTERN = re.compile(r"\[\^([^\]]+)\]")
 _FOOTNOTE_DEFINITION_PATTERN = re.compile(r"^\[\^([^\]]+)\]:\s*(.+)$")
-_LABEL_DISPLAY_NUMBER_PATTERN = re.compile(r"-(\d+)$")
 _BOOKMARK_NAME_SANITIZE_PATTERN = re.compile(r"[^A-Za-z0-9_]")
 
 # Pipe table: any line starting and ending with | (may have inner cells).
@@ -474,7 +496,9 @@ def _add_runs_with_note_references(
         _add_plain_run(
             docx_paragraph, text[position : reference.start], bold=bold, italic=italic
         )
-        _add_note_reference_run(docx_paragraph, reference.label, registries)
+        _add_note_reference_run(
+            docx_paragraph, registries.key_for(reference.note), registries
+        )
         position = reference.start + reference.length
     _add_plain_run(docx_paragraph, text[position:], bold=bold, italic=italic)
 
@@ -551,6 +575,36 @@ def generate_docx(
         table = tables_by_id.get(node.object_id)
         if table is not None:
             stream_tables_by_page.setdefault(node.page_number, []).append(table)
+    # P4c-2: which notes each page defines, resolved from its NOTE_DEFINITION
+    # nodes by ``Footnote.footnote_id``. The traversal already knows both
+    # placements — a footnote at the page its marker sits on, an endnote at the
+    # document's last page — which is exactly what the markdown's per-page
+    # ``[^label]: body`` lines and its "## Endnotes" section spelled out.
+    notes_by_id = {n.footnote_id: n for n in document.footnotes if n.footnote_id}
+    stream_notes_by_page: Dict[int, List[Footnote]] = {}
+    for node in stream.nodes:
+        if node.kind is not ContentKind.NOTE_DEFINITION:
+            continue
+        note = notes_by_id.get(node.object_id)
+        if note is not None:
+            stream_notes_by_page.setdefault(node.page_number, []).append(note)
+    # Once the traversal places this document's notes, a definition line
+    # carries nothing this module still asks — and it cannot be matched against
+    # the notes by label either, because the markdown may have been built
+    # before a reviewer renumbered. So the lines are dropped wholesale, except
+    # for a note the traversal could *not* place (a Footnote with no id, a
+    # provider that emits no node), whose line is still its only record.
+    stream_placed_keys = {
+        _NoteRegistries.key_for(note)
+        for notes in stream_notes_by_page.values()
+        for note in notes
+    }
+    notes_come_from_stream = bool(stream_placed_keys)
+    unplaced_note_labels = {
+        note.label
+        for note in document.footnotes
+        if _NoteRegistries.key_for(note) not in stream_placed_keys
+    }
 
     def flush_pipe_table() -> None:
         nonlocal pipe_table_rows, pipe_table_header_count, pending_table_id
@@ -625,16 +679,27 @@ def generate_docx(
         return current_page is not None and current_page in stream_tables_by_page
 
     def close_page() -> None:
-        """Emit this page's tables where the traversal put them.
+        """Emit this page's tables and register its notes, where the
+        traversal put them.
 
         A ``TABLE`` node is emitted after the page's body entries, so a page's
         tables belong at its end — which is also exactly where
         ``markdown_builder._render_page`` appends them. Nothing here consults a
         line: the node names the table, and ``_add_semantic_table`` renders it
         from the model, as it already did.
+
+        A ``NOTE_DEFINITION`` node sits at the same place for a footnote, and
+        at the last page for an endnote. Registering here rather than at the
+        markdown's definition line keeps the id order the registry has always
+        had: a note's inline reference is emitted with this page's prose, so it
+        still claims its id before its body arrives (P4c-2).
         """
         for table in stream_tables_by_page.get(current_page, []):
             _add_semantic_table(docx_document, table)
+        for note in stream_notes_by_page.get(current_page, []):
+            _add_note_definition(
+                note_registries, key=_NoteRegistries.key_for(note), body_text=note.body
+            )
 
     def is_stream_page() -> bool:
         """Whether this page's prose comes from the traversal.
@@ -800,11 +865,17 @@ def generate_docx(
 
         footnote_def_match = _FOOTNOTE_DEFINITION_PATTERN.match(line)
         if footnote_def_match:
-            _add_note_definition(
-                note_registries,
-                label=footnote_def_match.group(1),
-                body_text=footnote_def_match.group(2),
-            )
+            # P4c-2: the body and the part come off the Footnote the traversal
+            # named; this line is then a restatement of it and is dropped. Only
+            # a label the stream never placed is still read from here.
+            if not notes_come_from_stream or (
+                footnote_def_match.group(1) in unplaced_note_labels
+            ):
+                _add_note_definition(
+                    note_registries,
+                    key=note_registries.key_for_label(footnote_def_match.group(1)),
+                    body_text=footnote_def_match.group(2),
+                )
             pending_caption_after_image = False
             continue
 
@@ -846,6 +917,15 @@ def generate_docx(
     # page, so this cannot double-render one.
     if stream_knows_pages:
         close_page()
+        # A note whose page the line loop never closed — markdown carrying more
+        # page fences than the traversal has pages — would otherwise be lost
+        # from its part entirely. register_body() is by label, so a note already
+        # registered above is unchanged by this.
+        for page_notes in stream_notes_by_page.values():
+            for note in page_notes:
+                _add_note_definition(
+                note_registries, key=_NoteRegistries.key_for(note), body_text=note.body
+            )
 
     # L4b: one part per note kind, and only for kinds this document
     # actually has. An endnote emitted into the footnotes part is not a
@@ -1039,7 +1119,9 @@ def _add_text_with_note_references(
         has_reference = True
         if match.start() > position:
             _add_plain_run(paragraph, text[position : match.start()], bold=bold, italic=italic)
-        _add_note_reference_run(paragraph, match.group(1), registries)
+        _add_note_reference_run(
+            paragraph, registries.key_for_label(match.group(1)), registries
+        )
         position = match.end()
 
     if position < len(text) or not has_reference:
@@ -1060,10 +1142,13 @@ def _add_plain_run(
 
 
 def _add_note_reference_run(
-    paragraph: Paragraph, label: str, registries: _NoteRegistries
+    paragraph: Paragraph, key: str, registries: _NoteRegistries
 ) -> None:
     """A native OOXML ``w:footnoteReference`` or ``w:endnoteReference``
     run, whichever this note's ``NoteType`` calls for (L4b).
+
+    ``key`` is the note's identity (P4c-2), from ``_NoteRegistries.key_for``
+    or, on the markdown fallback paths, ``key_for_label``.
 
     Word auto-numbers and renders the printed superscript digit from the
     referenced entry in the corresponding part; no explicit text content
@@ -1072,8 +1157,8 @@ def _add_note_reference_run(
     superscript`` as a fallback in case the style is not defined in the
     template.
     """
-    part = registries.part_for(label)
-    note_id = registries.registry_for(label).get_or_assign_id(label)
+    part = registries.part_for(key)
+    note_id = registries.registry_for(key).get_or_assign_id(key)
 
     run = OxmlElement("w:r")
     run_properties = OxmlElement("w:rPr")
@@ -1096,7 +1181,7 @@ def _add_note_reference_run(
 
 
 def _add_note_definition(
-    registries: _NoteRegistries, label: str, body_text: str
+    registries: _NoteRegistries, key: str, body_text: str
 ) -> None:
     """Register a note body for inclusion in its own part.
 
@@ -1105,8 +1190,11 @@ def _add_note_definition(
     text is stored in the registry its ``NoteType`` selects, and the
     parts are built and attached after the main rendering loop
     completes.
+
+    ``key`` is the note's identity (P4c-2), so a body and the references to
+    it meet on ``footnote_id`` rather than on a printed label.
     """
-    registries.registry_for(label).register_body(label, _safe_run_text(body_text))
+    registries.registry_for(key).register_body(key, _safe_run_text(body_text))
 
 
 def _add_bookmark(paragraph: Paragraph, name: str, bookmark_id: int) -> None:
@@ -1125,15 +1213,6 @@ def _bookmark_name(label: str) -> str:
     (e.g. "p3-1" -> "footnote_p3_1"), consistently between reference
     and definition so the two always match."""
     return "footnote_" + _BOOKMARK_NAME_SANITIZE_PATTERN.sub("_", label)
-
-
-def _display_number(label: str) -> str:
-    """The human-visible printed number embedded in a footnote label
-    (e.g. "p3-1" -> "1") - falls back to the raw label if it doesn't
-    match the expected shape, rather than raising on arbitrary markdown
-    text this module didn't itself generate."""
-    match = _LABEL_DISPLAY_NUMBER_PATTERN.search(label)
-    return match.group(1) if match else label
 
 
 def _build_notes_xml(entries: List[Tuple[int, str]], part: _NotePartSpec) -> bytes:

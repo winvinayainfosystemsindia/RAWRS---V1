@@ -97,8 +97,8 @@ those paragraphs record a `source_line` and no blocks.
 | ~~`_apply_inline_format` → `**b**`~~ | ~~`_parse_inline_format`~~ — **retired P4b** | `TextBlock.spans` |
 | ~~`PAGE_BREAK_MARKER` as a page fact~~ | ~~marker string match~~ — **retired P4b**; the line survives only as a fence | `Page` |
 | ~~`# heading`~~ | ~~`_HEADING_PATTERN`~~ — **retired P4b** for prose pages | `Heading.level` / `.text` |
-| `_render_pipe_table` | `_add_pipe_table` | `Document.tables` |
-| ~~`_footnote_label`~~ → `Footnote.label` (P2) | `_display_number` | `Footnote.number` |
+| ~~`_render_pipe_table`~~ | ~~`_add_pipe_table`~~ — **retired P4c-1** for stream pages | `Document.tables` |
+| ~~`_footnote_label`~~ → `Footnote.label` (P2) | ~~`_display_number`~~ — **deleted P4c-2**, with the definition line | `Footnote.number` / `.body` / `.note_type` |
 | `_render_front_matter_blocks` | `_front_matter_kinds` (line-shape sniffing) | `Document.front_matter` |
 | `![alt](path)` | `_build_image_alignment_map`, `_build_decorative_set` | `Image` |
 | `PAGE_BREAK_MARKER` string | marker string match | `Page` |

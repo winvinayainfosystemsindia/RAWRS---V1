@@ -607,8 +607,8 @@ _DOCX_ENDNOTES_PART = "word/endnotes.xml"
 _DOCX_STRUCTURAL_NOTE_TYPES = frozenset({"separator", "continuationSeparator"})
 
 
-def _docx_note_bodies(zf: Any, part: str, tag: str) -> List[str]:
-    """Every real note body in one part, in document order."""
+def _docx_note_entries(zf: Any, part: str, tag: str) -> List[tuple]:
+    """Every real note in one part as ``(w:id, body)``, in document order."""
     import xml.etree.ElementTree as ET
 
     try:
@@ -616,12 +616,19 @@ def _docx_note_bodies(zf: Any, part: str, tag: str) -> List[str]:
     except KeyError:
         return []
     w = "{%s}" % _DOCX_W
-    bodies = []
+    entries = []
     for el in root.iter(w + tag):
         if el.get(w + "type") in _DOCX_STRUCTURAL_NOTE_TYPES:
             continue
-        bodies.append(_norm("".join(t.text or "" for t in el.iter(w + "t"))))
-    return bodies
+        entries.append(
+            (el.get(w + "id"), _norm("".join(t.text or "" for t in el.iter(w + "t"))))
+        )
+    return entries
+
+
+def _docx_note_bodies(zf: Any, part: str, tag: str) -> List[str]:
+    """Every real note body in one part, in document order."""
+    return [body for _, body in _docx_note_entries(zf, part, tag)]
 
 
 def check_docx_notes(document: Any, docx_path: Any, name: str = "") -> ProjectionReport:
@@ -1500,6 +1507,156 @@ def check_table_projection(document: Any, docx_path: Any, name: str = "") -> Pro
                 len(getattr(t, "source_block_ids", []) or []) for t in tables.values()
             ),
             "leaked_source_blocks": leaked,
+        }
+    )
+    return report
+
+
+# --------------------------------------------------------------------------- #
+# PI-12 · the DOCX projection consumes the stream's notes
+# --------------------------------------------------------------------------- #
+#
+# P4c-2. DOCX used to learn a note's body and label by parsing the markdown's
+# ``[^label]: body`` line back out, and resolved its part, its id and its body
+# through that label — which src/models/footnote.py says is not identity: the
+# label is derived from the printed number, so a reviewer's renumbering rewrites
+# it while the note stays the same note.
+#
+# PI-6 already proves a body lands in the part its NoteType names, matching on
+# normalized text. It cannot prove *pairing*: nothing there would catch a
+# reference pointing at the wrong body, which is exactly what a label-keyed
+# registry can get wrong. PI-12 states the claim by identity, and checks the
+# pairing PI-6 structurally cannot.
+
+
+def _docx_note_references(docx_path: Any) -> List[tuple]:
+    """Every note reference in the body as ``(tag, w:id)``, in document order."""
+    import xml.etree.ElementTree as ET
+    import zipfile
+
+    w = "{%s}" % _DOCX_W
+    with zipfile.ZipFile(str(docx_path)) as zf:
+        root = ET.fromstring(zf.read("word/document.xml"))
+    return [
+        (el.tag.split("}")[1], el.get(w + "id"))
+        for el in root.iter()
+        if el.tag in (w + "footnoteReference", w + "endnoteReference")
+    ]
+
+
+def check_note_projection(document: Any, docx_path: Any, name: str = "") -> ProjectionReport:
+    """PI-12 · every note is one node, materialized once, and every reference
+    resolves to a body in its own part.
+
+    * completeness    — every ``Footnote`` has exactly one ``NOTE_DEFINITION`` node
+    * resolution      — every node names a ``Footnote`` that exists, by ``footnote_id``
+    * materialization — each part holds exactly the bodies of the notes whose
+                        ``note_type`` names it, in the traversal's order
+    * pairing         — every reference id in the body names a body in the part
+                        that reference's own tag names
+
+    Order is checked because the definitions now arrive from the traversal
+    rather than from markdown lines, and a part's order is what Word's
+    auto-numbering prints.
+    """
+    import zipfile
+
+    from src.models.content_stream import ContentKind
+    from src.structure.content_stream import build_content_stream
+
+    report = ProjectionReport(
+        document=name or str(getattr(document, "source_pdf_path", "") or "?")
+    )
+    notes = list(getattr(document, "footnotes", []) or [])
+    nodes = [
+        n
+        for n in build_content_stream(document).nodes
+        if n.kind is ContentKind.NOTE_DEFINITION
+    ]
+    if not notes and not nodes:
+        report.counts["notes"] = 0
+        return report
+
+    # Identity, and the one honest fallback: a Footnote built without an id
+    # (an older fixture, a provider that assigns none) keys itself by label,
+    # exactly as the generator does.
+    def key(note: Any) -> str:
+        return getattr(note, "footnote_id", None) or note.label
+
+    by_key = {key(n): n for n in notes}
+    seen = Counter(n.object_id for n in nodes)
+    for note_key in by_key:
+        if seen[note_key] == 0:
+            report.violations.append(
+                Violation("PI-12", "lost_object", f"note {note_key!r} is not in the stream")
+            )
+        elif seen[note_key] > 1:
+            report.violations.append(
+                Violation(
+                    "PI-12", "duplicate", f"note {note_key!r} appears {seen[note_key]} times"
+                )
+            )
+    for node in nodes:
+        if node.object_id not in by_key:
+            report.violations.append(
+                Violation(
+                    "PI-12",
+                    "invented_object",
+                    f"stream note {node.object_id!r} resolves to no Footnote",
+                )
+            )
+
+    def is_endnote(note: Any) -> bool:
+        return str(getattr(note.note_type, "value", note.note_type)) == "endnote"
+
+    with zipfile.ZipFile(str(docx_path)) as zf:
+        parts = {
+            _DOCX_FOOTNOTES_PART: _docx_note_entries(zf, _DOCX_FOOTNOTES_PART, "footnote"),
+            _DOCX_ENDNOTES_PART: _docx_note_entries(zf, _DOCX_ENDNOTES_PART, "endnote"),
+        }
+
+    for part, want_endnote in ((_DOCX_FOOTNOTES_PART, False), (_DOCX_ENDNOTES_PART, True)):
+        expected = [
+            _norm(by_key[n.object_id].body)
+            for n in nodes
+            if n.object_id in by_key and is_endnote(by_key[n.object_id]) is want_endnote
+        ]
+        rendered = [body for _, body in parts[part]]
+        if len(rendered) != len(expected):
+            report.violations.append(
+                Violation(
+                    "PI-12",
+                    "content_loss" if len(rendered) < len(expected) else "invented_object",
+                    f"{part} holds {len(rendered)} body(ies), the traversal places "
+                    f"{len(expected)}",
+                )
+            )
+        elif rendered != expected:
+            report.violations.append(
+                Violation(
+                    "PI-12", "content_loss", f"{part} bodies are not in traversal order"
+                )
+            )
+
+    references = _docx_note_references(docx_path)
+    for tag, reference_id in references:
+        part = _DOCX_ENDNOTES_PART if tag == "endnoteReference" else _DOCX_FOOTNOTES_PART
+        if not any(entry_id == reference_id for entry_id, _ in parts[part]):
+            report.violations.append(
+                Violation(
+                    "PI-12",
+                    "lost_object",
+                    f"{tag} w:id={reference_id} names no body in {part}",
+                )
+            )
+
+    report.counts.update(
+        {
+            "notes": len(notes),
+            "note_nodes": len(nodes),
+            "footnote_bodies": len(parts[_DOCX_FOOTNOTES_PART]),
+            "endnote_bodies": len(parts[_DOCX_ENDNOTES_PART]),
+            "references": len(references),
         }
     )
     return report
