@@ -1870,27 +1870,78 @@ def _add_table_summary(docx_document: DocxDocument, summary_text: str) -> None:
     run.font.color.rgb = RGBColor(0x44, 0x44, 0x44)
 
 
+def _python_docx_reads(path: Path) -> bool:
+    """Whether python-docx can parse this file's header as it stands.
+
+    Asked of python-docx's own ``SIGNATURES`` table rather than a copy of
+    it, because the question *is* "what will ``add_picture`` accept" and a
+    second list here would drift from the first. An import or read failure
+    answers False, which routes the file through normalisation — the safe
+    direction, since normalisation itself is guarded.
+    """
+    try:
+        from docx.image import SIGNATURES
+
+        with path.open("rb") as stream:
+            header = stream.read(32)
+    except Exception:  # unreadable file, or a python-docx without SIGNATURES
+        return False
+    return any(
+        header[offset : offset + len(signature)] == signature
+        for _, offset, signature in SIGNATURES
+    )
+
+
+# Modes whose pixels JPEG cannot store. PNG is the accepted format that
+# carries them, and Pillow raises OSError rather than silently flattening,
+# so this is a real fork and not a preference.
+_ALPHA_CAPABLE_MODES = frozenset({"RGBA", "LA", "PA", "P"})
+# Modes JPEG stores directly, so they need no conversion before saving.
+_JPEG_NATIVE_MODES = frozenset({"RGB", "L", "1"})
+
+
 def _docx_compatible_picture_source(path: Path) -> Union[str, io.BytesIO]:
     """Return whatever run.add_picture() should be given for this file.
 
-    CMYK Image DOCX Embedding Repair: python-docx recognizes a JPEG only
-    by a literal "JFIF"/"Exif" marker at byte offset 6
-    (docx.image.image._ImageHeaderFactory/SIGNATURES) - it has no
-    Pillow/libjpeg dependency of its own. Some PDF producers (confirmed
-    on the Brinkman regression PDF's 3 figure/decorative images) emit
-    CMYK JPEGs with only an Adobe APP14 marker and no JFIF segment at
-    all, which that signature check cannot recognize, so
-    run.add_picture() previously raised UnrecognizedImageError for an
-    otherwise perfectly readable image - markdown rendering was always
-    unaffected, since it never runs the file through python-docx.
+    python-docx recognizes an image only by a literal signature —
+    ``\\x89PNG``/``GIF8``/``BM``/``MM\\x00*``/``II*\\x00`` at offset 0, or
+    ``JFIF``/``Exif`` at offset 6 for a JPEG
+    (docx.image.image._ImageHeaderFactory / SIGNATURES). It has no
+    Pillow/libjpeg dependency of its own, so a perfectly readable image
+    whose container lacks the expected marker raises
+    UnrecognizedImageError. Markdown was never affected, since it never
+    runs a file through python-docx.
 
-    Only CMYK images are affected by this; RGB (or any other mode)
-    files are returned as the original path string, completely
-    unchanged from before this repair. The converted bytes exist only
-    in memory for this one call - the original file on disk is never
-    written to, so image extraction, markdown rendering, and the
-    Image/Figure models (which only ever reference the file's path) are
-    all unaffected.
+    **The marker, not the colour mode, is what fails.** This function was
+    written for the CMYK case (the Brinkman regression PDF's 3 figures, which
+    carry an Adobe APP14 marker and no JFIF segment) and its guard tested
+    ``mode == "CMYK"`` — so it repaired that case only, and only because
+    converting to RGB and re-saving through Pillow writes a JFIF header as a
+    side effect. Measured on the Mathpix corpus: 18 of 18 supplied figures are
+    plain **RGB** JPEGs beginning ``FF D8 FF DB`` with no JFIF or Exif
+    segment, so every one of them fell straight past that guard and was
+    dropped from the DOCX — 0 drawings, 0 media parts, 18 empty paragraphs.
+
+    So the question asked here is now the real one: *can python-docx read
+    this file?* If it can, the original path is returned untouched and
+    nothing is re-encoded. If it cannot, the image is normalised once,
+    through the Pillow path that already existed, into a format python-docx
+    does accept:
+
+    * **alpha- or palette-capable modes -> PNG.** JPEG cannot store them at
+      all (Pillow raises OSError), and PNG is lossless, so transparency
+      survives rather than being flattened.
+    * **everything else -> JPEG**, converting to RGB first for any mode JPEG
+      cannot store directly. CMYK lands here and takes exactly the path it
+      always took (``convert("RGB")`` then a default-quality JPEG save), so
+      its bytes are unchanged — and CMYK *must* go to JPEG rather than PNG,
+      because PNG cannot represent it at all.
+
+    The converted bytes exist only in memory for this one call - the file on
+    disk is never written to, so image extraction, markdown rendering, and
+    the Image/Figure models (which only ever reference the file's path) are
+    all unaffected. Pixel dimensions are preserved by every branch, so
+    ``_MAX_IMAGE_WIDTH`` scaling and the rendered aspect ratio are unchanged.
 
     Deliberately no channel-inversion step: visual verification against
     all 3 of Brinkman's real CMYK images confirmed a plain CMYK->RGB
@@ -1902,14 +1953,30 @@ def _docx_compatible_picture_source(path: Path) -> Union[str, io.BytesIO]:
     """
     try:
         with PILImage.open(path) as pil_image:
-            if pil_image.mode != "CMYK":
+            # CMYK first, and before the readable check, so this mode keeps
+            # byte-for-byte the behaviour it has had since the CMYK repair
+            # whatever its container says.
+            if pil_image.mode == "CMYK":
+                normalized, image_format = pil_image.convert("RGB"), "JPEG"
+            elif _python_docx_reads(path):
                 return str(path)
-            rgb_image = pil_image.convert("RGB")
+            elif (
+                pil_image.mode in _ALPHA_CAPABLE_MODES
+                or "transparency" in pil_image.info
+            ):
+                normalized, image_format = pil_image, "PNG"
+            elif pil_image.mode in _JPEG_NATIVE_MODES:
+                normalized, image_format = pil_image, "JPEG"
+            else:
+                normalized, image_format = pil_image.convert("RGB"), "JPEG"
+
+            buffer = io.BytesIO()
+            normalized.save(buffer, format=image_format)
     except Exception as exc:
-        logger.warning("Could not inspect image color mode for '{}': {}", path, exc)
+        # A file Pillow cannot read either. Hand back the path so
+        # _add_image() reports the failure exactly as it always has.
+        logger.warning("Could not normalize image for DOCX embedding '{}': {}", path, exc)
         return str(path)
 
-    buffer = io.BytesIO()
-    rgb_image.save(buffer, format="JPEG")
     buffer.seek(0)
     return buffer
