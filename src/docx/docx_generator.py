@@ -518,11 +518,21 @@ def _add_stream_paragraph(
     and only the notes anchored to *those* lines are offered for
     substitution, so a neighbouring paragraph's marker cannot be claimed here.
 
-    The bullet/numbered test is the one thing kept from the markdown path
-    (FEATURE_016C): it is a DOCX *presentation* decision about how a
-    paragraph is styled, not a question about what the paragraph is, so §2's
-    "retain genuinely DOCX presentation mechanics" applies. It runs against
-    ``Paragraph.text`` instead of a rendered line.
+    **A paragraph is not a list item (P4c-4′).** This function used to
+    re-match ``Paragraph.text`` against the bullet/numbered patterns and style
+    the result ``List Bullet``/``List Number``, on the grounds that it was a
+    presentation decision rather than a claim about what the paragraph is. It
+    was the second: it *invented* a list where no ``ListBlock`` existed, and
+    then deleted the evidence. Measured on the ten native documents, 11
+    paragraphs on 3 of them — a reference entry reading ``12. A. C. Kruger and
+    M. Tomasello, "Cultural Learning…"`` lost its printed ``12.`` to
+    ``match.group(2)`` and was renumbered by Word's own counter, continuous
+    with an unrelated list, on a document whose remediated target has no list
+    paragraphs at all. Nothing could review or revert it, because no object
+    said a list was there.
+
+    A real ``ListBlock`` remains the only source of list semantics; it renders
+    through ``_render_lists`` and the anchored branch of the line loop.
     """
     contributing = [
         blocks_by_id[block_id]
@@ -536,21 +546,7 @@ def _add_stream_paragraph(
     ]
 
     text = paragraph_object.text
-    style: Optional[str] = None
-    bullet_match = _BULLET_LIST_PATTERN.match(text)
-    numbered_match = None if bullet_match else _NUMBERED_LIST_PATTERN.match(text)
-    if bullet_match:
-        text, style = bullet_match.group(2), "List Bullet"
-    elif numbered_match:
-        text, style = numbered_match.group(2), "List Number"
-
-    if style is None:
-        docx_paragraph = docx_document.add_paragraph()
-    else:
-        try:
-            docx_paragraph = docx_document.add_paragraph(style=style)
-        except KeyError:
-            docx_paragraph = docx_document.add_paragraph()
+    docx_paragraph = docx_document.add_paragraph()
 
     for run in format_runs(text, contributing):
         _add_runs_with_note_references(
@@ -717,6 +713,13 @@ def generate_docx(
     # index rather than a flag: it clears itself on the next line, so no
     # branch in the loop below has to remember to reset it.
     stream_caption_index = -1
+    # P4c-4′: the lines a ``ListBlock`` actually wrote. ``_render_lists``
+    # emits one ``<!-- list-id: … -->`` anchor followed by exactly one line
+    # per item, so a resolvable anchor names a window, and a line outside
+    # every window is prose no matter what it starts with. An index rather
+    # than a flag for the same reason as above: it needs no reset.
+    lists_by_id = {str(lst.id): lst for lst in (document.lists or []) if lst.id}
+    list_line_limit = -1
 
     def flush_pipe_table() -> None:
         nonlocal pipe_table_rows, pipe_table_header_count, pending_table_id
@@ -873,7 +876,14 @@ def generate_docx(
         if _TABLE_SUMMARY_COMMENT_PATTERN.match(line):
             continue
 
-        if _LIST_ID_COMMENT_PATTERN.match(line):
+        list_id_match = _LIST_ID_COMMENT_PATTERN.match(line)
+        if list_id_match:
+            # P4c-4′: the anchor stopped being a no-op. It is the only thing
+            # that says the next few lines are a list rather than prose that
+            # happens to start with a marker character.
+            listed = lists_by_id.get(list_id_match.group(1))
+            if listed is not None:
+                list_line_limit = index + 1 + len(listed.items)
             continue
 
         # The caption of an image the traversal placed. Checked here, ahead of
@@ -1027,9 +1037,27 @@ def generate_docx(
             pending_caption_after_image = False
             continue
 
-        # Semantic list rendering (FEATURE_016C): detect bullet or numbered
-        # list items before falling through to plain body paragraph.
-        bullet_match = _BULLET_LIST_PATTERN.match(line)
+        # Semantic list rendering (FEATURE_016C): a bullet or numbered line
+        # is styled as a list item before falling through to a plain body
+        # paragraph — but only where something says a list is there.
+        #
+        # P4c-4′. Two things can say it. A ``ListBlock`` the traversal placed,
+        # whose anchor opened the window above: that is how all 202 of the
+        # corpus' Mathpix list items reach DOCX, and it is why the Mathpix
+        # path keeps rendering from lines at all — its prose is not in the
+        # ContentStream, so there is no node walk to replace them with. Or a
+        # markdown with no traversal behind it (hand-written, a fixture, a
+        # direct generate_docx() call), where the line's shape is the only
+        # record of the list there is; that is FEATURE_016C's own case and it
+        # is unchanged.
+        #
+        # What is no longer enough is the shape alone on a document that has a
+        # model: `✓ Is the question doable?` is a paragraph O'Leary's Mathpix
+        # import placed as prose, and it became a bulleted list item purely
+        # because ``✓`` is in the character class — twice, against a model
+        # holding 50 items and a package rendering 52.
+        line_may_be_a_list_item = index < list_line_limit or not stream_knows_pages
+        bullet_match = _BULLET_LIST_PATTERN.match(line) if line_may_be_a_list_item else None
         if bullet_match:
             _add_list_paragraph(
                 docx_document, bullet_match.group(2), "List Bullet", note_registries
@@ -1037,7 +1065,9 @@ def generate_docx(
             pending_caption_after_image = False
             continue
 
-        numbered_match = _NUMBERED_LIST_PATTERN.match(line)
+        numbered_match = (
+            _NUMBERED_LIST_PATTERN.match(line) if line_may_be_a_list_item else None
+        )
         if numbered_match:
             _add_list_paragraph(
                 docx_document, numbered_match.group(2), "List Number", note_registries
