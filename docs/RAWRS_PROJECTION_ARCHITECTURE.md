@@ -1,7 +1,8 @@
 # Projection Architecture — eliminating the canonical output format
 
 **Status:** P1 and P2 shipped (2026-08-03); P3a, P3b, P4a and P4b shipped
-(2026-08-10); P4c–P5 open. **Date:** 2026-08-02, progress updated 2026-08-10.
+(2026-08-10); P4c-1/-2/-3 shipped (2026-08-15); P4c-4, P4d and P5 open.
+**Date:** 2026-08-02, progress updated 2026-08-15.
 
 | Step | State | Commit |
 |---|---|---|
@@ -11,7 +12,10 @@
 | P3b MarkdownProjection renders prose from the stream | **shipped** | pending |
 | P4a shared semantic rules leave the Markdown projection | **shipped** | `ce560e8` |
 | P4b DocxProjection renders prose, headings and pages from the stream | **shipped** | pending |
-| P4c–P4d images/tables/lists/notes; Markdown text parsing deleted | open — **next** | — |
+| P4c-1 tables leave the Markdown path | **shipped** | `258d25f` |
+| P4c-2 notes leave the Markdown path | **shipped** | `ab7f904` |
+| P4c-3 images and captions leave the Markdown path | **shipped** | pending |
+| P4c-4 lists; P4d Markdown text parsing deleted | open — **next** | — |
 | P5 `Projection` registry | open | — |
 
 **P3b, and what it did not do.** The Markdown projection's body walk is now a
@@ -75,8 +79,9 @@ and emits the page break because another `Page` exists — not because a
 `<!-- pagebreak -->` comment appeared. Emphasis comes from `format_runs` and note
 positions from `resolve_note_references`, so `_parse_inline_format` and the
 `[^label]` regex no longer run on prose. Images, tables, lists, captions, notes
-and front matter are untouched and still travel the markdown line path, which is
-why `markdown_content` remains in the signature.
+and front matter were untouched at P4b and still travelled the markdown line
+path (tables left it at P4c-1, notes at P4c-2, images and captions at P4c-3),
+which is why `markdown_content` remains in the signature.
 
 Measured, 10 native documents: **one** semantic difference against the P4a
 baseline — a paragraph ending in `*****` now keeps all five asterisks, where the
@@ -85,6 +90,29 @@ old path let `_parse_inline_format` eat four of them as emphasis markup. Heading
 note parts and metadata are otherwise identical. PI-10 pins the claim: 938 stream
 prose objects, 1 violation, and that one is a checker limitation on a document
 whose DOCX rows are byte-identical before and after.
+
+**P4c-3, shipped.** Images and their captions now come off the `IMAGE` node.
+Identity was the file path in three lookups — alignment, decorative state and
+where `embedded_in_docx` is recorded — and is now `Image.image_id`; the alt text
+comes from `Figure.alt_text` instead of the `![...]` line, and the caption from
+`Figure.caption` instead of whatever italic line followed the image. Two
+emission slots cover the corpus: before the page's prose run, or at page close.
+0 of 122 images need a third — none sits between two prose nodes — and 118 are
+on blockless pages with no prose to be ordered against, which is why emission
+keys on the image's own node and only *placement* consults `is_stream_page()`.
+
+One semantic difference on 10 documents, in one of them: Bryman's 112 scanned
+images now render in reading order (`document_order`) rather than the
+extractor's return order. The two disagree on 17 of that document's 22
+image-bearing pages, and 60 of the 112 lines move. `_render_page` sorts its
+page-end image list the same way, so the Markdown and DOCX projections agree
+about the pages they both render — that one line is the whole of P4c-3's change
+to `markdown_builder`. Otherwise identical across all 10: drawing count, media
+parts, relationship targets, `descr` strings position by position, extents,
+alignment, caption adjacency and `embedded_in_docx`. PI-13 pins the claim by
+identity and by *pairing*, which is what set membership cannot catch: 122 images
+carry one of 24 per-page placeholder alt texts, so "every `descr` is a model alt
+text" holds even if every image carried its neighbour's.
 
 **P4b's limitation — still the blockless pages.** 41 of 161 corpus pages have no
 `TextBlock`, so the traversal places no paragraph on them. `is_stream_page()`
@@ -100,7 +128,7 @@ those paragraphs record a `source_line` and no blocks.
 | ~~`_render_pipe_table`~~ | ~~`_add_pipe_table`~~ — **retired P4c-1** for stream pages | `Document.tables` |
 | ~~`_footnote_label`~~ → `Footnote.label` (P2) | ~~`_display_number`~~ — **deleted P4c-2**, with the definition line | `Footnote.number` / `.body` / `.note_type` |
 | `_render_front_matter_blocks` | `_front_matter_kinds` (line-shape sniffing) | `Document.front_matter` |
-| `![alt](path)` | `_build_image_alignment_map`, `_build_decorative_set` | `Image` |
+| ~~`![alt](path)` + `*caption*`~~ | ~~`_IMAGE_PATTERN`, `pending_caption_after_image`~~ — **retired P4c-3** for placed images; `_build_image_alignment_map` / `_build_decorative_set` rekeyed from `file_path` to `image_id` | `Image.figure.alt_text` / `.caption`, `Image.document_order` |
 | `PAGE_BREAK_MARKER` string | marker string match | `Page` |
 
 Evidence it is already breaking: `_add_semantic_table` bypasses the pipe-table text and reads `Document.tables` through a `<!-- table-id -->` anchor, because text could not carry identity. Front matter does the same. The exceptions are the design trying to happen.

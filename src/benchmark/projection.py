@@ -1660,3 +1660,212 @@ def check_note_projection(document: Any, docx_path: Any, name: str = "") -> Proj
         }
     )
     return report
+
+
+# --------------------------------------------------------------------------- #
+# PI-13 · the DOCX projection consumes the stream's images
+# --------------------------------------------------------------------------- #
+#
+# P4c-3. DOCX used to learn that an image existed from a ``![alt](path)`` line,
+# take its alt text from that line, and use the *path* as the image's name for
+# three separate model lookups — alignment, decorative state, and where to
+# record ``embedded_in_docx``. Two images written to one path would have shared
+# all three silently. A caption was worse: it had no identity at all, and was
+# recovered by matching ``^\*(.+)\*$`` on the line after an image, a shape that
+# also matches a bold ``**Title**`` line (20 such lines on the corpus against 2
+# real captions).
+#
+# PI-13 states the claim by identity: one Image, one IMAGE node, one drawing,
+# in the traversal's order, with the alt text of *that* image on it and its own
+# caption beside it. Pairing is what set membership gets wrong — 122 of the
+# corpus' images carry one of 24 per-page placeholder alt texts, so every
+# drawing's descr is "a" model alt text no matter which image it belongs to.
+
+
+def _docx_drawings(docx_path: Any) -> List[tuple]:
+    """(descr, caption-or-None) per body drawing, in document order.
+
+    ``descr`` keeps its three states: a string, ``""`` for a decorative image,
+    and ``None`` for absent. The caption is the italic, centred paragraph
+    directly after the drawing — the shape ``_add_caption`` emits — and is
+    ``None`` when the next paragraph is anything else.
+    """
+    import xml.etree.ElementTree as ET
+    import zipfile
+
+    w = "{%s}" % _DOCX_W
+    wp = "{http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing}"
+    a = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
+    with zipfile.ZipFile(str(docx_path)) as zf:
+        root = ET.fromstring(zf.read("word/document.xml"))
+    body = root.find(w + "body")
+    paragraphs = [] if body is None else body.findall(w + "p")
+
+    def caption_of(index: int) -> Optional[str]:
+        if index + 1 >= len(paragraphs):
+            return None
+        following = paragraphs[index + 1]
+        text = _norm("".join(t.text or "" for t in following.iter(w + "t")))
+        if not text or list(following.iter(a + "graphic")):
+            return None
+        italic = any(
+            run.find(f"{w}rPr/{w}i") is not None for run in following.findall(w + "r")
+        )
+        justification = following.find(f"{w}pPr/{w}jc")
+        centred = justification is not None and justification.get(w + "val") == "center"
+        return text if italic and centred else None
+
+    drawings: List[tuple] = []
+    for index, paragraph in enumerate(paragraphs):
+        if not list(paragraph.iter(a + "graphic")):
+            continue
+        properties = next(iter(paragraph.iter(wp + "docPr")), None)
+        descr = None if properties is None else properties.get("descr")
+        drawings.append((descr, caption_of(index)))
+    return drawings
+
+
+def check_image_projection(document: Any, docx_path: Any, name: str = "") -> ProjectionReport:
+    """PI-13 · every Image is one node, rendered once, in stream order, with
+    its own caption beside it.
+
+    * completeness — every extractable ``Image`` has exactly one ``IMAGE`` node
+    * resolution   — every ``IMAGE`` node names an ``Image`` that exists
+    * uniqueness   — the package holds exactly as many drawings as nodes
+    * pairing      — the n-th drawing carries the n-th node's own alt text
+    * caption      — a captioned image is followed by *its* caption, once
+    * containment  — no caption's source line also renders as prose
+
+    An ``Image`` whose extraction failed has a node but no file, and neither
+    projection renders it; it is excluded from the rendered count rather than
+    reported as lost.
+    """
+    from src.models.content_stream import ContentKind
+    from src.structure.content_stream import build_content_stream
+
+    report = ProjectionReport(
+        document=name or str(getattr(document, "source_pdf_path", "") or "?")
+    )
+    all_images = {str(i.image_id): i for i in (getattr(document, "images", []) or [])}
+    images = {
+        image_id: image
+        for image_id, image in all_images.items()
+        if not getattr(image, "extraction_failed", False)
+    }
+    all_nodes = [
+        n for n in build_content_stream(document).nodes if n.kind is ContentKind.IMAGE
+    ]
+    if not all_images and not all_nodes:
+        report.counts["images"] = 0
+        return report
+
+    seen = Counter(n.object_id for n in all_nodes)
+    for image_id in all_images:
+        if seen[image_id] == 0:
+            report.violations.append(
+                Violation("PI-13", "lost_object", f"image {image_id!r} is not in the stream")
+            )
+        elif seen[image_id] > 1:
+            report.violations.append(
+                Violation(
+                    "PI-13", "duplicate", f"image {image_id!r} appears {seen[image_id]} times"
+                )
+            )
+    for node in all_nodes:
+        if node.object_id not in all_images:
+            report.violations.append(
+                Violation(
+                    "PI-13",
+                    "invented_object",
+                    f"stream image {node.object_id!r} resolves to no Image",
+                )
+            )
+
+    def figure_of(image: Any) -> Any:
+        return getattr(image, "figure", None)
+
+    nodes = [n for n in all_nodes if n.object_id in images]
+    expected = [
+        (
+            getattr(figure_of(images[n.object_id]), "alt_text", None) or "",
+            getattr(figure_of(images[n.object_id]), "caption", None) or None,
+        )
+        for n in nodes
+    ]
+    rendered = _docx_drawings(docx_path)
+    if len(rendered) != len(expected):
+        report.violations.append(
+            Violation(
+                "PI-13",
+                "content_loss" if len(rendered) < len(expected) else "invented_object",
+                f"{len(expected)} image(s) in the stream, {len(rendered)} in the package",
+            )
+        )
+    else:
+        for position, ((want_alt, want_caption), (got_alt, got_caption)) in enumerate(
+            zip(expected, rendered)
+        ):
+            # A decorative image is descr="" deliberately and an image with no
+            # alt text leaves descr unset; both are "" on the model side, so
+            # only a *different* string is a mismatch.
+            if want_alt and _norm(got_alt or "") != _norm(want_alt):
+                report.violations.append(
+                    Violation(
+                        "PI-13",
+                        "content_loss",
+                        f"image at stream position {position} carries {got_alt!r}, "
+                        f"not its own alt text {want_alt!r}",
+                    )
+                )
+            if want_caption and _norm(got_caption or "") != _norm(want_caption):
+                report.violations.append(
+                    Violation(
+                        "PI-13",
+                        "content_loss",
+                        f"image at stream position {position} is not followed by its "
+                        f"caption {want_caption!r}",
+                    )
+                )
+            if got_caption and not want_caption:
+                report.violations.append(
+                    Violation(
+                        "PI-13",
+                        "invented_object",
+                        f"image at stream position {position} is followed by a caption "
+                        f"{got_caption!r} no Figure holds",
+                    )
+                )
+
+    # Containment. A caption's source line is a body line the caption already
+    # renders; a Paragraph that also claims it makes the caption render twice.
+    prose = [_norm(p.text) for p in (getattr(document, "paragraphs", []) or [])]
+    leaked = 0
+    captions = 0
+    for image in images.values():
+        figure = figure_of(image)
+        if figure is not None and figure.caption:
+            captions += 1
+        source = getattr(figure, "caption_source_text", None) if figure else None
+        if not source:
+            continue
+        if any(_norm(source) in text for text in prose):
+            leaked += 1
+            report.violations.append(
+                Violation(
+                    "PI-13",
+                    "duplicate",
+                    f"caption source line of image {image.image_id!r} also renders as prose",
+                )
+            )
+
+    report.counts.update(
+        {
+            "images": len(all_images),
+            "image_nodes": len(all_nodes),
+            "rendered_images": len(rendered),
+            "captions": captions,
+            "rendered_captions": sum(1 for _, caption in rendered if caption),
+            "leaked_caption_lines": leaked,
+        }
+    )
+    return report

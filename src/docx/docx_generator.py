@@ -18,9 +18,10 @@ its ``Paragraph`` and each ``HEADING``/``PAGE_MARKER`` node to its
 another ``Page`` exists rather than because a ``<!-- pagebreak -->``
 comment appeared.
 
-What still comes from the markdown, and is out of scope here: images and
-their captions, tables, lists, note definitions, and the whole of any
-page with no ``TextBlock`` (41 of the benchmark corpus' 161 - see
+Tables joined the stream at P4c-1, notes at P4c-2, images and their
+captions at P4c-3. What still comes from the markdown, and is out of
+scope here: lists, the ``## Endnotes`` heading, and the prose of any page
+with no ``TextBlock`` (41 of the benchmark corpus' 161 - see
 ``is_stream_page``). Those lines keep their positions around the prose
 run, which is why ``markdown_content`` is still a parameter.
 
@@ -413,6 +414,90 @@ def _stream_prose(document: Document, stream) -> Dict[int, List[Tuple[str, objec
     return prose
 
 
+def _stream_images(
+    document: Document, stream, prose_pages: set
+) -> Tuple[Dict[int, List[object]], Dict[int, List[object]]]:
+    """Each page's images, in traversal order, in one of two emission slots.
+
+    P4c-3. An ``IMAGE`` node names its ``Image`` by ``image_id``, which is
+    what the markdown's ``![alt](path)`` line never carried: that line said
+    only *that* an image was there and where its file was, and the path then
+    stood in as identity for three separate lookups (alignment, decorative
+    state, ``embedded_in_docx``). Two images sharing a path would have shared
+    all three.
+
+    Two slots, because two is all the corpus needs: of 122 images, 120 sit
+    before every prose node on their page and 2 after all of them — **none**
+    between two prose nodes. So an image is emitted either at the head of its
+    page's prose run or at page close, which is the slot the markdown line
+    already occupied.
+
+    A page whose prose the traversal does not carry (``prose_pages`` excludes
+    all 24 blockless pages, which hold 118 of the 122 images) has no prose to
+    be ordered against, so every image on it closes the page. Keying emission
+    on that condition instead — on ``is_stream_page()`` — would drop those 118
+    entirely, which is why placement consults it and emission never does.
+
+    An image whose extraction failed has a node but no file, and
+    ``_render_images`` has always skipped it; a node walk that did not would
+    try to embed nothing and record ``embedded_in_docx=False`` against it.
+    """
+    images_by_id = {
+        str(image.image_id): image
+        for image in (getattr(document, "images", []) or [])
+        if not image.extraction_failed
+    }
+    before_prose: Dict[int, List[object]] = {}
+    at_close: Dict[int, List[object]] = {}
+    prose_seen: set = set()
+    for node in stream.nodes:
+        if node.kind in (ContentKind.PARAGRAPH, ContentKind.HEADING):
+            prose_seen.add(node.page_number)
+            continue
+        if node.kind is not ContentKind.IMAGE:
+            continue
+        image = images_by_id.get(node.object_id)
+        if image is None:
+            continue
+        page = node.page_number
+        slot = (
+            before_prose
+            if page in prose_pages and page not in prose_seen
+            else at_close
+        )
+        slot.setdefault(page, []).append(image)
+    return before_prose, at_close
+
+
+def _add_stream_image(
+    docx_document: DocxDocument,
+    image,
+    alignment_by_id: Dict[str, WD_ALIGN_PARAGRAPH],
+    decorative_ids: set,
+) -> None:
+    """One ``Image``, then its caption, both read off the object the node named.
+
+    The caption needs no node of its own: ``Figure`` is a field of ``Image``
+    (architecture decision #4), so the association is in the model and cannot
+    dangle — exactly the shape ``_add_semantic_table`` already uses for
+    ``Table.caption``. Recovering it from the markdown meant recognising a
+    caption by its *line shape*, and ``^\\*(.+)\\*$`` also matches a bold
+    ``**Title**`` line: the corpus has 20 such lines against 2 real captions,
+    and only the "directly after an image" adjacency kept the other 18 from
+    being eaten.
+    """
+    figure = getattr(image, "figure", None)
+    image.embedded_in_docx = _add_image(
+        docx_document,
+        image.file_path,
+        alt_text=(getattr(figure, "alt_text", None) or "") if figure else "",
+        alignment=alignment_by_id.get(image.image_id, WD_ALIGN_PARAGRAPH.CENTER),
+        decorative=image.image_id in decorative_ids,
+    )
+    if figure is not None and figure.caption:
+        _add_caption(docx_document, figure.caption)
+
+
 def _add_stream_paragraph(
     docx_document: DocxDocument,
     paragraph_object,
@@ -532,11 +617,13 @@ def generate_docx(
     _apply_default_style(docx_document)
     _apply_core_properties(docx_document, document)
 
-    # Build file_path maps for alignment and decorative status from Document.images.
+    # Alignment and decorative status, both keyed by Image.image_id (P4c-3).
+    # They were always read off the model; only the key was the file path.
     image_alignment_map = _build_image_alignment_map(document)
-    decorative_paths = _build_decorative_set(document)
-    # Lookup for IMAGE_005: maps file_path → Image so embedding results can
-    # be recorded on the model for post-generation validation.
+    decorative_ids = _build_decorative_set(document)
+    # The remaining use of the path as a name: a markdown image line on a
+    # document the traversal never placed images for, which is the only path
+    # that still has nothing but the line to identify the Image by.
     images_by_path = {img.file_path: img for img in document.images}
 
     # P4b: the traversal, not the markdown, says what order this document's
@@ -605,6 +692,31 @@ def generate_docx(
         for note in document.footnotes
         if _NoteRegistries.key_for(note) not in stream_placed_keys
     }
+    # P4c-3: which images each page renders and in which of the two slots,
+    # resolved from its IMAGE nodes by ``Image.image_id``.
+    stream_prose_pages = {
+        page
+        for page, entries in prose_by_page.items()
+        if page in pages_with_blocks and any(kind == "paragraph" for kind, _ in entries)
+    }
+    images_before_prose, images_at_close = _stream_images(
+        document, stream, stream_prose_pages
+    )
+    # An image the traversal placed is rendered from its node, so its markdown
+    # line is a restatement and is dropped — along with the ``*caption*`` line
+    # after it, which _add_stream_image() has already emitted from
+    # Figure.caption. A line naming a path no placed image has is not this
+    # document's to drop: hand-written markdown keeps rendering it.
+    stream_image_paths = {
+        image.file_path
+        for slots in (images_before_prose, images_at_close)
+        for page_images in slots.values()
+        for image in page_images
+    }
+    # The index of the one line that may be a dropped image's caption. An
+    # index rather than a flag: it clears itself on the next line, so no
+    # branch in the loop below has to remember to reset it.
+    stream_caption_index = -1
 
     def flush_pipe_table() -> None:
         nonlocal pipe_table_rows, pipe_table_header_count, pending_table_id
@@ -678,9 +790,23 @@ def generate_docx(
         """
         return current_page is not None and current_page in stream_tables_by_page
 
+    def emit_images(slot: Dict[int, List[object]]) -> None:
+        """This page's images from one slot, once — popped, so the page-close
+        sweep cannot re-emit what the prose run already placed."""
+        for image in slot.pop(current_page, []):
+            _add_stream_image(docx_document, image, image_alignment_map, decorative_ids)
+
     def close_page() -> None:
-        """Emit this page's tables and register its notes, where the
-        traversal put them.
+        """Emit this page's images and tables and register its notes, where
+        the traversal put them.
+
+        Images first, then tables: that is the order
+        ``markdown_builder._render_page`` renders them in for a page whose
+        images the body placed, and the 24 blockless pages that hold 118 of
+        the corpus' 122 images have no tables to be ordered against. A leading
+        image still unemitted here belongs to a page whose prose run never
+        fired — markdown carrying fewer lines than the traversal has pages —
+        and comes out ahead of the rest rather than being lost.
 
         A ``TABLE`` node is emitted after the page's body entries, so a page's
         tables belong at its end — which is also exactly where
@@ -694,6 +820,8 @@ def generate_docx(
         had: a note's inline reference is emitted with this page's prose, so it
         still claims its id before its body arrives (P4c-2).
         """
+        emit_images(images_before_prose)
+        emit_images(images_at_close)
         for table in stream_tables_by_page.get(current_page, []):
             _add_semantic_table(docx_document, table)
         for note in stream_notes_by_page.get(current_page, []):
@@ -713,16 +841,16 @@ def generate_docx(
         ``source_line`` and no blocks, so the traversal deliberately places
         none of them.
         """
-        if current_page is None or current_page not in pages_with_blocks:
-            return False
-        return any(kind == "paragraph" for kind, _ in prose_by_page.get(current_page, []))
+        return current_page in stream_prose_pages
 
     def emit_prose() -> None:
-        """This page's headings and paragraphs, once, in traversal order."""
+        """This page's headings and paragraphs, once, in traversal order,
+        behind whichever of its images the traversal put ahead of them."""
         nonlocal prose_emitted
         if prose_emitted:
             return
         prose_emitted = True
+        emit_images(images_before_prose)
         for kind, obj in prose_by_page.get(current_page, []):
             if kind == "heading":
                 _add_heading(docx_document, obj.level.value, obj.text)
@@ -746,6 +874,12 @@ def generate_docx(
             continue
 
         if _LIST_ID_COMMENT_PATTERN.match(line):
+            continue
+
+        # The caption of an image the traversal placed. Checked here, ahead of
+        # every other branch, because a caption line is only recognisable by
+        # its position: on its own it is an italic line like any other.
+        if index == stream_caption_index and _CAPTION_PATTERN.match(line):
             continue
 
         # Pipe table rows. P4c-1: on a page whose tables the traversal placed,
@@ -836,22 +970,26 @@ def generate_docx(
 
         image_match = _IMAGE_PATTERN.match(line)
         if image_match:
-            # Phase F.4: group(1) is the markdown alt text - already
-            # present in the parsed line, previously discarded here.
-            # Reading it from markdown (not re-deriving it from Document)
-            # keeps this module's existing principle intact: markdown,
-            # not the Document model, is body structure's source of truth.
             img_path = image_match.group(2)
-            alignment = image_alignment_map.get(img_path, WD_ALIGN_PARAGRAPH.CENTER)
-            is_decorative = img_path in decorative_paths
+            if img_path in stream_image_paths:
+                # P4c-3: the IMAGE node already emitted this image and its
+                # caption from the Image the node named. The line restates
+                # three of that object's fields and nothing else.
+                stream_caption_index = index + 1
+                pending_caption_after_image = False
+                continue
+            # No node placed this image, so the line is all there is to go on:
+            # its alt text is group(1) and its path names the Image, if the
+            # model holds one at all.
+            image_obj = images_by_path.get(img_path)
+            image_id = getattr(image_obj, "image_id", None)
             embedded = _add_image(
                 docx_document,
                 img_path,
                 alt_text=image_match.group(1),
-                alignment=alignment,
-                decorative=is_decorative,
+                alignment=image_alignment_map.get(image_id, WD_ALIGN_PARAGRAPH.CENTER),
+                decorative=image_id in decorative_ids,
             )
-            image_obj = images_by_path.get(img_path)
             if image_obj is not None:
                 image_obj.embedded_in_docx = embedded
             pending_caption_after_image = True
@@ -926,6 +1064,15 @@ def generate_docx(
                 _add_note_definition(
                 note_registries, key=_NoteRegistries.key_for(note), body_text=note.body
             )
+        # Same case for an image: a page the line loop never closed would drop
+        # it from the document entirely, and its markdown line was dropped as a
+        # restatement. Rendered late is recoverable; not rendered is not.
+        for slot in (images_before_prose, images_at_close):
+            for page_images in list(slot.values()):
+                for image in page_images:
+                    _add_stream_image(
+                        docx_document, image, image_alignment_map, decorative_ids
+                    )
 
     # L4b: one part per note kind, and only for kinds this document
     # actually has. An endnote emitted into the footnotes part is not a
@@ -1308,7 +1455,12 @@ def _attach_notes_part(
 
 
 def _build_image_alignment_map(document: Document) -> Dict[str, WD_ALIGN_PARAGRAPH]:
-    """Return a file_path → WD_ALIGN_PARAGRAPH map derived from each Image's bbox.
+    """Return an image_id → WD_ALIGN_PARAGRAPH map derived from each Image's bbox.
+
+    Keyed by identity since P4c-3. It was keyed by ``file_path``, which is a
+    property of an image rather than a name for one: two images written to the
+    same path would have silently shared this alignment, and the decorative
+    set and the ``embedded_in_docx`` write with it.
 
     Detects left / center / right alignment by comparing the image center
     against the page's physical width (Page.width_pt). Falls back to CENTER
@@ -1323,22 +1475,22 @@ def _build_image_alignment_map(document: Document) -> Dict[str, WD_ALIGN_PARAGRA
     result: Dict[str, WD_ALIGN_PARAGRAPH] = {}
     for image in document.images:
         if image.bbox is None or image.page_number not in page_width_by_num:
-            result[image.file_path] = WD_ALIGN_PARAGRAPH.CENTER
+            result[image.image_id] = WD_ALIGN_PARAGRAPH.CENTER
             continue
         page_width = page_width_by_num[image.page_number]
         image_center = image.bbox.x0 + (image.bbox.x1 - image.bbox.x0) / 2
         margin = page_width * 0.10
         if abs(image_center - page_width / 2) <= margin:
-            result[image.file_path] = WD_ALIGN_PARAGRAPH.CENTER
+            result[image.image_id] = WD_ALIGN_PARAGRAPH.CENTER
         elif image_center < page_width / 2:
-            result[image.file_path] = WD_ALIGN_PARAGRAPH.LEFT
+            result[image.image_id] = WD_ALIGN_PARAGRAPH.LEFT
         else:
-            result[image.file_path] = WD_ALIGN_PARAGRAPH.RIGHT
+            result[image.image_id] = WD_ALIGN_PARAGRAPH.RIGHT
     return result
 
 
 def _build_decorative_set(document: Document) -> set:
-    """Return the set of file_paths for images marked as DECORATIVE by the reviewer."""
+    """Return the image_ids of images marked DECORATIVE by the reviewer."""
     from src.models.figure import AltTextStatus
     result = set()
     for image in document.images:
@@ -1346,7 +1498,7 @@ def _build_decorative_set(document: Document) -> set:
             image.figure is not None
             and image.figure.alt_text_status == AltTextStatus.DECORATIVE
         ):
-            result.add(image.file_path)
+            result.add(image.image_id)
     return result
 
 

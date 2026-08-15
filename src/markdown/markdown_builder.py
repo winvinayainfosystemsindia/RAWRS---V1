@@ -738,9 +738,23 @@ def _render_page(
         blocks.extend(_render_lists(page_lists))
         # Images are placed by the body renderer when it has blocks to anchor
         # them to (Image.source_block_id). The line-by-line OCR fallback has
-        # none, so it keeps the historical page-end slot.
+        # none, so it keeps the historical page-end slot — but in reading
+        # order, not in the order the extractor happened to return them.
+        # ``document.images`` is PyMuPDF's per-page order, which on the
+        # corpus' 22 image-bearing scanned pages disagrees with
+        # ``document_order`` on 17 of them, and ``document_order`` is the
+        # order the traversal places these same images in
+        # (src/structure/content_stream.py). Sorting here is what keeps the
+        # two projections from disagreeing about a page they both render.
         if not page_blocks:
-            blocks.extend(_render_images(page_images))
+            blocks.extend(
+                _render_images(
+                    sorted(
+                        page_images,
+                        key=lambda i: i.document_order if i.document_order is not None else 10**9,
+                    )
+                )
+            )
     blocks.append(PAGE_BREAK_MARKER)
 
     return "\n\n".join(blocks)
