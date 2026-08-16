@@ -202,7 +202,7 @@ class MathpixImportProvider:
 
         # ── 4. Footnotes ───────────────────────────────────────────────
         for p2fn in p2doc.footnotes:
-            fn = _p2footnote_to_footnote(p2fn, page_count)
+            fn = _p2footnote_to_footnote(p2fn, page_count, total_blocks)
             if fn is not None:
                 document.footnotes.append(fn)
 
@@ -402,12 +402,30 @@ def _group_list_items_to_lists(p2doc: Any, page_count: int, total_blocks: int) -
     return lists
 
 
-def _p2footnote_to_footnote(p2fn: P2Footnote, page_count: int) -> Optional[Footnote]:
+def _p2footnote_to_footnote(
+    p2fn: P2Footnote, page_count: int, total_blocks: int = 1
+) -> Optional[Footnote]:
     """Map a P2Footnote to a RAWRS Footnote.
 
-    Anchor details are unknown from MMD alone — populated with minimal
-    valid placeholders.  The Verification Engine (Phase M-2) will cross-
-    reference PDF span data to enrich anchor page, offset, and text.
+    **The anchor is evidence now, not a placeholder (N-2).** It used to be
+    unknown from MMD alone: ``anchor_text`` was the note's own number as a
+    string, ``anchor_offset`` was None and every note claimed page 1. N-1
+    proves each marker/body correspondence while parsing and records where the
+    marker sat, so the three fields ``src/models/note_references.py`` already
+    resolves for the native path can be filled from the source rather than
+    guessed. A note whose body N-1 proved but whose marker the package never
+    contained keeps the old placeholders — its anchor is genuinely unknown,
+    and searching the prose for a number would invent the reference N-1
+    deliberately refused to invent.
+
+    **Endnotes, not footnotes.** This mapping said ``NoteType.FOOTNOTE``
+    because nothing here knew better; L4b's measurement is that all 54 notes
+    in the benchmark's human-remediated files are ``w:endnoteReference`` in
+    word/endnotes.xml, and RAWRS's own native path already emits endnotes for
+    the same two documents. A Mathpix apparatus is printed after the prose
+    that cites it, which is what an endnote is. Emitting footnotes put the
+    same document's notes in a different part depending on which pipeline
+    read it.
     """
     if not p2fn.body:
         return None
@@ -416,13 +434,16 @@ def _p2footnote_to_footnote(p2fn: P2Footnote, page_count: int) -> Optional[Footn
     # Footnote bodies collected at the end of MMD have no page attribution —
     # assign to the last page as a conservative placeholder.
     body_page = page_count
+    anchored = p2fn.anchor_text is not None and p2fn.anchor_line is not None
     return Footnote(
-        note_type=NoteType.FOOTNOTE,
+        note_type=NoteType.ENDNOTE,
         number=p2fn.number,
         marker=marker,
-        anchor_page_number=1,       # placeholder; enriched by Verification Engine
-        anchor_text=marker,          # placeholder; enriched by Verification Engine
-        anchor_offset=None,
+        anchor_page_number=(
+            estimate_page(p2fn.anchor_line, total_blocks, page_count) if anchored else 1
+        ),
+        anchor_text=p2fn.anchor_text if anchored else marker,
+        anchor_offset=p2fn.anchor_offset if anchored else None,
         body=p2fn.body,
         body_page_number=body_page,
         body_source_text=body_source,

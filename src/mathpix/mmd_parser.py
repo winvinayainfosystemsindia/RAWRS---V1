@@ -161,8 +161,13 @@ def _prove_note_apparatus(doc: P2Document, markers: List[Tuple[int, int]]) -> No
     """
     if not markers:
         return
-    marker_numbers = {number for _, number in markers}
-    last_marker_line = max(line for line, _ in markers)
+    marker_numbers = {number for _, number, _, _ in markers}
+    last_marker_line = max(line for line, _, _, _ in markers)
+    # The first marker naming each number — a note carries one anchor, and a
+    # number cited twice is one note referenced twice, not two notes.
+    anchor_by_number = {}
+    for line, number, text, offset in markers:
+        anchor_by_number.setdefault(number, (line, text, offset))
 
     numbered = [
         block
@@ -193,8 +198,15 @@ def _prove_note_apparatus(doc: P2Document, markers: List[Tuple[int, int]]) -> No
     bodies = set(id(block) for block in apparatus)
     doc.blocks = [block for block in doc.blocks if id(block) not in bodies]
     for block in apparatus:
+        anchor = anchor_by_number.get(block.list_number)
         doc.footnotes.append(
-            P2Footnote(number=block.list_number, body=(block.text or "").strip())
+            P2Footnote(
+                number=block.list_number,
+                body=(block.text or "").strip(),
+                anchor_line=None if anchor is None else anchor[0],
+                anchor_text=None if anchor is None else anchor[1],
+                anchor_offset=None if anchor is None else anchor[2],
+            )
         )
 
 
@@ -218,7 +230,7 @@ def parse_mmd(content: str) -> P2Document:
     # N-1: every inline superscript, recorded where it was seen. Collected
     # before transform_inline_math() rewrites it, and used only after the
     # whole document is parsed — the apparatus cannot be proven from one line.
-    markers: List[Tuple[int, int]] = []
+    markers: List[Tuple[int, int, str, int]] = []
 
     while i < n:
         line = lines[i]
@@ -230,7 +242,20 @@ def parse_mmd(content: str) -> P2Document:
             continue
 
         for marker in _SUPERSCRIPT_MARKER_RE.finditer(stripped):
-            markers.append((i, int(next(g for g in marker.groups() if g))))
+            # N-2: the marker's position in the line *as the block will store
+            # it*. transform_inline_math() rewrites ``${ }^{12}$`` to ``[12]``,
+            # so a raw offset would not survive; transforming the prefix gives
+            # the offset in the transformed text exactly, because the rewrite
+            # is a substitution over independent spans and the cut is always a
+            # span boundary. Computed, never searched for.
+            markers.append(
+                (
+                    i,
+                    int(next(g for g in marker.groups() if g)),
+                    transform_inline_math(stripped),
+                    len(transform_inline_math(stripped[: marker.start()])),
+                )
+            )
 
         # ── \footnotetext{N}{body} ─────────────────────────────────────
         fn_m = _FOOTNOTETEXT_RE.match(stripped)

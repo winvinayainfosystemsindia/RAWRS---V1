@@ -80,6 +80,17 @@ class P2Figure:
 class P2Footnote:
     number: int
     body: str
+    # N-2 transport. N-1 proves a marker/body correspondence while parsing and
+    # knows exactly where the marker sat; these carry that evidence to the
+    # ingestor, which maps them onto Footnote.anchor_text/.anchor_offset/
+    # .anchor_page_number — fields that already exist and that
+    # src/models/note_references.py already resolves for the native path.
+    # None means N-1 proved a *body* but no marker names it: a valid state
+    # (three of the corpus' thirty-nine), and never a licence to search the
+    # prose for one.
+    anchor_line: Optional[int] = None
+    anchor_text: Optional[str] = None
+    anchor_offset: Optional[int] = None
 
 
 @dataclass

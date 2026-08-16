@@ -149,3 +149,53 @@ class TestCorpusEvidence:
             doc = _corpus(pattern)
             assert doc.footnotes == [], pattern
             assert len(_numbered(doc)) == numbered, pattern
+
+
+class TestAnchorTransport:
+    """N-2 commit 1+2: the position N-1 proved reaches the Footnote model."""
+
+    def test_the_offset_lands_on_the_marker_not_near_it(self):
+        doc = parse_mmd(_mmd("Some prose ${ }^{1}$ and more ${ }^{2}$ here.", run=[1, 2]))
+        for note in doc.footnotes:
+            assert note.anchor_text is not None
+            segment = note.anchor_text[note.anchor_offset :]
+            assert segment.startswith(f"[{note.number}]"), segment[:20]
+
+    def test_the_anchor_is_the_transformed_line_the_paragraph_will_hold(self):
+        doc = parse_mmd(_mmd("Prose ${ }^{1}$ tail.", run=[1]))
+        assert doc.footnotes[0].anchor_text == "Prose [1] tail."
+
+    def test_a_body_with_no_marker_carries_no_anchor(self):
+        doc = parse_mmd(_mmd("Only ${ }^{1}$ is cited.", run=[1, 2]))
+        first, second = doc.footnotes
+        assert first.anchor_text is not None and first.anchor_offset is not None
+        assert second.anchor_text is None and second.anchor_offset is None
+
+    def test_a_number_cited_twice_keeps_one_anchor(self):
+        doc = parse_mmd(_mmd("A ${ }^{1}$ then again ${ }^{1}$.", run=[1]))
+        assert len(doc.footnotes) == 1
+        assert doc.footnotes[0].anchor_text.index("[1]") == doc.footnotes[0].anchor_offset
+
+    def test_bruner_anchors_exactly_thirty_three_of_thirty_six(self):
+        doc = _corpus("*Bruner*")
+        anchored = [f for f in doc.footnotes if f.anchor_text is not None]
+        assert len(doc.footnotes) == 36 and len(anchored) == 33
+        assert [f.number for f in doc.footnotes if f.anchor_text is None] == [15, 26, 34]
+
+    def test_the_ingestor_maps_the_anchor_and_makes_it_an_endnote(self):
+        from src.mathpix.ingestor import _p2footnote_to_footnote
+        from src.models.footnote import NoteType
+
+        doc = parse_mmd(_mmd("Prose ${ }^{1}$ tail.", run=[1, 2]))
+        anchored = _p2footnote_to_footnote(doc.footnotes[0], page_count=4, total_blocks=8)
+        orphan = _p2footnote_to_footnote(doc.footnotes[1], page_count=4, total_blocks=8)
+
+        assert anchored.note_type is NoteType.ENDNOTE
+        assert anchored.anchor_text == "Prose [1] tail."
+        assert anchored.anchor_offset == doc.footnotes[0].anchor_offset
+        assert anchored.footnote_id == "mathpix-1"
+
+        # The orphan keeps the old placeholders: its anchor is genuinely
+        # unknown, and nothing may go looking for it.
+        assert orphan.note_type is NoteType.ENDNOTE
+        assert orphan.anchor_text == "2" and orphan.anchor_offset is None
