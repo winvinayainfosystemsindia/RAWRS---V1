@@ -241,7 +241,9 @@ def _group_lists_by_page(lists: List[ListBlock]) -> Dict[int, List[ListBlock]]:
     return grouped
 
 
-def _render_lists(lists: List[ListBlock]) -> List[str]:
+def _render_lists(
+    lists: List[ListBlock], notes: Optional[List[Footnote]] = None
+) -> List[str]:
     """Render each ListBlock as a real markdown list — the fix for
     "lists becoming paragraphs" (see src/mathpix/ingestor.py's
     _group_list_items_to_lists and src/verification/lists.py). Renders
@@ -252,6 +254,12 @@ def _render_lists(lists: List[ListBlock]) -> List[str]:
     generator's benefit — the rendered bullet/numbered lines themselves
     already flow through its existing FEATURE_016C list-style rendering,
     with no need for the DOCX side to look up the ListBlock model at all.
+
+    N-2: ``notes`` are this page's notes, and an item's text passes through
+    the same ``_substitute_markers`` a paragraph's does — a marker printed
+    inside a list item is a reference like any other, and two of Bruner's
+    thirty-three proven ones are. Only the Mathpix semantic renderer passes
+    them; the native call site passes none, so its output cannot move.
     """
     blocks: List[str] = []
     for lst in lists:
@@ -259,7 +267,11 @@ def _render_lists(lists: List[ListBlock]) -> List[str]:
             continue
         blocks.append(f"<!-- list-id: {lst.id} -->")
         marker = "-" if lst.list_type == ListType.BULLET else "1."
-        lines = [f"{'  ' * item.level}{marker} {item.text}" for item in lst.items]
+        lines = [
+            f"{'  ' * item.level}{marker} "
+            f"{_substitute_markers(item.text, notes) if notes else item.text}"
+            for item in lst.items
+        ]
         blocks.append("\n".join(lines))
     return blocks
 
@@ -989,6 +1001,15 @@ def _render_page_semantic(
     last, matching their existing page-end placement — not a regression,
     just not yet improved.
 
+    **N-2: a paragraph's note references are spelled here, by the same
+    helper the native path uses.** Paragraph text used to be emitted
+    verbatim, so a Mathpix marker stayed the literal ``[12]`` the parser
+    read and DOCX had no ``[^label]`` to turn into a reference run — the
+    bodies reached the endnotes part with nothing pointing at them. Nothing
+    new decides anything: ``_substitute_markers`` spells only where
+    ``Footnote.anchor_offset`` says a marker was proven, so a body whose
+    marker the package never contained stays a body with no reference.
+
     Callouts are deliberately not rendered as a distinct block here —
     see Callout's own docstring ("rendering is a deliberately separate,
     later piece of work"): their anchoring Heading already renders
@@ -1017,9 +1038,9 @@ def _render_page_semantic(
         if isinstance(obj, Heading):
             blocks.append(_render_heading(obj))
         elif isinstance(obj, Paragraph):
-            blocks.append(obj.text)
+            blocks.append(_substitute_markers(obj.text, anchor_notes))
         elif isinstance(obj, ListBlock):
-            blocks.extend(_render_lists([obj]))
+            blocks.extend(_render_lists([obj], anchor_notes))
         elif isinstance(obj, Table):
             blocks.extend(_render_tables([obj]))
         elif isinstance(obj, Image):

@@ -429,7 +429,12 @@ def _p2footnote_to_footnote(
     """
     if not p2fn.body:
         return None
-    marker = str(p2fn.number)
+    # The marker is the substring a renderer replaces, and in a Mathpix
+    # document that substring is the bracketed form transform_inline_math
+    # wrote for ``${ }^{12}$`` — which is also what anchor_offset points at.
+    # A bare "12" would make the offset miss by one bracket and leave the
+    # brackets stranded around the reference.
+    marker = f"[{p2fn.number}]"
     body_source = f"[{p2fn.number}] {p2fn.body}"
     # Footnote bodies collected at the end of MMD have no page attribution —
     # assign to the last page as a conservative placeholder.

@@ -197,8 +197,15 @@ def _prove_note_apparatus(doc: P2Document, markers: List[Tuple[int, int]]) -> No
 
     bodies = set(id(block) for block in apparatus)
     doc.blocks = [block for block in doc.blocks if id(block) not in bodies]
+    block_by_line = {
+        block.source_line: block
+        for block in doc.blocks
+        if block.source_line is not None
+    }
     for block in apparatus:
         anchor = anchor_by_number.get(block.list_number)
+        if anchor is not None:
+            anchor = _anchor_on_its_block(anchor, block_by_line.get(anchor[0]))
         doc.footnotes.append(
             P2Footnote(
                 number=block.list_number,
@@ -208,6 +215,41 @@ def _prove_note_apparatus(doc: P2Document, markers: List[Tuple[int, int]]) -> No
                 anchor_offset=None if anchor is None else anchor[2],
             )
         )
+
+
+def _anchor_on_its_block(
+    anchor: Tuple[int, str, int], block: Optional[P2Block]
+) -> Tuple[int, str, int]:
+    """The same anchor, expressed against the block that line became.
+
+    A marker is recorded against its source *line*, but what a projection
+    renders is the *block* that line became — and the two are not always the
+    same string. A numbered list item drops its ``"1. "`` marker prefix when
+    it becomes a block, so an anchor kept against the line is contained in
+    nothing that is ever rendered, and the two proven markers inside Bruner's
+    four-item conceptual list resolved to nothing.
+
+    The correction is a coordinate change, not a search: when the block's text
+    is an exact *suffix* of the line, the prefix the block dropped is exactly
+    ``len(line) - len(block text)`` characters, so the marker's offset within
+    the block follows by subtraction. Nothing is looked for, nothing is
+    normalised, and no marker becomes proven that was not proven already.
+
+    Any other relationship - a block that merged several lines, a block whose
+    text was rewritten - fails closed to the line anchor, which is what every
+    caller had before. A shift that would push the offset negative fails the
+    same way.
+    """
+    line, text, offset = anchor
+    if block is None or block.source_line != line:
+        return anchor
+    block_text = block.text or ""
+    if not block_text or block_text == text or not text.endswith(block_text):
+        return anchor
+    shift = len(text) - len(block_text)
+    if offset < shift:
+        return anchor
+    return (line, block_text, offset - shift)
 
 
 def parse_mmd(content: str) -> P2Document:

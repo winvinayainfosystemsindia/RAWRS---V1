@@ -80,6 +80,8 @@ def resolve_note_references(text: str, notes: Sequence[Any]) -> List[NoteReferen
     """
     by_anchor: Dict[str, List[Any]] = {}
     for note in notes:
+        if _anchor_is_a_placeholder(note):
+            continue
         by_anchor.setdefault(note.anchor_text, []).append(note)
 
     resolved: List[NoteReference] = []
@@ -109,6 +111,20 @@ def resolve_note_references(text: str, notes: Sequence[Any]) -> List[NoteReferen
 
     resolved.sort(key=lambda reference: reference.start)
     return resolved
+
+
+def _anchor_is_a_placeholder(note: Any) -> bool:
+    """The anchor is the marker itself and nothing else — no position.
+
+    N-2. A note whose body was proven but whose marker was never found
+    carries ``anchor_text == marker`` and no offset (see
+    ``src/mathpix/ingestor.py``'s ``_p2footnote_to_footnote``). Left in, the
+    anchor line's "own region" is exactly the marker's own width, so the
+    region-bounded fallback matches the bare number *wherever* it occurs —
+    a citation year, a page count — and spells a reference the source never
+    printed. That is the text matching this module exists to avoid.
+    """
+    return getattr(note, "anchor_offset", None) is None and note.anchor_text == note.marker
 
 
 def _exact_position(text: str, anchor_position: int, note: Any) -> Optional[int]:

@@ -182,6 +182,96 @@ class TestAnchorTransport:
         assert len(doc.footnotes) == 36 and len(anchored) == 33
         assert [f.number for f in doc.footnotes if f.anchor_text is None] == [15, 26, 34]
 
+    def test_a_marker_inside_a_list_item_is_anchored_to_the_item_text(self):
+        """The anchor is recorded against the source line, but what gets
+        rendered is the block that line became - and a numbered item drops
+        its "1. " prefix on the way. The offset moves by exactly that
+        prefix; nothing is searched for."""
+        doc = parse_mmd(
+            "Prose ${ }^{1}$ here.\n\n"
+            "1. An item citing ${ }^{2}$ inline.\n\n"
+            "1. Body one.\n\n2. Body two."
+        )
+        cited = next(f for f in doc.footnotes if f.number == 2)
+
+        assert cited.anchor_text == "An item citing [2] inline."
+        assert cited.anchor_text[cited.anchor_offset :].startswith("[2]")
+
+    def test_an_anchor_whose_block_is_not_a_suffix_keeps_the_line(self):
+        """Fail closed: only the exact suffix relationship is a licence to
+        move the coordinate."""
+        from src.mathpix.mmd_parser import _anchor_on_its_block
+        from src.models.phase2_document import P2Block
+
+        anchor = (7, "1. text with [2] inside", 16)
+        merged = P2Block(
+            block_type=P2BlockType.PARAGRAPH,
+            text="text with [2] inside and a second line",
+            source_line=7,
+        )
+        elsewhere = P2Block(
+            block_type=P2BlockType.PARAGRAPH, text="inside", source_line=8
+        )
+
+        assert _anchor_on_its_block(anchor, merged) == anchor
+        assert _anchor_on_its_block(anchor, elsewhere) == anchor
+        assert _anchor_on_its_block(anchor, None) == anchor
+
+    def test_bruner_binds_its_two_list_item_anchors(self):
+        doc = _corpus("*Bruner*")
+        for number in (18, 19):
+            note = next(f for f in doc.footnotes if f.number == number)
+            assert not note.anchor_text.startswith("1. "), note.anchor_text[:20]
+            assert note.anchor_text[note.anchor_offset :].startswith(f"[{number}]")
+
+    def test_the_renderer_spells_only_the_anchors_that_were_proven(self):
+        """N-2 commit 3. The marker becomes ``[^label]`` where a marker was
+        proven, and stays literal text where one never existed - including
+        when the orphan's own number happens to sit in the prose."""
+        from src.markdown.markdown_builder import _render_page_semantic
+        from src.mathpix.ingestor import _p2footnote_to_footnote
+        from src.models.paragraph import Paragraph
+
+        doc = parse_mmd(_mmd("Cited [15] in 1915 and ${ }^{1}$ here.", run=[1, 15]))
+        notes = [_p2footnote_to_footnote(f, page_count=1, total_blocks=1) for f in doc.footnotes]
+        paragraph = Paragraph(
+            page_number=1, text="Cited [15] in 1915 and [1] here.", source_line=0
+        )
+
+        [block] = _render_page_semantic([], [paragraph], [], [], [], notes)
+
+        assert block == f"Cited [15] in 1915 and [^{notes[0].label}] here."
+
+    def test_a_reference_printed_inside_a_list_item_is_spelled_there(self):
+        """N-2 repair: the list branch spells references with the same
+        helper the paragraph branch uses - two of Bruner's thirty-three
+        proven markers are printed inside a list item."""
+        from src.markdown.markdown_builder import _render_page_semantic
+        from src.mathpix.ingestor import _p2footnote_to_footnote
+        from src.models.list_block import ListBlock, ListItem, ListType
+
+        doc = parse_mmd(
+            "Prose ${ }^{1}$ here.\n\n"
+            "1. An item citing ${ }^{2}$ inline.\n\n"
+            "1. Body one.\n\n2. Body two."
+        )
+        notes = [
+            _p2footnote_to_footnote(f, page_count=1, total_blocks=1)
+            for f in doc.footnotes
+        ]
+        cited = next(n for n in notes if n.number == 2)
+        lst = ListBlock(
+            list_type=ListType.NUMBERED,
+            items=[ListItem(text="An item citing [2] inline.")],
+            page_number=1,
+            document_order=0,
+            source_line=2,
+        )
+
+        blocks = _render_page_semantic([], [], [lst], [], [], notes)
+
+        assert blocks[-1] == f"1. An item citing [^{cited.label}] inline."
+
     def test_the_ingestor_maps_the_anchor_and_makes_it_an_endnote(self):
         from src.mathpix.ingestor import _p2footnote_to_footnote
         from src.models.footnote import NoteType
@@ -198,4 +288,4 @@ class TestAnchorTransport:
         # The orphan keeps the old placeholders: its anchor is genuinely
         # unknown, and nothing may go looking for it.
         assert orphan.note_type is NoteType.ENDNOTE
-        assert orphan.anchor_text == "2" and orphan.anchor_offset is None
+        assert orphan.anchor_text == orphan.marker and orphan.anchor_offset is None

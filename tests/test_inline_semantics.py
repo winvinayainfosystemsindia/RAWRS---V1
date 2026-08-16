@@ -276,6 +276,14 @@ class TestUnresolvableReferences:
 
         assert sorted(r.start for r in references) == [3, 12]
 
+    def test_an_anchor_that_is_only_the_marker_yields_no_reference(self) -> None:
+        """N-2: the Mathpix placeholder anchor. Its "own region" is the
+        marker's own width, so the bounded search would match the bare
+        number anywhere — here, inside a year."""
+        note = _note(marker="15", anchor_text="15", anchor_offset=None, number=15)
+
+        assert resolve_note_references("published in 1915 and cited since", [note]) == []
+
     def test_no_notes_yields_no_references(self) -> None:
         assert resolve_note_references("Prose with no notes at all.", []) == []
 
