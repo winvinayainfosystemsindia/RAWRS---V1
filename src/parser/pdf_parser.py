@@ -14,7 +14,7 @@ stages to populate.
 from datetime import datetime, timezone
 from pathlib import Path
 from time import perf_counter
-from typing import Union
+from typing import List, Union
 
 import fitz  # PyMuPDF
 from loguru import logger
@@ -24,6 +24,49 @@ from src.models.contracts import Document, Metadata, Page, ProcessingStatus
 
 class PDFParserError(Exception):
     """Raised when a PDF file cannot be opened or parsed."""
+
+
+def page_text_layer(file_path: Union[str, Path]) -> List[str]:
+    """The PDF's own text, one string per physical page, in page order.
+
+    P-1 evidence reader. A Mathpix-imported document knows the *order* its
+    blocks came in and nothing about the page each one sits on: the ingestor
+    estimates that from proportional line position, which is exact on 11% of
+    the benchmark corpus. The PDF the same job already carries states it —
+    a page whose text contains a block's text is the page that block is on.
+    This function hands that text over and stops there: locating a block in
+    it is the alignment module's job, not the parser's.
+
+    ``Page.raw_text`` is not an alternative source. Stage 1 leaves it empty
+    (see ``parse_pdf``) and on the Mathpix path Stage 2 fills it from the MMD
+    (``src/mathpix/ingestor.py``'s ``_assign_page_text``), so by the time
+    anything downstream could look, the PDF's own text is gone.
+
+    Args:
+        file_path: Path to the PDF file on the local filesystem.
+
+    Returns:
+        One string per physical PDF page, index 0 being page 1, exactly as
+        PyMuPDF extracts it — no normalisation, no stripping, no OCR, and
+        nothing cached. A page with no text layer (a scan) yields ``""``,
+        which is evidence too: it says this page can prove nothing.
+
+    Raises:
+        FileNotFoundError: If file_path does not point to an existing file.
+        PDFParserError: If the file cannot be opened or read as a PDF.
+            Both match ``parse_pdf``'s existing behaviour deliberately —
+            one module, one contract.
+    """
+    path = Path(file_path)
+
+    if not path.is_file():
+        raise FileNotFoundError(f"PDF file not found: {path}")
+
+    try:
+        with fitz.open(path) as pdf_document:
+            return [page.get_text() for page in pdf_document]
+    except Exception as exc:  # PyMuPDF raises various error types on bad input
+        raise PDFParserError(f"Failed to read text layer of PDF '{path}': {exc}") from exc
 
 
 def parse_pdf(file_path: Union[str, Path]) -> Document:

@@ -8,7 +8,7 @@ import pytest
 
 import src.parser.pdf_parser as pdf_parser_module
 from src.models.contracts import Document, ProcessingStatus
-from src.parser.pdf_parser import PDFParserError, parse_pdf
+from src.parser.pdf_parser import PDFParserError, page_text_layer, parse_pdf
 
 SAMPLE_PDF_DIR = Path(__file__).resolve().parents[1] / "samples" / "benchmark" / "pdfs"
 
@@ -128,3 +128,90 @@ class TestParsePdfErrors:
 
         with pytest.raises(PDFParserError):
             parse_pdf(pdf_path)
+
+
+def _write_text_pdf(path: Path, page_texts: list) -> Path:
+    """A born-digital PDF: one page per string, that string drawn on it."""
+    with fitz.open() as doc:
+        for text in page_texts:
+            page = doc.new_page()
+            if text:
+                page.insert_text((72, 72), text)
+        doc.save(str(path))
+    return path
+
+
+def _write_scanned_pdf(path: Path, page_texts: list) -> Path:
+    """The same pages rasterised: pixels only, no text layer — a scan."""
+    source = _write_text_pdf(path.with_name("_source_" + path.name), page_texts)
+    with fitz.open(str(source)) as origin, fitz.open() as scan:
+        for page in origin:
+            pixmap = page.get_pixmap()
+            target = scan.new_page(width=page.rect.width, height=page.rect.height)
+            target.insert_image(target.rect, pixmap=pixmap)
+        scan.save(str(path))
+    source.unlink()
+    return path
+
+
+class TestPageTextLayer:
+    """P-1 evidence reader: the PDF's own text, per physical page.
+
+    Every case here pins a property the alignment milestone will rely on —
+    one entry per page, in page order, silence where a page can prove
+    nothing, and no side effect of any kind.
+    """
+
+    def test_one_entry_per_page_in_page_order(self, tmp_path: Path) -> None:
+        pdf = _write_text_pdf(tmp_path / "three.pdf", ["Alpha one", "Beta two", "Gamma three"])
+
+        texts = page_text_layer(pdf)
+
+        assert len(texts) == 3
+        assert "Alpha" in texts[0] and "Beta" in texts[1] and "Gamma" in texts[2]
+
+    def test_a_page_with_no_text_layer_yields_an_empty_string(self, tmp_path: Path) -> None:
+        pdf = _write_text_pdf(tmp_path / "gap.pdf", ["Alpha one", "", "Gamma three"])
+
+        texts = page_text_layer(pdf)
+
+        assert texts[1].strip() == ""
+        assert "Alpha" in texts[0] and "Gamma" in texts[2]
+
+    def test_a_scanned_pdf_yields_only_empty_strings(self, tmp_path: Path) -> None:
+        pdf = _write_scanned_pdf(tmp_path / "scan.pdf", ["Alpha one", "Beta two"])
+
+        texts = page_text_layer(pdf)
+
+        assert len(texts) == 2
+        assert all(text.strip() == "" for text in texts)
+
+    def test_entry_count_matches_the_pdf_page_count(self, sample_pdf_path: Path) -> None:
+        assert len(page_text_layer(sample_pdf_path)) == _expected_page_count(sample_pdf_path)
+
+    def test_missing_file_raises_file_not_found(self, tmp_path: Path) -> None:
+        # Same contract as parse_pdf: one module, one behaviour.
+        with pytest.raises(FileNotFoundError):
+            page_text_layer(tmp_path / "does_not_exist.pdf")
+
+    def test_unreadable_file_raises_pdf_parser_error(self, tmp_path: Path) -> None:
+        bad_file = tmp_path / "not_a_pdf.pdf"
+        bad_file.write_text("this is not a valid pdf file")
+
+        with pytest.raises(PDFParserError):
+            page_text_layer(bad_file)
+
+    def test_reading_leaves_no_trace(self, tmp_path: Path) -> None:
+        """No cache, no companion file, no mutation of a parsed Document,
+        and no dependence on having been called before."""
+        pdf = _write_text_pdf(tmp_path / "trace.pdf", ["Alpha one", "Beta two"])
+        before = sorted(p.name for p in tmp_path.iterdir())
+        document = parse_pdf(pdf)
+
+        first = page_text_layer(pdf)
+        second = page_text_layer(pdf)
+
+        assert first == second
+        assert sorted(p.name for p in tmp_path.iterdir()) == before
+        assert [page.raw_text for page in document.pages] == ["", ""]
+        assert [page.cleaned_text for page in document.pages] == ["", ""]
