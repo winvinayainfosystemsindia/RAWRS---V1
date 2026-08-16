@@ -80,6 +80,14 @@ _PIPE_SEP_RE = re.compile(r"^\|[\s\-:|]+\|\s*$")
 # List items
 _BULLET_RE = re.compile(r"^[-*]\s+(.+)$")
 _NUMBERED_RE = re.compile(r"^(\d+)\.\s+(.+)$")
+# N-1: an inline superscript number, in the three forms Mathpix emits.
+# ``${ }^{12}$`` is by far the common one — src/mathpix/math_transformer.py's
+# first rule already calls it a footnote reference and renders it ``[12]``.
+# Recognising the *marker* is not the same as proving a *note*: see
+# _prove_note_apparatus() for what turns these into notes and what does not.
+_SUPERSCRIPT_MARKER_RE = re.compile(
+    r"\$\{\s*\}\^\{(\d{1,3})\}\$|\^\{(\d{1,3})\}|\\textsuperscript\{(\d{1,3})\}"
+)
 # Publisher caption labels printed on the page: "FIGURE 1.1 ..."
 _PUBLISHER_LABEL_RE = re.compile(
     r"^(FIGURE|TABLE|CHART|BOX|APPENDIX|FIG\.?)\s+[\d.]", re.IGNORECASE
@@ -115,6 +123,81 @@ def classify_callout_type(heading_text: str) -> Optional[str]:
     return None
 
 
+def _prove_note_apparatus(doc: P2Document, markers: List[Tuple[int, int]]) -> None:
+    """Turn the document's numbered note apparatus into ``P2Footnote`` bodies.
+
+    N-1. Mathpix marks a note reference in the prose (``${ }^{12}$``) and prints
+    the note bodies as an ordinary numbered run, which is indistinguishable *by
+    shape* from a list: on the benchmark corpus one document's numbered runs are
+    a four-item conceptual list, a thirty-six-item note apparatus and an
+    eleven-item citation list, all identical line shapes. Classifying by
+    typography would have made all three notes, or none.
+
+    So the source has to prove it, and two facts do:
+
+    1. **The run begins after the last marker.** Notes are printed after the
+       prose that cites them; a list interleaved with that prose is not the
+       apparatus. This is what rejects the four-item run, which sits *inside*
+       the marker span.
+    2. **The run's numbers cover every marker number.** The apparatus is what
+       the markers point into, so a run missing any marker's number is not it.
+       This is what rejects the eleven-item citation list, which covers only
+       eleven of thirty-three markers.
+
+    The first run satisfying both is the apparatus, and the **whole** run
+    becomes note bodies — including a body no marker names. Three of the
+    corpus' thirty-six bodies are in that state, because Mathpix dropped those
+    superscripts from the prose; the body is still printed, still numbered, and
+    still part of the proven apparatus. Emitting the referenced ones only would
+    split one apparatus across two representations. A body without a reference
+    is valid model state (``Footnote.anchor_offset`` is already Optional); a
+    *reference* without a body is never invented, which is the asymmetry this
+    function exists to keep.
+
+    Fails closed everywhere else: no markers, no apparatus (an ordinary numbered
+    list stays a list); markers but no covering run, and nothing is created —
+    on the corpus that is one document with twenty-one markers whose bodies the
+    package simply does not contain.
+    """
+    if not markers:
+        return
+    marker_numbers = {number for _, number in markers}
+    last_marker_line = max(line for line, _ in markers)
+
+    numbered = [
+        block
+        for block in doc.blocks
+        if block.block_type is P2BlockType.LIST_ITEM
+        and block.list_style is P2ListStyle.NUMBERED
+        and block.list_number is not None
+    ]
+    runs: List[List[P2Block]] = []
+    for block in numbered:
+        if runs and block.list_number == runs[-1][-1].list_number + 1:
+            runs[-1].append(block)
+        else:
+            runs.append([block])
+
+    apparatus = next(
+        (
+            run
+            for run in runs
+            if run[0].source_line > last_marker_line
+            and marker_numbers <= {block.list_number for block in run}
+        ),
+        None,
+    )
+    if apparatus is None:
+        return
+
+    bodies = set(id(block) for block in apparatus)
+    doc.blocks = [block for block in doc.blocks if id(block) not in bodies]
+    for block in apparatus:
+        doc.footnotes.append(
+            P2Footnote(number=block.list_number, body=(block.text or "").strip())
+        )
+
+
 def parse_mmd(content: str) -> P2Document:
     """Parse Mathpix MMD content into a P2Document.
 
@@ -132,6 +215,10 @@ def parse_mmd(content: str) -> P2Document:
     lines = content.splitlines()
     n = len(lines)
     i = 0
+    # N-1: every inline superscript, recorded where it was seen. Collected
+    # before transform_inline_math() rewrites it, and used only after the
+    # whole document is parsed — the apparatus cannot be proven from one line.
+    markers: List[Tuple[int, int]] = []
 
     while i < n:
         line = lines[i]
@@ -141,6 +228,9 @@ def parse_mmd(content: str) -> P2Document:
         if not stripped:
             i += 1
             continue
+
+        for marker in _SUPERSCRIPT_MARKER_RE.finditer(stripped):
+            markers.append((i, int(next(g for g in marker.groups() if g))))
 
         # ── \footnotetext{N}{body} ─────────────────────────────────────
         fn_m = _FOOTNOTETEXT_RE.match(stripped)
@@ -236,6 +326,7 @@ def parse_mmd(content: str) -> P2Document:
         )
         i += 1
 
+    _prove_note_apparatus(doc, markers)
     return doc
 
 
