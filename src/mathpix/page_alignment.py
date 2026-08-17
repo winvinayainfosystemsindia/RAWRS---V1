@@ -92,6 +92,26 @@ class PageBracket:
     def is_open(self) -> bool:
         return self.lower is None and self.upper is None
 
+    def clamp(self, estimate: int) -> int:
+        """The consumer's rule (C3): evidence beats the estimate, and where
+        there is only an interval the estimate is *constrained*, never
+        replaced.
+
+        A stated page wins outright. Otherwise the caller's own estimate is
+        kept unless it falls outside a proven bound, in which case it moves to
+        that bound and no further — no interpolation, no midpoint, no nearest
+        anchor. An open side constrains nothing.
+        """
+        stated = self.stated
+        if stated is not None:
+            return stated
+        page = estimate
+        if self.lower is not None and page < self.lower:
+            page = self.lower
+        if self.upper is not None and page > self.upper:
+            page = self.upper
+        return page
+
 
 UNPROVEN = PageBracket()
 
@@ -131,6 +151,16 @@ class PageAlignment:
     def stated_page(self, source_line: Optional[int]) -> Optional[int]:
         """The page the evidence proves, or None when it proves an interval."""
         return self.bracket_for(source_line).stated
+
+    def resolve_page(self, source_line: Optional[int], estimate: int) -> int:
+        """This block's page: proven where proven, otherwise the caller's
+        estimate held inside whatever the evidence does prove.
+
+        The estimate is passed in rather than computed, so this module still
+        never calls ``estimate_page`` and a caller with no estimator of its
+        own is not forced to acquire one.
+        """
+        return self.bracket_for(source_line).clamp(estimate)
 
 
 def align_blocks_to_pages(

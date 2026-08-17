@@ -27,9 +27,10 @@ import json
 
 import difflib
 import hashlib
+import re
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from src.images.image_extractor import _build_placeholder_alt_text, _CAPTION_PATTERN
 from src.mathpix.page_estimation import estimate_page
@@ -224,6 +225,59 @@ def _apply_alt_text_state(image: Any, payload: str) -> None:
     image.figure.alt_text_status = AltTextStatus(status) if status else None
 
 
+_FILENAME_PAGE_RE = re.compile(r"-(\d{1,3})_\d+_\d+_\d+_\d+$")
+
+
+def _page_from_filename(path: Path, page_count: int) -> Optional[int]:
+    """The physical page Mathpix's own filename states, when it states one.
+
+    P-1 C3. Mathpix names each extracted image
+    ``{uuid}-{PAGE}_{x}_{y}_{w}_{h}.jpg``, and that page token is the physical
+    page the pixels came from - checked against PyMuPDF's own per-page image
+    list, 14 of the corpus' 17 encoded filenames name a page that really does
+    carry an image, and the three that do not belong to a scan whose pages
+    expose no image objects at all. Purely structural: no ordering, no
+    nearest-page, no text. A stem that does not match, or a page outside the
+    document, yields None and changes nothing.
+    """
+    match = _FILENAME_PAGE_RE.search(path.stem)
+    if not match:
+        return None
+    page = int(match.group(1))
+    return page if 1 <= page <= page_count else None
+
+
+def _resolve_image_page(
+    estimate: int,
+    *,
+    source_line: Optional[int],
+    path: Path,
+    page_count: int,
+    page_evidence: Optional[Any],
+) -> int:
+    """One image's page, strongest evidence first.
+
+    A page C2 *proved* for this figure's block wins outright. Otherwise the
+    filename's own page token is used, because it states where the pixels are
+    - which is the question - while a C2 bracket only bounds where the block
+    sits in reading order, and a floated figure legitimately differs. With
+    neither, the bracket constrains the estimate exactly as it does for every
+    other block, and with no evidence at all the estimate stands untouched.
+    """
+    if page_evidence is not None and source_line is not None:
+        stated = page_evidence.stated_page(source_line)
+        if stated is not None:
+            return stated
+
+    from_filename = _page_from_filename(path, page_count)
+    if from_filename is not None:
+        return from_filename
+
+    if page_evidence is not None and source_line is not None:
+        return page_evidence.resolve_page(source_line, estimate)
+    return estimate
+
+
 class FigureVerifier(SemanticVerifier):
     asset_type = "figure"
 
@@ -251,6 +305,12 @@ class FigureVerifier(SemanticVerifier):
     def to_canonical(self, match_result: MatchResult, **context: Any) -> List[Image]:
         page_count: int = context["page_count"]
         total_blocks: int = context["total_blocks"]
+        # P-1 C3. ``page_evidence`` is the import path's page evidence, handed
+        # over by the Mathpix ingestor; it answers ``stated_page(source_line)``
+        # and ``resolve_page(source_line, estimate)``. Absent - every other
+        # caller, every fixture - the estimate stands, which is what this
+        # verifier did before the evidence existed.
+        page_evidence = context.get("page_evidence")
         images: List[Image] = []
 
         for pair in match_result.pairs:
@@ -262,6 +322,7 @@ class FigureVerifier(SemanticVerifier):
                     signal=pair.matched_by,
                     total_blocks=total_blocks,
                     page_count=page_count,
+                    page_evidence=page_evidence,
                 )
             )
 
@@ -278,6 +339,7 @@ class FigureVerifier(SemanticVerifier):
                     total_blocks=total_blocks,
                     page_count=page_count,
                     orphan=True,
+                    page_evidence=page_evidence,
                 )
             )
 
@@ -294,10 +356,18 @@ class FigureVerifier(SemanticVerifier):
         total_blocks: int,
         page_count: int,
         orphan: bool = False,
+        page_evidence: Optional[Any] = None,
     ) -> Image:
         caption = block.figure.caption if block and block.figure else None
         page_number = (
             estimate_page(block.source_line, total_blocks, page_count) if block else page_count
+        )
+        page_number = _resolve_image_page(
+            page_number,
+            source_line=block.source_line if block else None,
+            path=path,
+            page_count=page_count,
+            page_evidence=page_evidence,
         )
         label, number = _parse_caption_label(caption)
         width, height = _read_dimensions(path)

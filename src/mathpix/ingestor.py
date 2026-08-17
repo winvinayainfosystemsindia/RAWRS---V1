@@ -30,6 +30,7 @@ from loguru import logger
 from src.frontmatter.front_matter_roles import build_title_heading
 from src.headings.page_markers import build_page_marker
 from src.mathpix.mmd_parser import parse_mmd
+from src.mathpix.page_alignment import PageAlignment, align_blocks_to_pages
 from src.mathpix.page_estimation import estimate_page
 from src.models.contracts import (
     Callout,
@@ -56,6 +57,65 @@ from src.models.phase2_document import (
     P2Table,
 )
 from src.models.semantic_object import ProvenanceSource
+from src.parser.pdf_parser import PDFParserError, page_text_layer
+
+
+def _align_to_pdf_pages(document: Document, p2doc: Any) -> Optional[PageAlignment]:
+    """The page evidence for this import, or None to keep the estimator.
+
+    P-1 C3. The MMD states block order; the PDF that arrived with it states
+    which page each block's text is on. ``page_alignment`` turns the second
+    into evidence, and this is where the import asks for it.
+
+    None means "no usable evidence" and is returned for every case where the
+    evidence does not hold up: no PDF path, an unreadable PDF, a pure scan
+    whose pages carry no text layer, or an alignment the module rejected
+    because its anchors contradicted each other. All of them collapse to the
+    same behaviour — the document keeps ``estimate_page`` exactly as before,
+    whole, never half-applied.
+    """
+    source = getattr(document, "source_pdf_path", None)
+    if not source:
+        return None
+    try:
+        page_texts = page_text_layer(Path(source))
+    except (FileNotFoundError, PDFParserError) as exc:
+        logger.warning("Mathpix page alignment: PDF text layer unavailable ({})", exc)
+        return None
+
+    alignment = align_blocks_to_pages(p2doc.blocks, page_texts)
+    logger.info(
+        "Mathpix page alignment: {} ({} anchor(s), {} ambiguous, {} short, "
+        "{} backwards, {} unmatched over {} page(s))",
+        alignment.status.value,
+        alignment.accepted,
+        alignment.rejected_ambiguous,
+        alignment.rejected_short,
+        alignment.rejected_backwards,
+        alignment.unmatched,
+        alignment.page_count,
+    )
+    return alignment if alignment.usable else None
+
+
+def _resolved_page(
+    source_line: Optional[int],
+    total_blocks: int,
+    page_count: int,
+    alignment: Optional[PageAlignment] = None,
+) -> int:
+    """One block's page: proven where the PDF proves it, estimated otherwise.
+
+    Every page assignment on this path goes through here, so the rule is
+    stated once: the estimator still runs, and the evidence either replaces
+    its answer (a block anchored to one page) or constrains it (a block known
+    only to lie between two anchors). No alignment, no change — the default
+    is exactly the call this function replaced.
+    """
+    estimate = estimate_page(source_line, total_blocks, page_count)
+    if alignment is None:
+        return estimate
+    return alignment.resolve_page(source_line, estimate)
 
 
 class MathpixImportProvider:
@@ -115,6 +175,9 @@ class MathpixImportProvider:
             mmd_path.name,
         )
 
+        # P-1 C3: asked once, consulted by every page assignment below.
+        alignment = _align_to_pdf_pages(document, p2doc)
+
         # ── 1. Front matter ────────────────────────────────────────────
         if p2doc.front_matter:
             fm = p2doc.front_matter
@@ -143,8 +206,8 @@ class MathpixImportProvider:
             heading_order += 1
         for block in p2doc.blocks:
             if block.block_type == P2BlockType.HEADING and block.heading:
-                page_num = estimate_page(
-                    block.source_line, total_blocks, page_count
+                page_num = _resolved_page(
+                    block.source_line, total_blocks, page_count, alignment
                 )
                 h = _p2heading_to_heading(block.heading, page_num, heading_order, source_line=block.source_line)
                 if h is not None:
@@ -187,7 +250,7 @@ class MathpixImportProvider:
                 heading_order += 1
 
         # ── 3. Page text (proportional distribution) ───────────────────
-        _assign_page_text(document, p2doc, page_count, total_blocks)
+        _assign_page_text(document, p2doc, page_count, total_blocks, alignment)
 
         # ── 3b. Lists ──────────────────────────────────────────────────
         # Consecutive LIST_ITEM blocks are grouped into canonical
@@ -198,11 +261,13 @@ class MathpixImportProvider:
         # plain paragraph text — the exact "lists becoming paragraphs"
         # defect. ListVerifier (src/verification/lists.py) later recovers
         # any real PDF list Mathpix didn't even tag as a list at all.
-        document.lists.extend(_group_list_items_to_lists(p2doc, page_count, total_blocks))
+        document.lists.extend(
+            _group_list_items_to_lists(p2doc, page_count, total_blocks, alignment)
+        )
 
         # ── 4. Footnotes ───────────────────────────────────────────────
         for p2fn in p2doc.footnotes:
-            fn = _p2footnote_to_footnote(p2fn, page_count, total_blocks)
+            fn = _p2footnote_to_footnote(p2fn, page_count, total_blocks, alignment)
             if fn is not None:
                 document.footnotes.append(fn)
 
@@ -210,8 +275,8 @@ class MathpixImportProvider:
         table_count = 0
         for block in p2doc.blocks:
             if block.block_type == P2BlockType.TABLE and block.table:
-                page_num = estimate_page(
-                    block.source_line, total_blocks, page_count
+                page_num = _resolved_page(
+                    block.source_line, total_blocks, page_count, alignment
                 )
                 document.tables.append(
                     _p2table_to_table(block.table, page_num, source_line=block.source_line)
@@ -226,7 +291,9 @@ class MathpixImportProvider:
         image_count = 0
         image_dir = kwargs.get("image_dir")
         if image_dir:
-            image_count = self._register_figures(document, p2doc, Path(image_dir), page_count, total_blocks)
+            image_count = self._register_figures(
+                document, p2doc, Path(image_dir), page_count, total_blocks, alignment
+            )
 
         logger.info(
             "Mathpix import complete: {} heading(s), {} table(s), {} footnote(s), {} image(s)",
@@ -244,6 +311,7 @@ class MathpixImportProvider:
         image_dir: Path,
         page_count: int,
         total_blocks: int,
+        alignment: Optional[PageAlignment] = None,
     ) -> int:
         from src.verification.engine import engine
         import src.verification.figures  # noqa: F401 - registers FigureAssetVerifier
@@ -263,6 +331,10 @@ class MathpixImportProvider:
             uploaded_files,
             page_count=page_count,
             total_blocks=total_blocks,
+            # P-1 C3: a figure's page comes from the same evidence as every
+            # other block's, and the verifier asks it two questions - what was
+            # proven, and how to hold an estimate inside what was proven.
+            page_evidence=alignment,
         )
         document.images.extend(images)
         document.verification_findings.extend(findings)
@@ -305,13 +377,16 @@ def _assign_page_text(
     p2doc: Any,
     page_count: int,
     total_blocks: int,
+    alignment: Optional[PageAlignment] = None,
 ) -> None:
     """Distribute paragraph text from the P2Document across Document pages.
 
     Each page's cleaned_text becomes the concatenation of paragraphs whose
-    estimated page number matches.  Sets extraction_method to MATHPIX_IMPORT
-    on every page so downstream OCR routing knows these pages are already
-    populated.
+    page number matches.  Sets extraction_method to MATHPIX_IMPORT on every
+    page so downstream OCR routing knows these pages are already populated.
+
+    ``alignment`` is the P-1 C3 page evidence; None keeps the estimator, which
+    is what every caller predating it gets.
     """
     # Bucket paragraph-type blocks by estimated page.
     # LIST_ITEM is deliberately excluded — those blocks are grouped into
@@ -327,7 +402,9 @@ def _assign_page_text(
             text = block.text or ""
             if not text:
                 continue
-            page_num = estimate_page(block.source_line, total_blocks, page_count)
+            page_num = _resolved_page(
+                block.source_line, total_blocks, page_count, alignment
+            )
             page_lines[page_num].append(text)
             # FEATURE_020 — a real object alongside the flattened
             # page.cleaned_text string below (kept, not replaced: other
@@ -353,7 +430,12 @@ def _assign_page_text(
         page.extraction_method = ExtractionMethod.MATHPIX_IMPORT
 
 
-def _group_list_items_to_lists(p2doc: Any, page_count: int, total_blocks: int) -> List[ListBlock]:
+def _group_list_items_to_lists(
+    p2doc: Any,
+    page_count: int,
+    total_blocks: int,
+    alignment: Optional[PageAlignment] = None,
+) -> List[ListBlock]:
     """Group consecutive P2BlockType.LIST_ITEM blocks into canonical
     ListBlocks. A run ends at any non-list-item block, or at a change of
     list_style (bullet -> numbered or vice versa) — either starts a new
@@ -392,7 +474,9 @@ def _group_list_items_to_lists(p2doc: Any, page_count: int, total_blocks: int) -
             flush()
         if current_style is None:
             current_style = block.list_style
-            current_page = estimate_page(block.source_line, total_blocks, page_count)
+            current_page = _resolved_page(
+                block.source_line, total_blocks, page_count, alignment
+            )
             current_source_line = block.source_line
         text = block.text or ""
         if text:
@@ -403,7 +487,10 @@ def _group_list_items_to_lists(p2doc: Any, page_count: int, total_blocks: int) -
 
 
 def _p2footnote_to_footnote(
-    p2fn: P2Footnote, page_count: int, total_blocks: int = 1
+    p2fn: P2Footnote,
+    page_count: int,
+    total_blocks: int = 1,
+    alignment: Optional[PageAlignment] = None,
 ) -> Optional[Footnote]:
     """Map a P2Footnote to a RAWRS Footnote.
 
@@ -445,7 +532,9 @@ def _p2footnote_to_footnote(
         number=p2fn.number,
         marker=marker,
         anchor_page_number=(
-            estimate_page(p2fn.anchor_line, total_blocks, page_count) if anchored else 1
+            _resolved_page(p2fn.anchor_line, total_blocks, page_count, alignment)
+            if anchored
+            else 1
         ),
         anchor_text=p2fn.anchor_text if anchored else marker,
         anchor_offset=p2fn.anchor_offset if anchored else None,
