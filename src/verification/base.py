@@ -129,6 +129,30 @@ class SemanticVerifier(ABC):
         """
         return []
 
+    def second_source_available(self, document: Any, **context: Any) -> bool:
+        """Could this asset type's PDF-side source speak about this document?
+
+        V-1a. ``import_provider`` answers "is there something to reconcile
+        *against*"; this answers the other half, "is there anything to
+        reconcile *with*". They are different questions, and conflating them
+        is what fills a reviewer's queue on a scanned document: with no text
+        layer the heading, list, table and footnote detectors return nothing,
+        the matcher dutifully reports every imported object as unconfirmed,
+        and 120 findings on two benchmark documents say only "the second
+        source was silent".
+
+        Default True, and that default is the safety property: an unknown
+        capability, an unimplemented override, a detector whose input cannot
+        be assessed - all keep producing findings, exactly as before. Only a
+        verifier that can *prove* its source had nothing to read may say
+        False.
+
+        A detector that ran and found nothing is not this. "No headings on
+        this page" is a finding; "no text to look at" is not a comparison at
+        all.
+        """
+        return True
+
     def revert(self, document: Any, correction: CorrectionRecord) -> None:
         """Generic undo: replays apply() with proposed/original swapped.
 
@@ -142,6 +166,24 @@ class SemanticVerifier(ABC):
             update={"proposed_value": correction.original_value, "original_value": correction.proposed_value}
         )
         self.apply(document, reversed_correction)
+
+
+def text_evidence_available(document: Any) -> bool:
+    """Did Structure Detection get a text layer to read at all?
+
+    V-1a. ``Document.blocks`` is Stage 3's output and is provider-neutral:
+    it is empty precisely when the PDF carried no native text (measured on
+    the corpus, ``blocks == []`` and "no text-bearing page" pick out the same
+    two scanned documents, both ways). Every PDF-side detector that works
+    from text or from the geometry of text - headings, lists, tables, note
+    candidates - is silent under that condition, so this is the one fact
+    those four verifiers need, stated once so the four cannot drift.
+
+    Deliberately not derived from the page alignment: verification must not
+    learn about a particular import provider's internals to answer a
+    question the document itself already answers.
+    """
+    return bool(getattr(document, "blocks", None))
 
 
 # Backward-compatible alias: existing code/tests that import `AssetVerifier`

@@ -31,7 +31,7 @@ from typing import Any, Dict, List, Optional
 from src.models.correction import CorrectionRecord
 from src.models.footnote import Footnote, NoteType
 from src.models.verification import Finding, RuleSpec
-from src.verification.base import SemanticVerifier
+from src.verification.base import SemanticVerifier, text_evidence_available
 from src.verification.matching import MatchResult, MultiSignalMatcher, WeightedSignal
 from src.verification.merge import MergeAction
 
@@ -256,6 +256,12 @@ class FootnoteVerifier(SemanticVerifier):
         # "unconfirmed" is informational only — no proposed_value, no-op.
 
 
+    def second_source_available(self, document, **context) -> bool:
+        """detect_footnote_pdf_candidates() reads structure blocks; without a
+        text layer there are none (V-1a). Scopes only the cross-source half:
+        ``_unlinked_body_findings`` never consults this."""
+        return text_evidence_available(document)
+
     def inspect(self, document, **context):
         """Everything this verifier has to say about the document's notes.
 
@@ -275,6 +281,13 @@ class FootnoteVerifier(SemanticVerifier):
         """
         findings = self._unlinked_body_findings(document)
         if not getattr(document, "import_provider", None):
+            return findings
+        # V-1a: the reconciliation half needs a PDF side that can speak.
+        # detect_footnote_pdf_candidates() works from structure blocks, so a
+        # document with no text layer produces none and every imported note is
+        # reported unconfirmed by silence. The single-source findings above are
+        # untouched - they are RAWRS's own reading, not a comparison.
+        if not self.second_source_available(document, **context):
             return findings
         from src.footnotes.footnote_detector import detect_footnote_pdf_candidates
         from src.verification.engine import engine

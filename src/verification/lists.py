@@ -23,7 +23,7 @@ from src.models.correction import CorrectionRecord
 from src.models.list_block import ListBlock, ListItem, ListType
 from src.models.semantic_object import ProvenanceSource
 from src.models.verification import Finding, RuleSpec, VerificationStatus
-from src.verification.base import SemanticVerifier
+from src.verification.base import SemanticVerifier, text_evidence_available
 from src.verification.evidence import EvidenceSignal
 from src.verification.matching import MatchResult, MultiSignalMatcher, WeightedSignal
 from src.verification.merge import MergeAction
@@ -208,14 +208,23 @@ class ListVerifier(SemanticVerifier):
         # List workspace UI exists to let a reviewer pick which items.
 
 
+    def second_source_available(self, document, **context) -> bool:
+        """detect_lists_from_pdf() reads the PDF's text and the geometry of
+        that text; with no text layer it has nothing to read (V-1a)."""
+        return text_evidence_available(document)
+
     def inspect(self, document, **context):
         """Recover lists a provider flattened into plain paragraphs.
 
         detect_lists_from_pdf() re-derives lists from PDF geometry
         independently of the provider's own list markup. Native-path
-        documents have no second source (see Document.import_provider).
+        documents have no second source (see Document.import_provider), and
+        neither does a document whose PDF carries no text at all - V-1a,
+        asked before the detector runs.
         """
         if not getattr(document, "import_provider", None):
+            return []
+        if not self.second_source_available(document, **context):
             return []
         from src.lists.list_detector import detect_lists_from_pdf
         from src.verification.engine import engine

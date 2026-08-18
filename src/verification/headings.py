@@ -48,7 +48,7 @@ from src.models.correction import CorrectionRecord
 from src.models.heading import Heading, HeadingLevel
 from src.models.verification import Finding, RuleSpec, VerificationStatus
 from src.ocr.targeted import TargetedOCRError, ocr_region
-from src.verification.base import SemanticVerifier
+from src.verification.base import SemanticVerifier, text_evidence_available
 from src.verification.evidence import EvidenceBundle, EvidenceSignal
 from src.verification.matching import MatchResult, MultiSignalMatcher, WeightedSignal
 from src.verification.merge import MergeAction, decide_from_evidence
@@ -658,6 +658,11 @@ class HeadingVerifier(SemanticVerifier):
         super().revert(document, correction)
 
 
+    def second_source_available(self, document, **context) -> bool:
+        """detect_headings_from_pdf() decides from typography - font size,
+        weight, spacing - and a page with no text layer has none (V-1a)."""
+        return text_evidence_available(document)
+
     def inspect(self, document, **context):
         """Everything this verifier has to say about the document's headings.
 
@@ -677,8 +682,15 @@ class HeadingVerifier(SemanticVerifier):
         nothing left to find, and a rule that cannot fire is worse than
         no rule — it reads as a guarantee. See
         src/headings/heading_signals.py's decision policy.
+
+        V-1a asks the other half of the same question: a provider exists, but
+        did the PDF side have anything to read? With no text layer
+        detect_headings_from_pdf() returns nothing, and every imported
+        heading is reported unconfirmed by a source that never spoke.
         """
         if not getattr(document, "import_provider", None):
+            return []
+        if not self.second_source_available(document, **context):
             return []
         from src.headings.heading_detector import detect_headings_from_pdf
         from src.verification.engine import engine

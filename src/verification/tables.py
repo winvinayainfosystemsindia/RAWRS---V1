@@ -36,7 +36,7 @@ from src.models.bounding_box import BoundingBox
 from src.models.correction import CorrectionRecord
 from src.models.table import Table, TableRow
 from src.models.verification import Finding, RuleSpec
-from src.verification.base import SemanticVerifier
+from src.verification.base import SemanticVerifier, text_evidence_available
 from src.verification.matching import MatchResult, MultiSignalMatcher, WeightedSignal
 from src.verification.merge import MergeAction
 
@@ -339,6 +339,11 @@ class TableVerifier(SemanticVerifier):
         # "missing_from_pdf"/"low_confidence" are informational only — no-op.
 
 
+    def second_source_available(self, document, **context) -> bool:
+        """extract_tables() fuses vector borders with the alignment of text;
+        with no text layer there is nothing to align (V-1a)."""
+        return text_evidence_available(document)
+
     def inspect(self, document, **context):
         """Reconcile provider tables against RAWRS's own table detection.
 
@@ -346,9 +351,14 @@ class TableVerifier(SemanticVerifier):
         evidence-fusion pipeline, already a pure function returning a list
         rather than mutating document.tables, so reusing it as verification
         evidence needs no refactor. Native-path documents have no second
-        source (see Document.import_provider) and yield nothing.
+        source (see Document.import_provider) and yield nothing. Nor does a
+        document whose PDF carries no text at all: the detectors work from
+        vector borders and the alignment of text, and a scan offers neither
+        (V-1a, asked before extraction runs).
         """
         if not getattr(document, "import_provider", None):
+            return []
+        if not self.second_source_available(document, **context):
             return []
         from src.tables.table_extractor import extract_tables
         from src.verification.engine import engine
