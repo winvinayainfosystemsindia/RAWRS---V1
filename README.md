@@ -1,126 +1,256 @@
-# RAWRS — Remediation and Accessibility Work Reduction System
+# RAWRS — Remediation Automation Workflow & Review System
 
-RAWRS is a local-first, accessibility remediation platform for academic PDFs. It accepts either a PDF alone or a PDF paired with a Mathpix MMD export, verifies and enriches the extracted content, and produces accessible Word documents (DOCX) and Markdown with a human-review platform for every accessibility-critical decision.
+RAWRS is a local-first document remediation workstation built for WinVinaya Foundation. It reduces repetitive accessibility-remediation effort while preserving document quality, human control, auditability and reversible decisions.
 
----
+It turns educational and academic PDFs into a structured document model that can be reviewed, validated and exported to accessible Markdown and DOCX.
 
-## What it does
-
-- **PDF-native path:** Extracts text from born-digital PDFs (PyMuPDF) with OCR fallback (Docling → Surya)
-- **Mathpix import path:** Imports a Mathpix MMD file as the primary extraction source; RAWRS provides verification, enrichment, and accessibility output. Every proposed correction is recorded as a `CorrectionRecord` (audit trail) — Mathpix extraction is never silently overwritten.
-- Detects headings (H1–H6), footnotes/endnotes, images, tables, lists, callouts (boxed asides), and front matter
-- Generates structured Markdown and accessible DOCX (Word Heading styles, native table markup, `w:tblHeader`, `dc:language`, `dc:title`, bold/italic inline formatting)
-- Validates 41 accessibility and structural rules (WCAG 2.4.2, 3.1.1, H73, etc.), including cross-source verification findings
-- Cross-checks Mathpix-imported headings, lists, callouts, and figures against the original PDF via a generic evidence-fusion verification engine (`src/verification/`), proposing REPAIR/RECOVER/REMOVE corrections a reviewer accepts or rejects — never silently overwriting Mathpix output
-- Provides a web-based review platform (PDF/Markdown/DOCX split-view workspace, PDF object inspector, theme toggle) with workspaces for every reviewable object:
-  - **Headings** — approve/level-change/reject, screen reader preview
-  - **Reading Order** — drag-reorder blocks, approve pages
-  - **Images** — on-demand AI alt text (Qwen2.5-VL), approve/reject/decorative/complex/skip/edit
-  - **Footnotes** — edit body, approve, reject
-  - **Tables** — auto-detect bordered tables, manual create for borderless, edit cells, caption, summary, header rows; WCAG H73 screen reader simulation
-  - **Page Labels** — override individual pages or apply a bulk numbering scheme (arabic/roman, start number, prefix/suffix) per page range
-  - **Corrections** — accept/reject/edit every cross-source verification finding, with full history
-  - **Metadata** — set `dc:language`, `dc:title`, `dc:creator`, `dc:subject`
+> **Automation proposes. Validation decides. Humans make the judgement calls.**
 
 ---
 
-## Architecture
+## Status
 
-**Pipeline (both paths share stages 3–8):**
+| | |
+| --- | --- |
+| Phase | 1 |
+| Architecture | Frozen |
+| Deployment | Local application, single reviewer |
+| Users | Document remediators, accessibility specialists, QA reviewers |
+
+RAWRS is no longer a PDF-to-DOCX converter. The architecture centres on a canonical document model, semantic objects, a ContentStream, reversible correction records, live accessibility evaluation, benchmark-driven validation and a reviewer workspace.
+
+The project is in an architectural convergence phase: most infrastructure exists, and the current work is making the semantic model, review workflow, readiness logic and output projections agree with each other.
+
+---
+
+## Pipeline
+
 ```
-PDF-native:  PDF → extract text → OCR → Document Model → Markdown + DOCX + report
-Mathpix:     PDF + MMD → MathpixImportProvider → Document Model → Markdown + DOCX + report
+PDF
+ ├── Native PDF parsing + OCR
+ └── High-fidelity extraction package (Mathpix import)
+                    ↓
+         Canonical Document Model
+   pages · paragraphs · headings · tables · figures
+   notes · lists · front matter · reading order
+   metadata · provenance
+                    ↓
+         Structure + Verification
+   heading/table/figure/list/note detection
+   artifact suppression · cross-source verification
+                    ↓
+         Review / Correction Layer
+   findings · CorrectionRecords
+   accept / reject / edit / ignore · reversible
+                    ↓
+      Accessibility Intelligence Engine
+   score · category scores · blocking failures
+   accessibility debt · export_ready
+                    ↓
+      Structured Markdown  +  Structured DOCX
 ```
 
-`src/pipeline/phase1_pipeline.py` — `run_pipeline(pdf_path, mmd_path=None)`  
-`src/importers/` — `ImportProvider` Protocol + `MathpixImportProvider`  
-`src/mathpix/mmd_parser.py` — state-machine MMD → intermediate P2Document  
-`src/mathpix/ingestor.py` — P2Document → RAWRS Document Model  
-`src/models/correction.py` — `CorrectionRecord` audit trail  
-`src/api/` — FastAPI HTTP interface (in-memory job tracking)  
-`frontend/` — Next.js/React/TypeScript/Tailwind review platform
+**Markdown and DOCX are outputs, not the authoritative editing model.** The model owns meaning; projections render it. A projection must not invent semantic objects that do not exist in the model.
+
+---
+
+## Design principles
+
+- **Validation first** — extraction and interpretation are provisional until validated.
+- **Human in the loop** — RAWRS does not silently make decisions requiring accessibility expertise.
+- **Local first** — Phase 1 runs on the filesystem. No database, cloud storage, queue or container requirement.
+- **Model agnostic** — no dependency on a single AI vendor.
+- **Auditability** — decisions retain evidence, provenance and review state.
+- **Reversibility** — corrections preserve the original value and support undo.
+- **Single source of truth** — shared semantic models live in `src/models/`; downstream systems consume the canonical model rather than inventing parallel representations.
+- **Evidence over assumption** — benchmark documents verify architectural assumptions before implementation.
+
+---
+
+## Core concepts
+
+### Canonical model
+`Document`, `Page`, `TextBlock`, `Paragraph`, `Heading`, `Table`, `TableCell`, `Image`, `Figure`, `Footnote`, `Endnote`, `ListBlock`, `ListItem`, `Callout`, `FrontMatter`, `Metadata`, `CorrectionRecord`, `ValidationIssue`, plus evidence/provenance and reading-order state. Objects carry confidence, so downstream systems can distinguish source evidence from interpreted structure.
+
+### ContentStream
+The canonical ordered representation consumed by both projections, so Markdown and DOCX never independently rebuild document order.
+
+### Correction rail
+`ValidationIssue` is a diagnostic snapshot. `CorrectionRecord` is live, reversible review state. These are deliberately different things.
+
+```
+Finding → CorrectionRecord → Reviewer decision → Model mutation
+        → ContentStream → Projection → Validation
+```
+
+Lifecycle: proposed, pending review, accepted, edited, rejected, ignored, auto-applied, reverted. Every reviewer decision should be traceable and reversible.
+
+### Accessibility Intelligence Engine
+Evaluates the **live** document state rather than frozen pipeline findings, producing an `AccessibilityReport` with overall score, category scores, evidence, blocking failures, accessibility debt and `export_ready`.
+
+The project previously carried three competing readiness concepts — snapshot readiness from `ValidationIssue`, object-state readiness, and engine readiness. The architecture is converging on the engine as the single canonical authority.
+
+### Export Ready
+```
+Export Ready  ⇔  zero live accessibility blockers
+              AND all required reviewer decisions terminal
+```
+Terminal: accepted, edited, rejected, ignored, auto-applied. Non-terminal: proposed, pending review, reverted.
+
+**Accessibility state** describes the document. **Workflow state** describes whether the human decisions are done. A document can be structurally accessible and still not export-ready.
+
+---
+
+## Reviewer workspace
+
+Review surfaces cover headings, tables, images and alt text, footnotes, endnotes, reading order, metadata, page labels and cross-source corrections.
+
+The workspace exists to reduce reviewer cognitive load, not to expose every diagnostic as an independent task. Benchmark investigation found that hundreds of findings can be duplicate verification mirrors rather than distinct reviewer actions — on one run, ~550 validation findings resolved to ~165 genuine actions, with ~385 mirrors. The UI separates **Action Required** from **Verification Findings** rather than deleting the evidence.
+
+AI-assisted alt text is on-demand and reviewer-controlled, never applied in bulk.
+
+---
+
+## Technology
+
+**Frontend** — React, TypeScript, Vite, TailwindCSS, shadcn/ui, Zustand, Lucide React, react-resizable-panels, react-pdf. Inter and JetBrains Mono.
+
+**Backend** — FastAPI, Python 3.11+, Uvicorn, Pydantic, python-multipart.
+
+**Document processing** — Docling, PyMuPDF. OCR: Docling primary, Surya fallback. DOCX via python-docx. Logging via Loguru.
+
+**Quality** — pytest, pytest-cov, Black, Ruff, MyPy.
+
+**Storage** — local filesystem. No Phase 1 database, cloud storage, vector store, Redis, Celery or container requirement.
+
+---
+
+## Benchmark corpus
+
+Ten educational and academic PDFs with corresponding remediated DOCX targets, testing extraction quality, heading structure, lists, tables, notes, images, page preservation, validation, DOCX projection and accessibility readiness.
+
+**The benchmark is an architectural feedback mechanism, not a test suite.** It has repeatedly prevented incorrect assumptions from becoming architecture — the native list detector was shown unreliable, readiness convergence was shown to have behavioural consequences, and scanned-page reconstruction images were identified as false content images.
+
+---
+
+## Measured current reality
+
+These are conservative, measured findings from the latest audit. They are published deliberately.
+
+| Area | Finding |
+| --- | --- |
+| Heading hierarchy | No H1 produced on 6 of 10 benchmark documents, while producing H2/H3 |
+| Lists (native path) | No semantic lists across the corpus; 11 produced, all false positives, against 161 human-target list paragraphs |
+| Lists (Mathpix path) | 204 DOCX list paragraphs against 161 targets — over-production with identity and projection problems. Exact text/order parity on Nature of Enquiry: 45/45 |
+| Notes | 47 notes missed across two documents; detection depends too heavily on literal superscript glyphs |
+| Scanned images | One document produced 112 page-reconstruction images into DOCX against a human target of 3 |
+| Metadata / navigation | Audited DOCX lacked populated core properties, bookmarks, hyperlinks and TOC |
+| Endnotes | Endnote materialisation verified successfully on benchmark material |
+
+These are measured limitations, not claims that the architecture cannot solve them.
+
+---
+
+## What works today
+
+Canonical semantic document model with stable object identity · ContentStream architecture · cross-source verification with multiple registered verifiers · reversible correction rail · live Accessibility Intelligence Engine with scoring and export-readiness · heading detection · paragraph grouping · front-matter extraction · image extraction and artifact filtering · table detection and rendering · page preservation · DOCX semantic heading and table rendering · note type representation · endnote detection and materialisation · benchmark corpus and regression harness · reviewer correction workflows.
+
+The engineering direction has shifted from *build more infrastructure* to *make existing infrastructure produce the remediation decisions reviewers actually need*.
+
+---
+
+## Gaps, by class
+
+Each class needs a different fix, which is why they are tracked separately.
+
+**Semantic model gaps** — the model cannot yet express list item identity, list numbering start/restart, list placement, figure-caption identity, image ordering, document-title identity, endnote section identity, span-level typography, hyperlinks, bookmarks, TOC, document language, or provenance for generated editorial content.
+
+**Projection gaps** — the model knows it, the projection doesn't consume it: DOCX metadata, list nesting, some note information, image metadata, some ContentStream paths.
+
+**Extraction gaps** — never becomes a semantic object at all: blockless scanned pages, some note markers, reliable native list detection.
+
+---
+
+## Next milestone — lists as a remediable object
+
+Give `ListItem` semantic identity; add list create/update/delete operations; add a list correction type and verifier; let reviewers build a list from selected paragraphs; allow list type and item level correction; render from `LIST` ContentStream nodes; preserve nesting from the recorded level; validate list-shaped paragraphs lacking a `ListBlock`.
+
+**Explicit non-goals:** promoting the native geometric detector, numbering start/restart, mixed-type nesting, lists in table cells, rebuilding the Mathpix rendering path, bookmarks/TOC.
+
+**Deferred deliberately:** bookmarks, TOC, hyperlinks, a third output projection, equation/STEM support, a separate Caption object, automatic reading-order reconstruction, cross-page table detection, and anything that makes byte-identical DOCX a quality gate again.
+
+---
+
+## Scope
+
+**In Phase 1** — OCR, reading-order analysis, OCR cleanup, header/footer removal, page markers, page-break preservation, heading detection, image extraction, figure detection, metadata capture, Markdown and DOCX generation, tables, notes, lists, cross-source verification, accessibility evaluation, human review.
+
+**Out of Phase 1** — unattended alt-text automation, equation and STEM remediation, PDF/UA tag-tree generation, model training, knowledge graphs, multi-agent architecture, cloud infrastructure, database-backed or multi-tenant deployment, collaborative multi-reviewer workflow.
+
+---
+
+## Engineering workflow
+
+```
+Repository investigation → Runtime verification → Benchmark validation
+→ Architecture review → Implementation plan → Small implementation
+→ Regression validation → Commit
+```
+
+**Do:** use shared models from `src/models/`; keep business logic in one authoritative location; preserve evidence and provenance; make reviewer changes reversible; add tests for major modules; validate against the benchmark; prefer deterministic logic.
+
+**Don't:** redesign the architecture casually; add frameworks, cloud services, databases or agent frameworks; duplicate shared models; create module-specific document formats; make silent semantic mutations; treat Markdown or DOCX as authoritative; trust extraction without validation.
+
+A green test suite is not sufficient if benchmark output quality regresses.
 
 ---
 
 ## Quick start
 
 ```bash
-# Install dependencies
 python -m venv .venv
-.venv\Scripts\activate        # Windows
+.venv\Scripts\activate          # Windows
 pip install -r requirements-dev.txt
-pip install -r requirements-ai.txt   # optional — only needed for real AI alt text/table analysis
+pip install -r requirements-ai.txt   # optional — AI alt text / table analysis
 
-# Run the backend
 uvicorn src.api.main:app --reload
 
-# Run the frontend (separate terminal)
-cd frontend
-npm install
-npm run dev
-
-# Run tests (fast subset, no real OCR)
-pytest -m "not real_docling and not real_surya"
+cd frontend && npm install && npm run dev
 ```
 
-**Open the frontend at `http://localhost:3000`, not `http://127.0.0.1:3000`.** Next.js 16's dev server blocks cross-origin dev requests (including its own hot-reload WebSocket) for any host other than the exact one it printed. Using `127.0.0.1` or a LAN IP silently breaks hot reload and can cause the browser to fall back to rapid full-page reloads, wiping in-progress form state (e.g. a file just selected in the upload form). See `frontend/next.config.ts`'s `allowedDevOrigins` and `docs/DECISIONS_LOG.md` Part 24.
-
-The pipeline can also be called directly:
+Direct pipeline use:
 
 ```python
 from src.pipeline.phase1_pipeline import run_pipeline
 
-# PDF-native path (unchanged behavior)
-result = run_pipeline(pdf_path="path/to/file.pdf", output_root="outputs/", enable_ocr=False)
-
-# Mathpix import path
+result = run_pipeline(pdf_path="path/to/file.pdf", output_root="outputs/")
 result = run_pipeline(pdf_path="path/to/file.pdf", mmd_path="path/to/file.mmd", output_root="outputs/")
 ```
 
----
-
-## Project documentation
-
-| File | Purpose |
-|------|---------|
-| `docs/CURRENT_STATE.md` | One-page summary of what RAWRS actually does today |
-| `docs/PHASE_STATUS.md` | Per-feature implementation status with test citations |
-| `docs/ARCHITECTURE_CURRENT.md` | Actual module inventory and pipeline order |
-| `docs/DECISIONS_LOG.md` | Why things are the way they are — all architecture decisions |
-| `docs/KNOWN_LIMITATIONS.md` | What's deliberately not built and confirmed gaps |
-| `docs/VALIDATION_RULES.md` | All 29 validation rule IDs, severities, and checks |
-| `docs/DOCUMENTATION_MAP.md` | Precedence order when documents conflict |
+Benchmark PDFs and Mathpix DOCX exports are **not committed** (copyrighted academic papers). Expected outputs and the manifest are included; place matching PDFs in `samples/benchmark/pdfs/` to run the full suite.
 
 ---
 
-## Benchmark PDFs
+## Philosophy
 
-The benchmark corpus (`samples/benchmark/pdfs/`) and Mathpix DOCX exports (`samples/mathpix/**/*.docx`) are **not included in this repository** (copyrighted academic papers). The test suite's expected outputs (`samples/benchmark/expected_md/`) and manifest (`samples/benchmark/manifest.json`) are included. To run the full benchmark suite (tests marked `real_docling`/`real_surya`), place the corresponding PDFs in `samples/benchmark/pdfs/` matching the manifest filenames.
+RAWRS does not optimise for automation percentage. It optimises for **human minutes per 100 pages** while maintaining trustworthy accessibility quality.
 
-## Test suite
+A good result is not "AI changed 95% of the document." A good result is: the document is structurally correct, the remaining decisions are visible, the reviewer can resolve them quickly, and every important decision is traceable.
 
-Fast subset (no real OCR engines — runs in ~35 min):
-
-```bash
-pytest -m "not real_docling and not real_surya" -q
-```
-
-Full suite including real OCR benchmark tests:
-
-```bash
-pytest -q
-```
-
-Last confirmed full-suite count: **1296 passed, 0 failed, 7 skipped** (2026-06-30, all markers).
+The long-term direction is an **Accessibility Decision Support Platform** where the reviewer workspace is the primary interface, rather than deep remediation happening in exported DOCX files.
 
 ---
 
-## Dependencies
+## Reference documents
 
-Core: `pydantic`, `pymupdf`, `python-docx`, `fastapi`, `uvicorn`, `docling`, `surya-ocr==0.20.0`, `loguru`, `beautifulsoup4`, `python-multipart`
+`RAWRS_PROJECT_CONTEXT.md` · `ARCHITECTURE.md` · `PHASE1_SCOPE.md` · `HEADING_RULES.md` · `PAGE_RULES.md` · `VALIDATION_RULES.md` · `OCR_RULES.md` · `TECH_STACK.md` · `CLAUDE_INSTRUCTIONS.md`
 
-AI alt text (on-demand, optional — `requirements-ai.txt`): `torch`, `transformers`, `qwen-vl-utils`, `psutil`. The base install runs fully without these; `GET /api/ai/status` reports unavailability with a clear reason if they're not installed, and a startup RAM/VRAM preflight (`src/ai/providers/qwen.py`) checks hardware suitability before attempting to load the model. Model weights download on first real inference call.
+Consult the latest product audits and milestone investigations before implementing changes.
 
-Dev: `pytest`, `pytest-cov`
+---
 
-External runtime (for Surya on CPU): `llama-server` binary (llama.cpp) — required by `surya-ocr` on non-GPU hosts; set `LLAMA_CPP_BINARY` env var or add to PATH.
+## Maintainer note
+
+Investigate before coding. Measure against the benchmark. Find the canonical owner. Reuse existing infrastructure. Make the smallest coherent change. Validate before claiming success. Do not hide uncertainty. Do not confuse infrastructure progress with remediation progress.
+
+RAWRS should become simpler and more trustworthy as it grows, not merely larger.
