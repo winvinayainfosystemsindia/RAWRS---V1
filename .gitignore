@@ -1,6 +1,9 @@
 # Claude Code session data
 .claude/
 
+# Freebuff agent session data
+.freebuff/
+
 # Python
 __pycache__/
 *.py[cod]
