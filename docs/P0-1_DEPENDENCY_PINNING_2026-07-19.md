@@ -47,7 +47,9 @@ The chain that allowed this: `docling` was unpinned, it accepts `rapidocr>=3.3,<
 
 **The fix is one dependency, not a code change:** install `onnxruntime` (docling's declared `rapidocr` extra).
 
-**Deliberately NOT applied in P0-1.** Adding it would make Docling OCR start working — a functional change, outside this task's stated scope ("make no functional changes", "do not fix unrelated bugs"). Pinning `rapidocr==3.9.0` makes the failure deterministic and attributable instead of a moving target. Recommended as its own task.
+**Deliberately NOT applied in P0-1.** Adding it would make Docling OCR start working — a functional change, outside this task's stated scope ("make no functional changes", "do not fix unrelated bugs"). Pinning `rapidocr==3.9.0` makes the failure deterministic and attributable instead of a moving target.
+
+**UPDATE 2026-09-15 — fix applied.** `onnxruntime==1.30.0` is now declared in `requirements.txt` and pinned in `requirements.lock`; the `real_docling` integration class (17 tests) passes with it installed. This closes the last item P0-1 left open.
 
 ---
 
