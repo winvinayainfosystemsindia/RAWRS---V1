@@ -54,8 +54,7 @@ describe("Document Workspace (WorkspaceShell) accessibility", () => {
           nav={<nav aria-label="Document outline">Outline stub</nav>}
           mode="document"
           currentPage={3}
-          readinessScore={0.92}
-          readinessReady={false}
+          readiness={{ label: "Needs Review", detail: "1 blocking: 1 need review.", score: 0.92 }}
           onOpenSearch={() => {}}
           jobId="test-job"
           docxAvailable

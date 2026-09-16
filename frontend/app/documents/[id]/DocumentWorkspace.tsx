@@ -31,6 +31,7 @@ import { OutputWorkspace } from "@/components/OutputWorkspace";
 import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { DocxPreview } from "@/components/DocxPreview";
 import { WorkspaceShell } from "@/components/workspace/WorkspaceShell";
+import { readinessState } from "@/lib/readinessState";
 import { SemanticNavTree, type NavSection } from "@/components/workspace/SemanticNavTree";
 import { NavChips } from "@/components/workspace/NavChips";
 import { ContextInspectorRail } from "@/components/workspace/ContextInspectorRail";
@@ -503,8 +504,7 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
           durationSeconds={job.duration_seconds}
           mode={activeSpecialView ? "special" : "document"}
           currentPage={pageNumber}
-          readinessScore={state.accessibilityReport?.overall_score ?? null}
-          readinessReady={state.accessibilityReport?.export_ready}
+          readiness={readinessState(state.accessibilityReport, state.loadErrors.includes("accessibility report"))}
           onOpenSearch={() => {
             setActiveSpecialView("");
             setSearchNonce((n) => n + 1);

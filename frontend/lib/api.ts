@@ -790,12 +790,12 @@ export interface AccessibilityEvidenceSignal {
 export interface AccessibilityRuleEvaluation {
   rule_id: string;
   category: string;
-  outcome: "PASS" | "FAIL" | "MANUAL_REVIEW_REQUIRED" | "NOT_APPLICABLE";
+  outcome: "pass" | "fail" | "manual_review_required" | "not_applicable"; // RuleOutcome values (src/accessibility/models.py)
   message: string;
   object_id: string | null;
   page_number: number | null;
   confidence: number;
-  confidence_tier: "HIGH" | "MEDIUM" | "LOW";
+  confidence_tier: "high" | "medium" | "low";
   evidence: AccessibilityEvidenceSignal[];
 }
 

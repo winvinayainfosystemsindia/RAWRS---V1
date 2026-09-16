@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Panel, PanelGroup, PanelResizeHandle, type ImperativePanelHandle } from "react-resizable-panels";
 import { api, type JobStatus } from "@/lib/api";
+import type { ReadinessState } from "@/lib/readinessState";
 import { JobStatusBadge } from "@/components/Badge";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useArrowKeyTabs } from "@/lib/hooks/useArrowKeyTabs";
@@ -43,11 +44,10 @@ interface WorkspaceShellProps {
   // presentational shell (no context hooks here — see the a11y test,
   // which renders this with no PdfViewportContext/DocumentDataContext).
   currentPage?: number | null;
-  readinessScore?: number | null;
-  // Optional, primitive (not the full ReadinessReport type) — keeps this
-  // component decoupled from DocumentDataContext's data shape, same
-  // reasoning as every other prop here.
-  readinessReady?: boolean;
+  // Phase C — the backend's export verdict, already named by
+  // lib/readinessState (not the report itself, so this shell stays decoupled
+  // from DocumentDataContext). Primary signal; the score is secondary.
+  readiness?: ReadinessState | null;
   onOpenSearch?: () => void;
   jobId?: string;
   docxAvailable?: boolean;
@@ -179,6 +179,14 @@ function ExportMenu({
   );
 }
 
+const READINESS_TONE: Record<ReadinessState["label"], string> = {
+  "Export Ready": "bg-success/10 text-success",
+  "Needs Review": "bg-warning/10 text-warning",
+  Blocked: "bg-danger/10 text-danger",
+  Validating: "bg-accent/10 text-accent",
+  "Validation unavailable": "bg-surface-canvas text-text-secondary border border-border",
+};
+
 export function WorkspaceShell({
   filename,
   status,
@@ -192,8 +200,7 @@ export function WorkspaceShell({
   specialView,
   bottomPanel,
   currentPage,
-  readinessScore,
-  readinessReady,
+  readiness,
   onOpenSearch,
   jobId,
   docxAvailable,
@@ -263,7 +270,7 @@ export function WorkspaceShell({
   return (
     <div className="flex flex-col rounded border border-border bg-surface-canvas overflow-hidden">
       {/* Top bar — Phase R-2 M3: primary orientation info (filename,
-          status, readiness score) grouped on the left with the filename,
+          status, export readiness) grouped on the left with the filename,
           since these three answer "what is this document / how healthy is
           it" (Journey Stage 1). Everything on the right is secondary
           action/metadata (page position, export, view options) and keeps
@@ -271,20 +278,26 @@ export function WorkspaceShell({
       <div className="flex items-center justify-between gap-4 border-b border-border bg-surface-panel px-4 py-2.5">
         <div className="flex min-w-0 flex-wrap items-center gap-3">
           <span className="break-all text-sm font-semibold text-text-primary">{filename}</span>
-          <JobStatusBadge status={status} />
-          {readinessScore !== null && readinessScore !== undefined && (
+          {/* A finished job's primary status is its export verdict; the job
+              badge still speaks for queued/processing/failed. */}
+          {status === "complete" && readiness ? (
             <span
-              title="Accessibility readiness score"
-              className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-sm font-semibold ${
-                readinessReady ? "bg-success/10 text-success" : "bg-warning/10 text-warning"
-              }`}
+              title={readiness.detail}
+              className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-sm font-semibold ${READINESS_TONE[readiness.label]}`}
             >
-              {readinessReady ? (
-                <IconCheckCircle className="h-4 w-4 shrink-0" />
-              ) : (
+              {readiness.label === "Export Ready" && <IconCheckCircle className="h-4 w-4 shrink-0" />}
+              {(readiness.label === "Blocked" || readiness.label === "Needs Review") && (
                 <IconWarningTriangle className="h-4 w-4 shrink-0" />
               )}
-              Score {Math.round(readinessScore * 100)}%
+              {readiness.label}
+              <span className="sr-only">. {readiness.detail}</span>
+            </span>
+          ) : (
+            <JobStatusBadge status={status} />
+          )}
+          {status === "complete" && readiness?.score != null && (
+            <span title="Accessibility score (informational; export readiness is the status)" className="text-xs text-text-secondary">
+              Score {Math.round(readiness.score * 100)}%
             </span>
           )}
         </div>

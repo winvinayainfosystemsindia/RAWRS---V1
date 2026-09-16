@@ -31,7 +31,7 @@ function EngineReadinessPanel({ report, onSelectCategory, onFixNext }: {
 }) {
   const scorePercent = Math.round(report.overall_score * 100);
   const failingCount = useMemo(
-    () => report.evaluations.filter((ev) => ev.outcome === "FAIL" || ev.outcome === "MANUAL_REVIEW_REQUIRED").length,
+    () => report.evaluations.filter((ev) => ev.outcome === "fail" || ev.outcome === "manual_review_required").length,
     [report.evaluations]
   );
 
@@ -40,7 +40,7 @@ function EngineReadinessPanel({ report, onSelectCategory, onFixNext }: {
     for (const ev of report.evaluations) {
       const entry = map.get(ev.category) ?? { total: 0, covered: 0 };
       entry.total++;
-      if (ev.outcome !== "MANUAL_REVIEW_REQUIRED") entry.covered++;
+      if (ev.outcome !== "manual_review_required") entry.covered++;
       map.set(ev.category, entry);
     }
     return map;
@@ -218,22 +218,22 @@ function EngineReadinessPanel({ report, onSelectCategory, onFixNext }: {
           </summary>
           <ul className="divide-y divide-border border-t border-border">
             {report.evaluations
-              .filter((ev) => ev.outcome === "FAIL" || ev.outcome === "MANUAL_REVIEW_REQUIRED")
+              .filter((ev) => ev.outcome === "fail" || ev.outcome === "manual_review_required")
               .map((ev, i) => (
                 <li key={`${ev.rule_id}-${ev.object_id ?? i}`} className="px-4 py-3">
                   <div className="flex items-center gap-2">
                     <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
-                      ev.outcome === "FAIL" ? "bg-danger/10 text-danger" : "bg-accent/10 text-accent"
+                      ev.outcome === "fail" ? "bg-danger/10 text-danger" : "bg-accent/10 text-accent"
                     }`}>
-                      {ev.outcome === "FAIL" ? "FAIL" : "REVIEW"}
+                      {ev.outcome === "fail" ? "FAIL" : "REVIEW"}
                     </span>
                     <span className="font-mono text-xs text-text-secondary">{ev.rule_id}</span>
                     {ev.page_number != null && (
                       <span className="text-xs text-text-secondary">Page {ev.page_number}</span>
                     )}
-                    <span className={`ml-auto rounded px-1.5 py-0.5 text-[10px] font-medium ${
-                      ev.confidence_tier === "HIGH" ? "bg-success/10 text-success"
-                      : ev.confidence_tier === "MEDIUM" ? "bg-warning/10 text-warning"
+                    <span className={`ml-auto rounded px-1.5 py-0.5 text-[10px] font-medium uppercase ${
+                      ev.confidence_tier === "high" ? "bg-success/10 text-success"
+                      : ev.confidence_tier === "medium" ? "bg-warning/10 text-warning"
                       : "bg-danger/10 text-danger"
                     }`}>
                       {Math.round(ev.confidence * 100)}% {ev.confidence_tier}
