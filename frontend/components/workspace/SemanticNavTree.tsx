@@ -1,5 +1,6 @@
 "use client";
 
+import { isPending } from "@/lib/correctionFilters";
 import { useEffect, useMemo, useState } from "react";
 import {
   useDocumentData,
@@ -338,9 +339,7 @@ export function SemanticNavTree({
       {mode === "corrections" && (
         <ul className="mt-2">
           {(() => {
-            const pending = corrections.filter((c) =>
-              ["proposed", "pending_review"].includes(c.status)
-            );
+            const pending = corrections.filter(isPending);
             if (pending.length === 0) return <EmptyRow text="No pending corrections." />;
             return pending.map((c) => (
               <li key={c.correction_id}>

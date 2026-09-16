@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 
 export type SelectableObjectType =
   | "heading"
@@ -30,26 +30,23 @@ const SelectionContext = createContext<SelectionContextValue | null>(null);
 export function SelectionProvider({ children }: { children: ReactNode }) {
   const [selection, setSelection] = useState<Selection | null>(null);
 
+  // Stable identities: `select` must not change when the selection does.
+  // Consumers sync to it in effects (ReviewerWorkspace selects its current
+  // item); a new `select` per selection re-fired that effect after every nav
+  // click and snatched the selection back. The same-object bail-out still
+  // keeps `selection` from churning when the queue re-selects its item.
+  const select = useCallback(
+    (objectType: SelectableObjectType, objectId: string | number) =>
+      setSelection((prev) =>
+        prev && prev.objectType === objectType && prev.objectId === objectId ? prev : { objectType, objectId }
+      ),
+    []
+  );
+  const clearSelection = useCallback(() => setSelection(null), []);
+
   const value = useMemo<SelectionContextValue>(
-    () => ({
-      selection,
-      // Bails out (returns the same `prev` reference) when the requested
-      // selection is already current — without this, a caller that
-      // re-selects the same object on every render (e.g. a queue synced
-      // to "whichever item is current") churns `selection`'s identity
-      // forever: new object -> new context `value` -> new `select`
-      // function identity -> any effect depending on `select` re-fires ->
-      // calls `select` again -> infinite render loop ("Maximum update
-      // depth exceeded"), caught via live browser verification of M-4.2.
-      select: (objectType, objectId) =>
-        setSelection((prev) =>
-          prev && prev.objectType === objectType && prev.objectId === objectId
-            ? prev
-            : { objectType, objectId }
-        ),
-      clearSelection: () => setSelection(null),
-    }),
-    [selection]
+    () => ({ selection, select, clearSelection }),
+    [selection, select, clearSelection]
   );
 
   return <SelectionContext.Provider value={value}>{children}</SelectionContext.Provider>;

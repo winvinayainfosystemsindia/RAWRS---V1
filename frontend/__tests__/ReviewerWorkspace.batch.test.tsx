@@ -102,4 +102,20 @@ describe("ReviewerWorkspace batch review", () => {
     expect(screen.queryByText(/^Accepted 2/)).toBeNull();
     expect(screen.getByRole("button", { name: /Accept all 2/ })).toBeInTheDocument();
   });
+
+  it("puts the proposal above collapsed filters, and still reaches them by keyboard", () => {
+    renderQueue([item("a"), item("b")]);
+    const details = screen.getByText("Filters & sort").closest("details")!;
+    const card = screen.getByText("Level mismatch a");
+
+    expect(details.open).toBe(false);
+    expect(card.compareDocumentPosition(details) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    fireEvent.keyDown(window, { key: "/" });
+    expect(details.open).toBe(true);
+    expect(screen.getByLabelText("Search corrections")).toHaveFocus();
+
+    fireEvent.change(screen.getByLabelText("Search corrections"), { target: { value: "mismatch" } });
+    expect(details.querySelector("summary")).toHaveTextContent("1 active");
+  });
 });

@@ -1,5 +1,6 @@
 "use client";
 
+import { isPending } from "@/lib/correctionFilters";
 import { useRef, useState } from "react";
 import { type CorrectionItem, type CorrectionAction } from "@/lib/api";
 import { Badge } from "./Badge";
@@ -95,6 +96,7 @@ function CorrectionRow({ correction, jobId, onUpdated, onCorrectionClick }: { co
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const editRef = useRef<HTMLInputElement>(null);
+  const refineRef = useRef<HTMLDetailsElement>(null);
   const { review } = useReviewAction(jobId);
 
   // Thin wrapper over the shared review pipeline: the hook owns the API call,
@@ -113,7 +115,7 @@ function CorrectionRow({ correction, jobId, onUpdated, onCorrectionClick }: { co
     }
   }
 
-  const isDecided = !["proposed", "pending_review"].includes(correction.status);
+  const isDecided = !isPending(correction);
   const suggestedPreview: CorrectionPreview | null = parseCorrectionPayload(correction.suggested_value);
   const currentPreview: CorrectionPreview | null = parseCorrectionPayload(correction.current_value);
   const preview = suggestedPreview ?? currentPreview;
@@ -190,38 +192,51 @@ function CorrectionRow({ correction, jobId, onUpdated, onCorrectionClick }: { co
       {/* Row 6: Evidence */}
       <EvidenceBreakdown evidence={correction.evidence} />
 
-      {/* Row 7: Edit field with live validation */}
-      {!isDecided && (
-        <div>
-          <label className="block text-xs font-semibold text-text-secondary uppercase tracking-wider mb-1">
-            Edit value
-          </label>
-          <input
-            ref={editRef}
-            type="text"
-            value={editValue}
-            onChange={(e) => setEditValue(e.target.value)}
-            className="w-full rounded border border-border bg-surface-canvas px-2 py-1.5 text-sm font-mono text-text-primary focus:border-accent focus:outline-none"
-            disabled={saving}
-          />
-          {warning && (
-            <p className="mt-1 text-xs text-warning">{warning}</p>
+      {/* Row 7: optional refinements (edit value, reviewer notes), collapsed so
+          the decision buttons sit near the evidence (Phase D, rail height).
+          Placed before the buttons so keyboard order still reaches the field
+          before "Accept & Edit"; the summary shows when something was entered. */}
+      <details ref={refineRef} className="rounded border border-border">
+        <summary className="cursor-pointer select-none px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-text-secondary hover:text-text-primary">
+          {isDecided ? "Reviewer notes" : "Edit value / add a note"}
+          {(editValue !== correction.suggested_value || reviewerNotes !== (correction.reviewer_notes ?? "")) && (
+            <span className="ml-2 font-normal normal-case tracking-normal text-accent">changed</span>
           )}
-        </div>
-      )}
+        </summary>
+        <div className="space-y-3 border-t border-border p-3">
+          {!isDecided && (
+            <div>
+              <label className="block text-xs font-semibold text-text-secondary uppercase tracking-wider mb-1">
+                Edit value
+              </label>
+              <input
+                ref={editRef}
+                type="text"
+                value={editValue}
+                onChange={(e) => setEditValue(e.target.value)}
+                className="w-full rounded border border-border bg-surface-canvas px-2 py-1.5 text-sm font-mono text-text-primary focus:border-accent focus:outline-none"
+                disabled={saving}
+              />
+              {warning && (
+                <p className="mt-1 text-xs text-warning">{warning}</p>
+              )}
+            </div>
+          )}
 
-      <div>
-        <label className="block text-xs font-semibold text-text-secondary uppercase tracking-wider mb-1">
-          Reviewer Notes <span className="font-normal text-text-secondary/70">(optional)</span>
-        </label>
-        <input
-          type="text"
-          value={reviewerNotes}
-          onChange={(e) => setReviewerNotes(e.target.value)}
-          className="w-full rounded border border-border bg-surface-canvas px-2 py-1.5 text-sm text-text-primary focus:border-accent focus:outline-none"
-          disabled={saving}
-        />
-      </div>
+          <div>
+            <label className="block text-xs font-semibold text-text-secondary uppercase tracking-wider mb-1">
+              Reviewer Notes <span className="font-normal text-text-secondary/70">(optional)</span>
+            </label>
+            <input
+              type="text"
+              value={reviewerNotes}
+              onChange={(e) => setReviewerNotes(e.target.value)}
+              className="w-full rounded border border-border bg-surface-canvas px-2 py-1.5 text-sm text-text-primary focus:border-accent focus:outline-none"
+              disabled={saving}
+            />
+          </div>
+        </div>
+      </details>
 
       {error && <p className="text-sm text-danger" role="alert">{error}</p>}
 
@@ -239,6 +254,7 @@ function CorrectionRow({ correction, jobId, onUpdated, onCorrectionClick }: { co
             <button
               onClick={() => {
                 act("edit", editValue);
+                if (refineRef.current) refineRef.current.open = true;
                 editRef.current?.focus();
                 editRef.current?.select();
               }}

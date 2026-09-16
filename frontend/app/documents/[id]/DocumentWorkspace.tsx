@@ -32,9 +32,10 @@ import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { DocxPreview } from "@/components/DocxPreview";
 import { WorkspaceShell } from "@/components/workspace/WorkspaceShell";
 import { readinessState } from "@/lib/readinessState";
+import { isPending } from "@/lib/correctionFilters";
+import { ReviewRail } from "@/components/workspace/ReviewRail";
 import { SemanticNavTree, type NavSection } from "@/components/workspace/SemanticNavTree";
 import { NavChips } from "@/components/workspace/NavChips";
-import { ContextInspectorRail } from "@/components/workspace/ContextInspectorRail";
 import { BottomPanel } from "@/components/workspace/BottomPanel";
 import { ValidationIssueTable } from "@/components/ValidationIssueTable";
 import { ImageGrid } from "@/components/ImageGrid";
@@ -91,7 +92,7 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
   const { jumpTarget: mdJumpTarget, jumpToLine } = useMarkdownViewport();
   const { selection, select } = useSelection();
   const { pageNumber, jumpToObject } = usePdfViewport();
-  const { focusQueue, focusNonce } = useReviewQueue();
+  const { focusQueue } = useReviewQueue();
   const [activeSpecialView, setActiveSpecialView] = useState("");
   const [overviewOpen, setOverviewOpen] = useState(false);
   // Bumped by WorkspaceShell's toolbar Search button; SemanticNavTree
@@ -196,9 +197,7 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
   const pageLabels = selectPageLabels(state);
   const readingOrder = selectReadingOrder(state);
 
-  const pendingCorrections = corrections.filter((c) =>
-    ["proposed", "pending_review"].includes(c.status)
-  ).length;
+  const pendingCorrections = corrections.filter(isPending).length;
   const unreviewedReadingOrder = readingOrder.filter(
     (p) => p.reading_order_status === "unreviewed"
   ).length;
@@ -517,9 +516,6 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
           markdownStale={
             job.markdown_generated_at_version !== null && job.markdown_generated_at_version !== job.document_version
           }
-          hasPendingWork={pendingCorrections > 0}
-          queuePendingCount={pendingCorrections}
-          openBottomSignal={focusNonce}
           quickNav={
             <NavChips
               sections={specialViews}
@@ -566,14 +562,15 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
             ),
           }}
           rightRail={
-            <ContextInspectorRail
+            <ReviewRail
               jobId={jobId}
               aiStatus={state.aiStatus}
+              pendingCount={pendingCorrections}
               onOpenValidation={() => setActiveSpecialView("validation")}
             />
           }
           specialView={renderSpecialView()}
-          bottomPanel={<BottomPanel job={job} issues={state.validationIssues} jobId={jobId} />}
+          bottomPanel={<BottomPanel job={job} issues={state.validationIssues} />}
         />
       )}
 

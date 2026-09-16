@@ -53,7 +53,7 @@ function matchesSearch(c: CorrectionItem, query: string): boolean {
 // premature optimization to skip. `filtered` below is the exact seam a
 // later virtualized-list pass would wrap, without touching the filter/sort
 // logic itself.
-export function ReviewerWorkspace({ jobId }: { jobId: string }) {
+export function ReviewerWorkspace({ jobId, active = true }: { jobId: string; active?: boolean }) {
   const state = useDocumentData();
   const dispatch = useDocumentDispatch();
   const { select } = useSelection();
@@ -64,6 +64,7 @@ export function ReviewerWorkspace({ jobId }: { jobId: string }) {
   const { objectTypeFilter: assetType, setObjectTypeFilter: setAssetType } = useReviewQueue();
   const corrections = selectCorrections(state);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const filtersRef = useRef<HTMLDetailsElement>(null);
 
   const [statusTab, setStatusTab] = usePersistedState<StatusTab>("rawrs:rw:statusTab", "pending");
   const [severity, setSeverity] = useState<string>(ANY);
@@ -135,6 +136,7 @@ export function ReviewerWorkspace({ jobId }: { jobId: string }) {
     setIndex(0);
   }, [assetType]);
 
+  const activeFilterCount = [assetType !== ANY, severity !== ANY, ruleId !== ANY, minConfidence.trim() !== "", pageFilter.trim() !== "", search !== ""].filter(Boolean).length;
   const totalCount = corrections.length;
   const reviewedCount = corrections.filter(isResolved).length;
   const acceptedCount = corrections.filter((c) => c.status === "accepted" || c.status === "auto_applied" || c.status === "edited").length;
@@ -219,8 +221,12 @@ export function ReviewerWorkspace({ jobId }: { jobId: string }) {
   useListReviewKeyboard({
     onNext: () => setIndex(Math.min(filtered.length - 1, clampedIndex + 1)),
     onPrev: () => setIndex(Math.max(0, clampedIndex - 1)),
-    onSearch: () => searchInputRef.current?.focus(),
+    onSearch: () => {
+      if (filtersRef.current) filtersRef.current.open = true;
+      searchInputRef.current?.focus();
+    },
     keyActions,
+    enabled: active,
   });
 
   const insight = useMemo(() => {
@@ -250,16 +256,10 @@ export function ReviewerWorkspace({ jobId }: { jobId: string }) {
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      {/* Insight card */}
-      {insight && (
-        <p className="rounded-lg border border-accent/20 bg-accent/5 px-3 py-2 text-xs text-text-secondary">
-          {insight}
-        </p>
-      )}
-
-      {/* Progress */}
-      <div className="flex items-center justify-between text-xs text-text-secondary">
+    <div className="flex flex-col gap-2">
+      {/* Progress + position. Prev/Next sit in this row (was its own row) so
+          the proposal card starts high in the rail (Phase D). */}
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-text-secondary">
         <span>
           {reviewedCount} / {totalCount} reviewed
           {reviewedCount > 0 && (
@@ -268,11 +268,31 @@ export function ReviewerWorkspace({ jobId }: { jobId: string }) {
             </span>
           )}
         </span>
-        {filtered.length > 0 && (
-          <span>
-            {clampedIndex + 1} / {filtered.length} in this view
-          </span>
-        )}
+        <span className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setIndex(Math.max(0, clampedIndex - 1))}
+            disabled={clampedIndex === 0}
+            aria-label="Previous proposal"
+            className="rounded border border-border px-2 py-0.5 text-sm font-medium text-text-primary hover:bg-hover-row disabled:opacity-40"
+          >
+            ←
+          </button>
+          {filtered.length > 0 && (
+            <span>
+              {clampedIndex + 1} / {filtered.length} {STATUS_TABS.find((t) => t.id === statusTab)?.label.toLowerCase()}
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => setIndex(Math.min(filtered.length - 1, clampedIndex + 1))}
+            disabled={clampedIndex >= filtered.length - 1}
+            aria-label="Next proposal"
+            className="rounded border border-border px-2 py-0.5 text-sm font-medium text-text-primary hover:bg-hover-row disabled:opacity-40"
+          >
+            →
+          </button>
+        </span>
       </div>
       <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-elevated">
         <div
@@ -281,8 +301,37 @@ export function ReviewerWorkspace({ jobId }: { jobId: string }) {
         />
       </div>
 
-      {/* Status tabs */}
-      <div className="flex items-center rounded-lg border border-border bg-surface-panel p-1">
+      {/* Current proposal — reuses CorrectionRow via CorrectionHistoryList,
+          not a second card implementation. */}
+      {current ? (
+        <CorrectionHistoryList corrections={[current]} jobId={jobId} onUpdated={handleUpdated} />
+      ) : (
+        <p className="rounded-lg border border-border p-4 text-sm text-text-secondary">
+          No corrections match the current filters.
+        </p>
+      )}
+
+      {/* Batch review — one cause only; see acceptBatch. */}
+      {statusTab === "pending" && pendingInView.length > 1 && (
+        pendingCause !== null ? (
+          <button
+            type="button"
+            onClick={acceptBatch}
+            disabled={bulkRunning}
+            className="rounded-lg border border-success/40 bg-success/5 px-3 py-2 text-sm font-medium text-success hover:bg-success/10 disabled:opacity-50"
+          >
+            {bulkRunning ? "Accepting…" : `Accept all ${pendingInView.length} ${batchLabel} in view`}
+          </button>
+        ) : (
+          <p className="text-xs text-text-secondary">
+            Batch accept is available when the view holds one rule only — filter by Rule (under Filters &amp; sort) to decide a group at once.
+          </p>
+        )
+      )}
+
+      {/* Status tabs — the view's scope, kept visible but below the proposal
+          (Phase D) so the card starts near the top of the rail. */}
+      <div className="flex flex-wrap items-center rounded-lg border border-border bg-surface-panel p-1">
         {STATUS_TABS.map((tab) => {
           const count = corrections.filter((c) => statusTabMatches(c, tab.id)).length;
           const isActive = statusTab === tab.id;
@@ -294,7 +343,7 @@ export function ReviewerWorkspace({ jobId }: { jobId: string }) {
                 setStatusTab(tab.id);
                 resetToFirst();
               }}
-              className={`flex flex-1 items-center justify-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium transition-colors ${
+              className={`flex flex-1 items-center justify-center gap-1.5 rounded px-2 py-1.5 text-xs font-medium transition-colors ${
                 isActive
                   ? "bg-surface-elevated text-text-primary"
                   : "text-text-secondary hover:text-text-primary"
@@ -311,163 +360,147 @@ export function ReviewerWorkspace({ jobId }: { jobId: string }) {
         })}
       </div>
 
-      {/* Search + sort */}
-      <div className="flex flex-wrap items-center gap-2">
-        <input
-          ref={searchInputRef}
-          type="text"
-          value={search}
-          onChange={(e) => {
-            setSearch(e.target.value);
-            resetToFirst();
-          }}
-          placeholder="Search problem, reason, values, rule…"
-          aria-label="Search corrections"
-          className="min-w-[220px] flex-1 rounded border border-border bg-surface-canvas px-2 py-1.5 text-sm text-text-primary focus:border-accent focus:outline-none"
-        />
-        <label className="flex items-center gap-1.5 text-xs text-text-secondary">
-          Sort
-          <select
-            value={sortKey}
-            onChange={(e) => setSortKey(e.target.value as SortKey)}
-            className="rounded border border-border bg-surface-canvas px-2 py-1.5 text-sm text-text-primary focus:border-accent focus:outline-none"
-          >
-            {SORT_OPTIONS.map((o) => (
-              <option key={o.id} value={o.id}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
+      {/* Search, sort and filters: collapsed below the proposal so the card
+          is visible on open. Native <details> keeps it keyboard-operable; the
+          summary names how many filters narrow the view, so a collapsed
+          filter is never invisible. "/" opens it before focusing search. */}
+      <details ref={filtersRef} className="rounded-lg border border-border">
+        <summary className="cursor-pointer select-none px-3 py-2 text-xs font-medium text-text-secondary hover:text-text-primary">
+          Filters &amp; sort
+          {activeFilterCount > 0 && (
+            <span className="ml-2 rounded-full bg-accent/15 px-1.5 font-mono text-[10px] font-semibold text-accent">
+              {activeFilterCount} active
+            </span>
+          )}
+        </summary>
+        <div className="flex flex-col gap-3 border-t border-border p-3">
+          {/* Search + sort */}
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              ref={searchInputRef}
+              type="text"
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                resetToFirst();
+              }}
+              placeholder="Search problem, reason, values, rule…"
+              aria-label="Search corrections"
+              className="min-w-0 flex-1 rounded border border-border bg-surface-canvas px-2 py-1.5 text-sm text-text-primary focus:border-accent focus:outline-none"
+            />
+            <label className="flex items-center gap-1.5 text-xs text-text-secondary">
+              Sort
+              <select
+                value={sortKey}
+                onChange={(e) => setSortKey(e.target.value as SortKey)}
+                className="rounded border border-border bg-surface-canvas px-2 py-1.5 text-sm text-text-primary focus:border-accent focus:outline-none"
+              >
+                {SORT_OPTIONS.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          {/* Filters */}
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="flex items-center gap-1.5 text-xs text-text-secondary">
+              Asset Type
+              <select
+                value={assetType}
+                onChange={(e) => {
+                  setAssetType(e.target.value);
+                  resetToFirst();
+                }}
+                className="rounded border border-border bg-surface-canvas px-2 py-1.5 text-sm text-text-primary focus:border-accent focus:outline-none"
+              >
+                <option value={ANY}>Any</option>
+                {assetTypeOptions.map((t) => (
+                  <option key={t} value={t}>
+                    {t.charAt(0).toUpperCase() + t.slice(1)}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-      {/* Filters */}
-      <div className="flex flex-wrap items-center gap-2">
-        <label className="flex items-center gap-1.5 text-xs text-text-secondary">
-          Asset Type
-          <select
-            value={assetType}
-            onChange={(e) => {
-              setAssetType(e.target.value);
-              resetToFirst();
-            }}
-            className="rounded border border-border bg-surface-canvas px-2 py-1.5 text-sm text-text-primary focus:border-accent focus:outline-none"
-          >
-            <option value={ANY}>Any</option>
-            {assetTypeOptions.map((t) => (
-              <option key={t} value={t}>
-                {t.charAt(0).toUpperCase() + t.slice(1)}
-              </option>
-            ))}
-          </select>
-        </label>
+            <label className="flex items-center gap-1.5 text-xs text-text-secondary">
+              Severity
+              <select
+                value={severity}
+                onChange={(e) => {
+                  setSeverity(e.target.value);
+                  resetToFirst();
+                }}
+                className="rounded border border-border bg-surface-canvas px-2 py-1.5 text-sm text-text-primary focus:border-accent focus:outline-none"
+              >
+                <option value={ANY}>Any</option>
+                {severityOptions.map((s) => (
+                  <option key={s} value={s}>
+                    {s.charAt(0).toUpperCase() + s.slice(1)}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-        <label className="flex items-center gap-1.5 text-xs text-text-secondary">
-          Severity
-          <select
-            value={severity}
-            onChange={(e) => {
-              setSeverity(e.target.value);
-              resetToFirst();
-            }}
-            className="rounded border border-border bg-surface-canvas px-2 py-1.5 text-sm text-text-primary focus:border-accent focus:outline-none"
-          >
-            <option value={ANY}>Any</option>
-            {severityOptions.map((s) => (
-              <option key={s} value={s}>
-                {s.charAt(0).toUpperCase() + s.slice(1)}
-              </option>
-            ))}
-          </select>
-        </label>
+            <label className="flex items-center gap-1.5 text-xs text-text-secondary">
+              Rule
+              <select
+                value={ruleId}
+                onChange={(e) => {
+                  setRuleId(e.target.value);
+                  resetToFirst();
+                }}
+                className="rounded border border-border bg-surface-canvas px-2 py-1.5 text-sm text-text-primary focus:border-accent focus:outline-none"
+              >
+                <option value={ANY}>Any</option>
+                {ruleIdOptions.map((r) => (
+                  <option key={r} value={r}>
+                    {r}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-        <label className="flex items-center gap-1.5 text-xs text-text-secondary">
-          Rule
-          <select
-            value={ruleId}
-            onChange={(e) => {
-              setRuleId(e.target.value);
-              resetToFirst();
-            }}
-            className="rounded border border-border bg-surface-canvas px-2 py-1.5 text-sm text-text-primary focus:border-accent focus:outline-none"
-          >
-            <option value={ANY}>Any</option>
-            {ruleIdOptions.map((r) => (
-              <option key={r} value={r}>
-                {r}
-              </option>
-            ))}
-          </select>
-        </label>
+            <label className="flex items-center gap-1.5 text-xs text-text-secondary">
+              Min Confidence %
+              <input
+                type="number"
+                min={0}
+                max={100}
+                value={minConfidence}
+                onChange={(e) => {
+                  setMinConfidence(e.target.value);
+                  resetToFirst();
+                }}
+                placeholder="e.g. 95"
+                className="w-20 rounded border border-border bg-surface-canvas px-2 py-1.5 text-sm text-text-primary focus:border-accent focus:outline-none"
+              />
+            </label>
 
-        <label className="flex items-center gap-1.5 text-xs text-text-secondary">
-          Min Confidence %
-          <input
-            type="number"
-            min={0}
-            max={100}
-            value={minConfidence}
-            onChange={(e) => {
-              setMinConfidence(e.target.value);
-              resetToFirst();
-            }}
-            placeholder="e.g. 95"
-            className="w-20 rounded border border-border bg-surface-canvas px-2 py-1.5 text-sm text-text-primary focus:border-accent focus:outline-none"
-          />
-        </label>
+            <label className="flex items-center gap-1.5 text-xs text-text-secondary">
+              Page
+              <input
+                type="number"
+                min={1}
+                value={pageFilter}
+                onChange={(e) => {
+                  setPageFilter(e.target.value);
+                  resetToFirst();
+                }}
+                placeholder="e.g. 128"
+                className="w-20 rounded border border-border bg-surface-canvas px-2 py-1.5 text-sm text-text-primary focus:border-accent focus:outline-none"
+              />
+            </label>
+          </div>
+        </div>
+      </details>
 
-        <label className="flex items-center gap-1.5 text-xs text-text-secondary">
-          Page
-          <input
-            type="number"
-            min={1}
-            value={pageFilter}
-            onChange={(e) => {
-              setPageFilter(e.target.value);
-              resetToFirst();
-            }}
-            placeholder="e.g. 128"
-            className="w-20 rounded border border-border bg-surface-canvas px-2 py-1.5 text-sm text-text-primary focus:border-accent focus:outline-none"
-          />
-        </label>
-      </div>
-
-      {/* Prev / Next */}
-      <div className="flex items-center justify-between">
-        <button
-          type="button"
-          onClick={() => setIndex(Math.max(0, clampedIndex - 1))}
-          disabled={clampedIndex === 0}
-          className="rounded border border-border px-3 py-1.5 text-sm font-medium text-text-primary hover:bg-hover-row disabled:opacity-40"
-        >
-          ← Previous
-        </button>
-        <button
-          type="button"
-          onClick={() => setIndex(Math.min(filtered.length - 1, clampedIndex + 1))}
-          disabled={clampedIndex >= filtered.length - 1}
-          className="rounded border border-border px-3 py-1.5 text-sm font-medium text-text-primary hover:bg-hover-row disabled:opacity-40"
-        >
-          Next →
-        </button>
-      </div>
-
-      {/* Batch review — one cause only; see acceptBatch. */}
-      {statusTab === "pending" && pendingInView.length > 1 && (
-        pendingCause !== null ? (
-          <button
-            type="button"
-            onClick={acceptBatch}
-            disabled={bulkRunning}
-            className="rounded-lg border border-success/40 bg-success/5 px-3 py-2 text-sm font-medium text-success hover:bg-success/10 disabled:opacity-50"
-          >
-            {bulkRunning ? "Accepting…" : `Accept all ${pendingInView.length} ${batchLabel} in view`}
-          </button>
-        ) : (
-          <p className="text-xs text-text-secondary">
-            Batch accept is available when the view holds one rule only — filter by Rule to decide a group at once.
-          </p>
-        )
+      {/* Insight card */}
+      {insight && (
+        <p className="rounded-lg border border-accent/20 bg-accent/5 px-3 py-2 text-xs text-text-secondary">
+          {insight}
+        </p>
       )}
 
       {/* Keyboard shortcuts legend — documented per the shortcuts
@@ -485,16 +518,6 @@ export function ReviewerWorkspace({ jobId }: { jobId: string }) {
         <kbd className="rounded border border-border px-1">j</kbd> jump to PDF ·{" "}
         <kbd className="rounded border border-border px-1">/</kbd> focus search
       </p>
-
-      {/* Current proposal — reuses CorrectionRow via CorrectionHistoryList,
-          not a second card implementation. */}
-      {current ? (
-        <CorrectionHistoryList corrections={[current]} jobId={jobId} onUpdated={handleUpdated} />
-      ) : (
-        <p className="rounded-lg border border-border p-4 text-sm text-text-secondary">
-          No corrections match the current filters.
-        </p>
-      )}
     </div>
   );
 }

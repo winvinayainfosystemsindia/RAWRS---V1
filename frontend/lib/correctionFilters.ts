@@ -14,17 +14,24 @@ export const STATUS_TABS: { id: StatusTab; label: string }[] = [
   { id: "all", label: "All" },
 ];
 
+// Awaiting a human decision. Matches the backend's NON_TERMINAL_STATUSES:
+// a reverted correction can be decided again and still blocks export, so it
+// is pending, not "ignored".
+export function isPending(c: CorrectionItem): boolean {
+  return ["proposed", "pending_review", "reverted"].includes(c.status);
+}
+
 export function statusTabMatches(c: CorrectionItem, tab: StatusTab): boolean {
   if (tab === "all") return true;
-  if (tab === "pending") return ["proposed", "pending_review"].includes(c.status);
+  if (tab === "pending") return isPending(c);
   if (tab === "accepted") return ["accepted", "auto_applied", "edited"].includes(c.status);
   if (tab === "rejected") return c.status === "rejected";
-  if (tab === "ignored") return ["ignored", "reverted"].includes(c.status);
+  if (tab === "ignored") return c.status === "ignored";
   return false;
 }
 
 export function isResolved(c: CorrectionItem): boolean {
-  return !["proposed", "pending_review"].includes(c.status);
+  return !isPending(c);
 }
 
 // The cause two corrections must share to be one decision — the same key the

@@ -2,14 +2,14 @@
 
 import { useMemo, useState } from "react";
 import type { JobSummary, ValidationIssue } from "@/lib/api";
-import { ReviewerWorkspace } from "@/components/ReviewerWorkspace";
 import { useDocumentData, selectCorrections } from "@/lib/store/DocumentDataContext";
 import { usePdfViewport } from "@/lib/store/PdfViewportContext";
 
-type BottomTab = "review" | "validation" | "export" | "console";
+// The Review Queue lives in the right rail (ReviewRail), not here.
+type BottomTab = "validation" | "export" | "console";
 
-export function BottomPanel({ job, issues, jobId }: { job: JobSummary; issues: ValidationIssue[]; jobId: string }) {
-  const [tab, setTab] = useState<BottomTab>("review");
+export function BottomPanel({ job, issues }: { job: JobSummary; issues: ValidationIssue[] }) {
+  const [tab, setTab] = useState<BottomTab>("validation");
   const errorCount = issues.filter((i) => i.severity === "error").length;
   const warningCount = issues.filter((i) => i.severity === "warning").length;
 
@@ -68,10 +68,9 @@ export function BottomPanel({ job, issues, jobId }: { job: JobSummary; issues: V
     job.docx_generated_at_version !== null && job.docx_generated_at_version !== job.document_version;
 
   return (
-    <div className={`flex flex-col ${tab === "review" ? "h-96" : "h-40"}`}>
+    <div className="flex h-40 flex-col">
       <div className="flex items-center gap-1 border-b border-border px-2 py-1">
         {([
-          ["review", "Review Queue"],
           ["validation", "Validation"],
           ["export", "Export"],
           ["console", "Console"],
@@ -88,8 +87,7 @@ export function BottomPanel({ job, issues, jobId }: { job: JobSummary; issues: V
           </button>
         ))}
       </div>
-      <div className={`flex-1 overflow-auto ${tab === "review" ? "" : "p-3 font-mono text-xs text-text-secondary"}`}>
-        {tab === "review" && <ReviewerWorkspace jobId={jobId} />}
+      <div className="flex-1 overflow-auto p-3 font-mono text-xs text-text-secondary">
         {tab === "validation" && (
           <p>
             {issues.length === 0

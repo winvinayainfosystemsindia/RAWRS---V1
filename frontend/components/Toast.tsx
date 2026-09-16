@@ -15,6 +15,9 @@ interface ToastContextValue {
 const ToastContext = createContext<ToastContextValue | null>(null);
 
 const DURATION_MS = 6000;
+// A toast with an action (Undo) never times out: the reviewer must get to
+// click it (WCAG 2.2.1). Oldest are dropped past this many.
+const MAX_VISIBLE = 3;
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<ToastItem[]>([]);
@@ -26,8 +29,8 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
   const toast = useCallback((message: string, action?: ToastItem["action"]) => {
     const id = ++nextId.current;
-    setItems((prev) => [...prev, { id, message, action }]);
-    setTimeout(() => dismiss(id), DURATION_MS);
+    setItems((prev) => [...prev, { id, message, action }].slice(-MAX_VISIBLE));
+    if (!action) setTimeout(() => dismiss(id), DURATION_MS);
   }, [dismiss]);
 
   const value = useMemo(() => ({ toast }), [toast]);

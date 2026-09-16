@@ -16,6 +16,8 @@ export interface ListReviewKeyboardOptions {
   onSearch?: () => void;
   /** Single-character key -> handler, e.g. { a: accept, r: reject }. */
   keyActions?: Record<string, () => void>;
+  /** False while the workspace is mounted but hidden, so shortcuts don't act on an unseen item. */
+  enabled?: boolean;
 }
 
 // Shared keyboard-navigation pattern for a "filtered list, act on the
@@ -24,8 +26,9 @@ export interface ListReviewKeyboardOptions {
 // reference implementation instead of a second, parallel shortcut scheme.
 // Ignored while focus is inside a text input/textarea/select so shortcut
 // letters never fight normal typing.
-export function useListReviewKeyboard({ onNext, onPrev, onSearch, keyActions }: ListReviewKeyboardOptions): void {
+export function useListReviewKeyboard({ onNext, onPrev, onSearch, keyActions, enabled = true }: ListReviewKeyboardOptions): void {
   useEffect(() => {
+    if (!enabled) return;
     function handleKeyDown(e: KeyboardEvent): void {
       if (e.key === "/" && onSearch && !isTypingTarget(e.target)) {
         e.preventDefault();
@@ -47,5 +50,5 @@ export function useListReviewKeyboard({ onNext, onPrev, onSearch, keyActions }: 
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onNext, onPrev, onSearch, keyActions]);
+  }, [onNext, onPrev, onSearch, keyActions, enabled]);
 }
