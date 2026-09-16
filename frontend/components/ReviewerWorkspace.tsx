@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type CorrectionItem } from "@/lib/api";
-import { STATUS_TABS, isResolved, statusTabMatches, type StatusTab } from "@/lib/correctionFilters";
+import { STATUS_TABS, batchCauseKey, isResolved, statusTabMatches, type StatusTab } from "@/lib/correctionFilters";
 import { useDocumentData, useDocumentDispatch, selectCorrections } from "@/lib/store/DocumentDataContext";
 import { useSelection } from "@/lib/store/SelectionContext";
 import { usePdfViewport } from "@/lib/store/PdfViewportContext";
@@ -11,7 +11,6 @@ import { useListReviewKeyboard } from "@/lib/hooks/useListReviewKeyboard";
 import { usePersistedState } from "@/lib/hooks/usePersistedState";
 import { useReviewAction } from "@/lib/hooks/useReviewAction";
 import { useReviewQueue } from "@/lib/store/ReviewQueueContext";
-import { useToast } from "@/components/Toast";
 
 type SortKey = "document_order" | "confidence" | "page_number" | "priority";
 
@@ -59,8 +58,7 @@ export function ReviewerWorkspace({ jobId }: { jobId: string }) {
   const dispatch = useDocumentDispatch();
   const { select } = useSelection();
   const { jumpToObject } = usePdfViewport();
-  const { review, refreshIntelligence } = useReviewAction(jobId);
-  const { toast } = useToast();
+  const { review, reviewBatch } = useReviewAction(jobId);
   // Asset-type filter is the shared, persisted queue filter (P1-6/P1-7):
   // category cards in the Accessibility Center set it, and it survives reloads.
   const { objectTypeFilter: assetType, setObjectTypeFilter: setAssetType } = useReviewQueue();
@@ -170,47 +168,28 @@ export function ReviewerWorkspace({ jobId }: { jobId: string }) {
     [current, review]
   );
 
-  // Bulk review (P2-9): accept every high-confidence pending item in the
-  // current view in one action, with a single Undo-all. High confidence =
-  // the same ≥0.95 threshold the card labels "Very High" — the items that
-  // need the least human judgement. Per-item toast/refresh are suppressed;
-  // one summary toast and one score refresh fire at the end.
-  const HIGH_CONF = 0.95;
+  // Batch review: one judgement over the pending items in view, offered only
+  // when they all share one cause (object_type + field + reason_code). The
+  // reviewer narrows the view (e.g. the Rule filter) to make the batch; a
+  // mixed view is never accepted wholesale, whatever its confidence. One
+  // all-or-nothing request, one Undo-all.
   const [bulkRunning, setBulkRunning] = useState(false);
-  const highConfidencePending = useMemo(
-    () => filtered.filter((c) => !isResolved(c) && (c.confidence ?? 0) >= HIGH_CONF),
-    [filtered]
-  );
+  const pendingInView = useMemo(() => filtered.filter((c) => !isResolved(c)), [filtered]);
+  const pendingCause = useMemo(() => batchCauseKey(pendingInView), [pendingInView]);
+  const batchLabel = `${pendingInView[0]?.rule_id ?? pendingInView[0]?.reason_code ?? ""} correction${
+    pendingInView.length === 1 ? "" : "s"
+  }`.trim();
 
-  async function acceptAllHighConfidence() {
-    if (bulkRunning || highConfidencePending.length === 0) return;
+  async function acceptBatch() {
+    if (bulkRunning || pendingCause === null || pendingInView.length < 2) return;
     setBulkRunning(true);
-    const batch = highConfidencePending;
-    let ok = 0;
-    for (const c of batch) {
-      try {
-        await review(c, "accept", { silent: true, skipRefresh: true });
-        ok++;
-      } catch {
-        /* individual failure already toasted by the pipeline */
-      }
+    try {
+      await reviewBatch(pendingInView, "accept", batchLabel);
+    } catch {
+      /* surfaced by reviewBatch's toast */
+    } finally {
+      setBulkRunning(false);
     }
-    await refreshIntelligence();
-    setBulkRunning(false);
-    toast(`Accepted ${ok} high-confidence correction${ok === 1 ? "" : "s"}`, {
-      label: "Undo all",
-      onClick: async () => {
-        for (const c of batch) {
-          try {
-            await review(c, "undo", { silent: true, skipRefresh: true });
-          } catch {
-            /* ignore */
-          }
-        }
-        await refreshIntelligence();
-        toast(`Reverted ${batch.length} correction${batch.length === 1 ? "" : "s"}`);
-      },
-    });
   }
 
   // M-4.3 (Proposal Review Experience) — keyboard-first review, now built
@@ -473,21 +452,22 @@ export function ReviewerWorkspace({ jobId }: { jobId: string }) {
         </button>
       </div>
 
-      {/* Bulk review (P2-9) — only offered when there are high-confidence
-          items to clear; the reviewer's scarce attention is better spent on
-          the ambiguous ones. Every accept is individually undoable via the
-          summary toast's Undo-all. */}
-      {statusTab === "pending" && highConfidencePending.length > 1 && (
-        <button
-          type="button"
-          onClick={acceptAllHighConfidence}
-          disabled={bulkRunning}
-          className="rounded-lg border border-success/40 bg-success/5 px-3 py-2 text-sm font-medium text-success hover:bg-success/10 disabled:opacity-50"
-        >
-          {bulkRunning
-            ? "Accepting…"
-            : `Accept ${highConfidencePending.length} high-confidence corrections in view`}
-        </button>
+      {/* Batch review — one cause only; see acceptBatch. */}
+      {statusTab === "pending" && pendingInView.length > 1 && (
+        pendingCause !== null ? (
+          <button
+            type="button"
+            onClick={acceptBatch}
+            disabled={bulkRunning}
+            className="rounded-lg border border-success/40 bg-success/5 px-3 py-2 text-sm font-medium text-success hover:bg-success/10 disabled:opacity-50"
+          >
+            {bulkRunning ? "Accepting…" : `Accept all ${pendingInView.length} ${batchLabel} in view`}
+          </button>
+        ) : (
+          <p className="text-xs text-text-secondary">
+            Batch accept is available when the view holds one rule only — filter by Rule to decide a group at once.
+          </p>
+        )
       )}
 
       {/* Keyboard shortcuts legend — documented per the shortcuts

@@ -556,6 +556,20 @@ export const api = {
     );
   },
 
+  // One judgement over corrections of one cause. The backend refuses mixed
+  // causes and is all-or-nothing, so a resolved promise means every id moved.
+  bulkReviewCorrections(
+    jobId: string,
+    correctionIds: string[],
+    action: "accept" | "reject" | "ignore" | "undo"
+  ): Promise<CorrectionsResponse> {
+    return request<CorrectionsResponse>(`/api/documents/${jobId}/corrections/bulk-action`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ correction_ids: correctionIds, action }),
+    });
+  },
+
   reviewCorrection(
     jobId: string,
     correctionId: string,
@@ -665,6 +679,8 @@ export interface CorrectionItem {
   rule_id: string | null;
   severity: string | null;
   page_number: number | null;
+  // With object_type + field, the cause key a bulk action may span.
+  reason_code: string;
 }
 
 export interface CorrectionsResponse {

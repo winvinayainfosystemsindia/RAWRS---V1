@@ -99,5 +99,38 @@ export function useReviewAction(jobId: string) {
     [jobId, dispatch, toast, refreshIntelligence]
   );
 
-  return { review, refreshIntelligence };
+  // One judgement over corrections of one cause, as one request. The backend
+  // is all-or-nothing, so the success toast only ever describes a batch that
+  // fully happened; a refusal or rollback surfaces its reason instead.
+  const reviewBatch = useCallback(
+    async (batch: CorrectionItem[], action: "accept" | "reject" | "ignore", label: string) => {
+      const ids = batch.map((c) => c.correction_id);
+      const applyAll = (updated: CorrectionItem[]) =>
+        updated.forEach((c) => dispatch({ type: "UPDATE_CORRECTION", correction: c }));
+      try {
+        const { corrections } = await api.bulkReviewCorrections(jobId, ids, action);
+        applyAll(corrections);
+      } catch (err) {
+        toast(`Nothing changed — ${label} failed: ${err instanceof Error ? err.message : "please retry"}`);
+        throw err;
+      } finally {
+        void refreshIntelligence();
+      }
+      toast(`${ACTION_LABEL[action]} ${ids.length} ${label}`, action === "accept" ? {
+        label: "Undo all",
+        onClick: () => {
+          api.bulkReviewCorrections(jobId, ids, "undo")
+            .then(({ corrections }) => {
+              applyAll(corrections);
+              void refreshIntelligence();
+              toast(`Reverted ${ids.length} ${label}`);
+            })
+            .catch((err) => toast(`Undo failed, nothing reverted: ${err instanceof Error ? err.message : "please retry"}`));
+        },
+      } : undefined);
+    },
+    [jobId, dispatch, toast, refreshIntelligence]
+  );
+
+  return { review, reviewBatch, refreshIntelligence };
 }

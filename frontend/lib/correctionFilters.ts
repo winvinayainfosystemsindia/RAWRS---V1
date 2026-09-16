@@ -26,3 +26,12 @@ export function statusTabMatches(c: CorrectionItem, tab: StatusTab): boolean {
 export function isResolved(c: CorrectionItem): boolean {
   return !["proposed", "pending_review"].includes(c.status);
 }
+
+// The cause two corrections must share to be one decision — the same key the
+// backend's bulk-action endpoint enforces. Null for an empty or mixed set.
+// Deliberately not confidence: a high score does not make two different
+// judgements the same judgement.
+export function batchCauseKey(items: CorrectionItem[]): string | null {
+  const keys = new Set(items.map((c) => `${c.object_type}|${c.field}|${c.reason_code}`));
+  return keys.size === 1 ? [...keys][0] : null;
+}

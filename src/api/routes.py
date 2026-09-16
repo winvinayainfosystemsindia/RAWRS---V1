@@ -49,6 +49,7 @@ from src.api.schemas import (
     CellUpdateRequest,
     CorrectionAction,
     CorrectionActionRequest,
+    CorrectionBulkActionRequest,
     CorrectionOut,
     CorrectionsResponse,
     EvidenceSignalOut,
@@ -97,6 +98,8 @@ from src.api.schemas import (
 )
 from src.models.contracts import Document, HeadingLevel, HeadingReviewStatus, FootnoteReviewStatus, Severity
 from src.models.correction import (
+    APPLIED_STATUSES,
+    NON_TERMINAL_STATUSES,
     CorrectionRecord,
     CorrectionStatus,
     CorrectionTelemetryAction,
@@ -106,6 +109,22 @@ from src.models.validation_issue import ValidationIssue, ValidationIssueStatus
 from src.models.figure import AltTextStatus
 from src.verification.engine import UnknownAssetTypeError, engine
 import src.accessibility.rules  # noqa: F401 - side effect: registers Phase 1 rules
+# Every verifier, registered once at import. A document reloaded from disk
+# after a restart can carry corrections of any asset type; registering only
+# inside the routes that happened to import a verifier left GET /corrections
+# without rule_id/severity and made accepting e.g. a figure correction raise
+# UnknownAssetTypeError. Same list as architecture.invariants.check_correction_rail.
+import src.verification.artifacts  # noqa: F401,E402
+import src.verification.callouts  # noqa: F401,E402
+import src.verification.figures  # noqa: F401,E402
+import src.verification.footnotes  # noqa: F401,E402
+import src.verification.frontmatter  # noqa: F401,E402
+import src.verification.headings  # noqa: F401,E402
+import src.verification.lists  # noqa: F401,E402
+import src.verification.metadata  # noqa: F401,E402
+import src.verification.paragraphs  # noqa: F401,E402
+import src.verification.reading_order  # noqa: F401,E402
+import src.verification.tables  # noqa: F401,E402
 from src.accessibility.debt import compute_debt_report
 from src.accessibility.pipeline import evaluate_document
 from src.accessibility.registry import registry as accessibility_registry
@@ -1715,6 +1734,7 @@ def _correction_out(document: Any, correction: CorrectionRecord) -> CorrectionOu
         rule_id=spec.rule_id if spec else None,
         severity=spec.severity if spec else None,
         page_number=_correction_page_number(document, correction.object_type, correction.object_id),
+        reason_code=correction.reason_code,
     )
 
 
@@ -1789,32 +1809,128 @@ def review_correction(job_id: str, correction_id: str, body: CorrectionActionReq
         if body.reviewer_notes is not None:
             correction.reviewer_notes = body.reviewer_notes
         correction.reviewed_at = now
-
-        if not correction.telemetry_events:
-            correction.telemetry_events.append(
-                CorrectionTelemetryEvent(
-                    correction_id=correction.correction_id,
-                    timestamp=correction.created_at,
-                    action=CorrectionTelemetryAction.DISPLAYED,
-                )
-            )
-
-        telemetry_action = _DECISION_TELEMETRY_ACTION.get(body.action)
-        if telemetry_action is not None:
-            correction.telemetry_events.append(
-                CorrectionTelemetryEvent(
-                    correction_id=correction.correction_id,
-                    timestamp=now,
-                    action=telemetry_action,
-                    previous_status=previous_status,
-                    new_status=correction.status.value,
-                    latency_seconds=(now - correction.created_at).total_seconds(),
-                )
-            )
+        _record_decision_telemetry(correction, body.action, previous_status, now)
         payload = _snapshot(document)
 
     _persist(job_id, payload)
     return _correction_out(document, correction)
+
+
+def _record_decision_telemetry(
+    correction: CorrectionRecord, action: CorrectionAction, previous_status: str, now: datetime
+) -> None:
+    """M-4.4: a DISPLAYED event once, then one event per measured decision."""
+    if not correction.telemetry_events:
+        correction.telemetry_events.append(
+            CorrectionTelemetryEvent(
+                correction_id=correction.correction_id,
+                timestamp=correction.created_at,
+                action=CorrectionTelemetryAction.DISPLAYED,
+            )
+        )
+
+    telemetry_action = _DECISION_TELEMETRY_ACTION.get(action)
+    if telemetry_action is not None:
+        correction.telemetry_events.append(
+            CorrectionTelemetryEvent(
+                correction_id=correction.correction_id,
+                timestamp=now,
+                action=telemetry_action,
+                previous_status=previous_status,
+                new_status=correction.status.value,
+                latency_seconds=(now - correction.created_at).total_seconds(),
+            )
+        )
+
+
+# What each bulk action requires of every target, and the status it moves to.
+# Accept/reject/ignore decide an open question; undo reverses an applied one.
+_BULK_ACTIONS = {
+    CorrectionAction.ACCEPT: (NON_TERMINAL_STATUSES, CorrectionStatus.ACCEPTED),
+    CorrectionAction.REJECT: (NON_TERMINAL_STATUSES, CorrectionStatus.REJECTED),
+    CorrectionAction.IGNORE: (NON_TERMINAL_STATUSES, CorrectionStatus.IGNORED),
+    CorrectionAction.UNDO: (APPLIED_STATUSES, CorrectionStatus.REVERTED),
+}
+
+
+@router.post("/documents/{job_id}/corrections/bulk-action", response_model=CorrectionsResponse)
+def bulk_review_corrections(job_id: str, body: CorrectionBulkActionRequest) -> CorrectionsResponse:
+    """Apply one reviewer judgement to several corrections of **one cause**.
+
+    Refused (422) unless every target shares ``object_type``, ``field`` and
+    ``reason_code`` — confidence never makes unrelated decisions one decision.
+
+    **All or nothing.** Every target is checked before anything changes; if a
+    verifier fails mid-batch, the mutations already made are reversed and no
+    status, telemetry or persisted state changes (409). A bulk action that
+    reports success changed exactly the corrections it names.
+    """
+    document = _require_document(job_id)
+    if document is None:
+        raise HTTPException(status_code=404, detail="No document for this job.")
+    if body.action not in _BULK_ACTIONS:
+        raise HTTPException(status_code=422, detail=f"action '{body.action.value}' is not a bulk action.")
+    if len(set(body.correction_ids)) != len(body.correction_ids):
+        raise HTTPException(status_code=422, detail="correction_ids contains duplicates.")
+
+    allowed, new_status = _BULK_ACTIONS[body.action]
+    now = datetime.now(timezone.utc)
+
+    with _lock:
+        by_id = {c.correction_id: c for c in document.corrections}
+        missing = [cid for cid in body.correction_ids if cid not in by_id]
+        if missing:
+            raise HTTPException(status_code=404, detail=f"Unknown correction(s): {', '.join(missing)}")
+        targets = [by_id[cid] for cid in body.correction_ids]
+
+        causes = {(c.object_type, c.field, c.reason_code) for c in targets}
+        if len(causes) != 1:
+            raise HTTPException(
+                status_code=422,
+                detail="A bulk action must cover corrections of one cause (object_type, field, reason_code).",
+            )
+        not_eligible = [c.correction_id for c in targets if c.status not in allowed]
+        if not_eligible:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Correction(s) not eligible for '{body.action.value}': {', '.join(not_eligible)}",
+            )
+
+        mutates = body.action in (CorrectionAction.ACCEPT, CorrectionAction.UNDO)
+        forward = engine.apply_correction if body.action == CorrectionAction.ACCEPT else engine.revert_correction
+        backward = engine.revert_correction if body.action == CorrectionAction.ACCEPT else engine.apply_correction
+        done: List[CorrectionRecord] = []
+        if mutates:
+            try:
+                for correction in targets:
+                    forward(document, correction)
+                    done.append(correction)
+            except Exception as exc:
+                failed = targets[len(done)].correction_id
+                try:
+                    for correction in reversed(done):
+                        backward(document, correction)
+                except Exception:
+                    logger.exception("Bulk {} rollback failed for job {}", body.action.value, job_id)
+                    raise HTTPException(
+                        status_code=500,
+                        detail="Bulk action failed and could not be rolled back; reload the document before continuing.",
+                    ) from exc
+                logger.warning("Bulk {} rolled back on {}: {}", body.action.value, failed, exc)
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Bulk {body.action.value} failed on correction {failed} ({exc}); nothing was changed.",
+                ) from exc
+
+        for correction in targets:
+            previous_status = correction.status.value
+            correction.status = new_status
+            correction.reviewed_at = now
+            _record_decision_telemetry(correction, body.action, previous_status, now)
+        payload = _snapshot(document)
+
+    _persist(job_id, payload)
+    return CorrectionsResponse(corrections=[_correction_out(document, c) for c in targets])
 
 
 # --- Downloads ---------------------------------------------------------------

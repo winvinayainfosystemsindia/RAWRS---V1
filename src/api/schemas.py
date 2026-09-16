@@ -12,7 +12,7 @@ from datetime import datetime
 from enum import Enum
 from typing import List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from src.api.jobs import JobStatus
 
@@ -502,6 +502,9 @@ class CorrectionOut(BaseModel):
     rule_id: Optional[str] = None
     severity: Optional[str] = None
     page_number: Optional[int] = None
+    # The stored cause key. With object_type + field it identifies "the same
+    # underlying decision" — the only grouping a bulk action may span.
+    reason_code: str = ""
 
 
 class CorrectionsResponse(BaseModel):
@@ -512,6 +515,17 @@ class CorrectionActionRequest(BaseModel):
     action: CorrectionAction
     proposed_value: Optional[str] = None  # required when action == "edit"
     reviewer_notes: Optional[str] = None
+
+
+class CorrectionBulkActionRequest(BaseModel):
+    """One reviewer judgement applied to several corrections of one cause.
+
+    Only accept/reject/ignore/undo: edit carries a per-correction value and
+    needs_review is an escalation, neither is one decision over many.
+    """
+
+    correction_ids: List[str] = Field(..., min_length=1)
+    action: CorrectionAction
 
 
 # --- Page Label Manager (FEATURE_018) ---------------------------------------
