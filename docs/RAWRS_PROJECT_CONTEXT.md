@@ -44,18 +44,17 @@ PDF
 
 ## Tech Stack
 
-Frontend:
+Frontend (built, `frontend/`):
 
-* React
+* Next.js (App Router) + React
 * TypeScript
-* Vite
-* TailwindCSS
-* shadcn/ui
-* Zustand
+* Tailwind CSS
+* React Context (`frontend/lib/store/`)
+* react-pdf, react-resizable-panels
 
-Backend:
+Backend (built, `src/api/`):
 
-* FastAPI
+* FastAPI + Pydantic
 
 Processing:
 
@@ -67,7 +66,7 @@ DOCX:
 
 * python-docx
 
-**Note:** Frontend and Backend rows above describe the target stack. Neither has been started — there is no frontend directory and no FastAPI/server code anywhere in this repo as of this audit. RAWRS today is a Python pipeline invoked directly, not a served application. See `CURRENT_STATE.md`.
+**Note (2026-09-16):** the frontend was originally planned on Vite + Zustand + shadcn/ui. It was built on Next.js + React Context, and that built stack is the decided one — no migration. Full table and rules: `TECH_STACK.md`; decision: `DECISIONS_LOG.md` Part 25.
 
 ## Current Scope
 
@@ -89,12 +88,12 @@ Supported:
 * Markdown Generation
 * DOCX Generation
 
-Not Supported:
+Not in the original Phase 1 scope (items marked *built* were delivered later — see `PHASE_STATUS.md`; do not re-implement them):
 
-* AI-Generated Alt Text (placeholder infrastructure is supported; model-generated descriptions are not)
-* Reading Order Reconstruction/Correction (validation/flagging only)
+* AI-Generated Alt Text — *built* as on-demand, human-reviewed proposals (FEATURE_012)
+* Automatic Reading Order Reconstruction (human-initiated correction is *built*, 016B; automatic reordering is not)
 * Cross-Page Paragraph Stitching
-* Table Remediation
+* Table Remediation — *built* (FEATURE_015, 015.3)
 * Equation Remediation
 * Multi-Column Reconstruction
 * Accessibility Tagging

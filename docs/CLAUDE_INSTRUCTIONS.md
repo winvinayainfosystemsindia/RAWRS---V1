@@ -129,12 +129,12 @@ Phase 1 supports:
 * Markdown Generation
 * DOCX Generation
 
-Phase 1 does not support:
+Phase 1 did not originally scope the items below. Items marked *built* were delivered later (see `PHASE_STATUS.md`) — extend them, do not re-implement them:
 
-* AI-Generated Alt Text (the placeholder infrastructure above is in scope; model-generated descriptions are not)
-* Reading Order Reconstruction/Correction
+* AI-Generated Alt Text — *built* as on-demand, human-reviewed proposals (FEATURE_012)
+* Automatic Reading Order Reconstruction (human-initiated correction is *built*, 016B)
 * Cross-Page Paragraph Stitching
-* Table Remediation
+* Table Remediation — *built* (FEATURE_015, 015.3)
 * Equation Remediation
 * Multi-Column Reconstruction
 * Accessibility Tagging
@@ -142,6 +142,16 @@ Phase 1 does not support:
 * AI Training
 
 Do not implement out-of-scope features. Full current status: `PHASE_STATUS.md`.
+
+---
+
+# Frontend Rules (decided 2026-09-16, `DECISIONS_LOG.md` Part 25)
+
+* The frontend is **Next.js + React + TypeScript + Tailwind + React Context** (`frontend/`). Do not migrate to Vite, Zustand, or shadcn/ui; see `TECH_STACK.md`.
+* **Export Ready is computed only by the backend accessibility engine:** validator → accessibility rule evaluation → `blocking_failures` → `export_ready`. The frontend displays it; never compute readiness in the UI. Extend blocking only by registering accessibility rules. Never gate on, or import, `src/benchmark/` checks in production code.
+* **Keep `ValidationIssue`, `CorrectionRecord` and `RuleEvaluation` distinct.** The UI may present them together; do not create a unified frontend Finding type that merges their identities or statuses.
+* **Safe vs semantic is stated by the producer**, never inferred from confidence. A bulk action covers one underlying decision (one rule/cause) and is one transaction (`CorrectionRecord.transaction_id`).
+* Markdown and DOCX are projections: the reviewer edits the semantic model, never the rendered Markdown.
 
 ---
 

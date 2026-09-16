@@ -794,6 +794,33 @@ Both are dev-server/runtime integration failures with no unit-test-shaped equiva
 
 ---
 
+## Part 25 — Frontend direction decisions (2026-09-16)
+
+Taken after a read-only audit of the repository against the reviewer-workstation brief.
+
+| # | Decision | Consequence |
+|---|---|---|
+| 1 | **Keep the built frontend stack** (Next.js, React Context, Tailwind, react-pdf, react-resizable-panels) | No Vite/Zustand/shadcn migration. Lucide/shadcn only per component on concrete need. `TECH_STACK.md`, `RAWRS_PROJECT_CONTEXT.md`, `CLAUDE_INSTRUCTIONS.md`, `CURRENT_STATE.md` updated |
+| 2 | **Export Ready stays owned by the accessibility engine**; extend only by registering rules | First make `PAGE_001` respect `page_numbering_policy` (its documented AUTO/DISABLED false positive, `PAGE_RULES.md`), then register validation failures whose false-positive behaviour is understood. Never gate on `src/benchmark/` |
+| 3 | **Reconcile `origin/main` later**, by a normal merge — not executed | Sequence below |
+| 4 | **Review rail on existing APIs** (option C) | No unified frontend Finding type; `ValidationIssue`/`CorrectionRecord`/`RuleEvaluation` stay distinct. Safe-vs-semantic is a producer-owned field, never `confidence >= X`. `/findings` consolidation stays open (`WORKSPACE_ARCHITECTURE_2026-08-03.md` §8) |
+
+### Git reconciliation sequence (documented, not executed)
+
+Evidence: `origin/main` has **no merge base** with `master`; it is a GitHub-created history of 6 commits whose tree is only `README.md`, byte-identical to `master`'s. `origin/HEAD` → `main`, so GitHub's default view shows no code. `master` = `fe-0-001-persistence-and-cleanup` = their `origin` counterparts.
+
+| Step | Command | Stop if |
+|---|---|---|
+| 1 | `git tag backup/main-pre-reconcile origin/main && git push origin backup/main-pre-reconcile` | — |
+| 2 | `git switch -c reconcile/main-history master` | working tree not clean |
+| 3 | `git merge --no-ff --allow-unrelated-histories origin/main` | any conflict (none expected: identical README) |
+| 4 | `git diff master --stat` | output is non-empty |
+| 5 | `git push -u origin reconcile/main-history`, open PR into `main`, merge with a **merge commit** (not squash) | the PR shows file changes |
+
+No force-push, reset or rebase at any step. Rollback: `backup/main-pre-reconcile`. `origin/HEAD` needs no change once `main` holds the history.
+
+---
+
 ## How to add a new entry
 
 Append a new `###` section under the relevant Part, dated, with: the decision, the reasoning ("why"), where it's implemented (file/module), and its current status. Do not delete or rewrite existing entries even if later superseded — add a new entry that references and supersedes the old one.

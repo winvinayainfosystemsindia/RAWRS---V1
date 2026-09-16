@@ -1,6 +1,6 @@
 # RAWRS Tech Stack
 
-> **Implementation status:** Everything in the Frontend and Backend sections below is the *target* stack and has not been started — no frontend directory, no `package.json`, no FastAPI/Uvicorn code or dependency anywhere in this repo as of this audit. The Document Processing, PDF Utilities, and DOCX Generation sections are accurate and implemented. The Code Quality section (Black/Ruff/MyPy) is also aspirational — none of the three are installed or configured (`requirements-dev.txt` has only `pytest`/`pytest-cov`). See `CURRENT_STATE.md` for the actually-installed dependency list.
+> **Implementation status (reconciled 2026-09-16, `DECISIONS_LOG.md` Part 25):** the Frontend and Backend sections below describe the stack that is **built and in use** (`frontend/package.json`, `requirements.txt`). The frontend was built on Next.js + React Context rather than the originally planned Vite + Zustand + shadcn/ui + Lucide, and that built stack is now the decided stack — do not migrate it. The Code Quality section (Black/Ruff/MyPy) is still aspirational — none of the three are installed or configured. See `CURRENT_STATE.md` for the installed dependency list.
 
 ## Philosophy
 
@@ -19,47 +19,29 @@ Avoid unnecessary complexity.
 
 # Frontend
 
-Framework:
+| Concern | Choice | Where |
+|---|---|---|
+| Framework | Next.js 16 (App Router) + React 19 | `frontend/app/` |
+| Language | TypeScript | |
+| Styling | Tailwind CSS 4 + semantic theme tokens (light/dark) | `frontend/app/globals.css`, `frontend/lib/theme/` |
+| State | React Context + `useReducer` | `frontend/lib/store/` |
+| UI components | Project components (no component library) | `frontend/components/` |
+| Icons | Project SVG icons | `frontend/components/icons.tsx` |
+| Panel layouts | react-resizable-panels | `frontend/components/workspace/WorkspaceShell.tsx` |
+| PDF viewer | react-pdf (one page rendered at a time) | `frontend/components/PdfViewer.tsx` |
+| DOCX preview | mammoth | `frontend/components/DocxPreview.tsx` |
+| Markdown view | CodeMirror, read-only (Markdown is a projection, never edited) | `frontend/components/MarkdownEditor.tsx` |
+| Tests | Jest + Testing Library + jest-axe | `frontend/__tests__/` |
+| Typography | Inter (UI), JetBrains Mono (technical/evidence) | `frontend/app/layout.tsx` |
 
-React
+Rules:
 
-Language:
+* **No framework migration.** Do not move to Vite, Zustand, or a shadcn/ui rewrite because an older document named them.
+* Lucide or shadcn/ui may be introduced for a single component only when a concrete UI need justifies it.
+* Do not add a state library or split Contexts without a measured performance problem.
+* Export readiness, and safe-vs-semantic classification of a proposed correction, come from the backend; the frontend displays them and never computes them.
 
-TypeScript
-
-Build Tool:
-
-Vite
-
-Styling:
-
-TailwindCSS
-
-UI Components:
-
-shadcn/ui
-
-State Management:
-
-Zustand
-
-Icons:
-
-Lucide React
-
-Panel Layouts:
-
-react-resizable-panels
-
-PDF Viewer:
-
-react-pdf
-
-Typography:
-
-Inter
-
-JetBrains Mono
+Application UI styling is separate from generated-document styling (Times New Roman, `HEADING_RULES.md`).
 
 ---
 
@@ -209,7 +191,7 @@ No Multi-Tenant Features
 
 # Explicitly Excluded
 
-* Docker
+* Docker (exception: the `Dockerfile`/`docker-compose.yml` exist only for the optional zero-cost hosted deployment in `DEPLOYMENT.md`; local use needs neither)
 * Kubernetes
 * Redis
 * MongoDB
