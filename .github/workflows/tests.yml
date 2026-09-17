@@ -44,7 +44,11 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - run: npm ci
+      # `npm install`, not `npm ci`: the lockfile is written on Windows, and
+      # npm omits some Linux-only optional deps of the wasm fallbacks
+      # (@emnapi/*), which `npm ci` rejects as out of sync. Versions still
+      # come from package-lock.json.
+      - run: npm install --no-audit --no-fund
 
       - name: Typecheck
         run: npx tsc --noEmit
@@ -100,7 +104,10 @@ jobs:
             batch=("${files[@]:i:chunk}")
             echo "::group::Batch $n: ${batch[*]}"
             set +e
+            # --continue-on-collection-errors: a file that needs a missing
+            # benchmark PDF at import must not cancel the rest of its batch.
             python -m pytest -q -p no:cacheprovider \
+              --continue-on-collection-errors \
               -m "not real_docling and not real_surya" \
               --junitxml="$RUNNER_TEMP/junit/batch-$n.xml" \
               "${batch[@]}"
