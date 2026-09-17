@@ -100,6 +100,7 @@ from src.models.contracts import Document, HeadingLevel, HeadingReviewStatus, Fo
 from src.models.correction import (
     APPLIED_STATUSES,
     NON_TERMINAL_STATUSES,
+    DecisionBasis,
     CorrectionRecord,
     CorrectionStatus,
     CorrectionTelemetryAction,
@@ -1723,6 +1724,7 @@ def _correction_out(document: Any, correction: CorrectionRecord) -> CorrectionOu
         suggested_value=correction.proposed_value,
         reason=correction.reason,
         confidence=correction.confidence,
+        decision_basis=correction.decision_basis.value,
         evidence=[
             EvidenceSignalOut(name=e.name, score=e.score, weight=e.weight, note=e.note)
             for e in correction.evidence_items
@@ -1784,6 +1786,16 @@ def review_correction(job_id: str, correction_id: str, body: CorrectionActionReq
     previous_status = correction.status.value
 
     with _lock:
+        # Lifecycle guard — the same partitions the bulk route enforces: undo
+        # only reverses a change that was applied; every other action decides
+        # a question that is still open. Without it, accepting twice applied
+        # twice and undoing a proposal "reverted" a change never made.
+        allowed = APPLIED_STATUSES if body.action == CorrectionAction.UNDO else NON_TERMINAL_STATUSES
+        if correction.status not in allowed:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Cannot {body.action.value} a correction that is {correction.status.value}.",
+            )
         try:
             if body.action == CorrectionAction.ACCEPT:
                 engine.apply_correction(document, correction)
@@ -1889,6 +1901,20 @@ def bulk_review_corrections(job_id: str, body: CorrectionBulkActionRequest) -> C
                 status_code=422,
                 detail="A bulk action must cover corrections of one cause (object_type, field, reason_code).",
             )
+        # Phase E: deciding many at once is only for corrections whose producer
+        # stated a deterministic basis. Judgement corrections are decided one
+        # at a time, whatever their confidence or shared cause. Undo is never
+        # gated, so an applied batch can always be reversed.
+        if body.action != CorrectionAction.UNDO:
+            judgement = [c.correction_id for c in targets if c.decision_basis != DecisionBasis.DETERMINISTIC]
+            if judgement:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "Only deterministic corrections can be decided in bulk; "
+                        f"these need an individual reviewer decision: {', '.join(judgement)}"
+                    ),
+                )
         not_eligible = [c.correction_id for c in targets if c.status not in allowed]
         if not_eligible:
             raise HTTPException(

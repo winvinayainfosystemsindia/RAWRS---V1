@@ -96,6 +96,30 @@ APPLIED_STATUSES = frozenset(
 )
 
 
+class DecisionBasis(str, Enum):
+    """What kind of decision a correction asks for — stated by its producer.
+
+    Independent of ``confidence`` (how sure the producer is) and of
+    ``Finding.auto_apply`` (whether RAWRS may act without asking). A
+    high-confidence proposal is still a JUDGEMENT unless its producer has an
+    explicit deterministic basis for it; high confidence, agreeing sources or
+    a passed heuristic are not such a basis.
+
+    DETERMINISTIC: the producer can state a deterministic basis, so several
+                   pending corrections of one cause may be decided together.
+    JUDGEMENT:     a reviewer decides each one. The default, so a producer —
+                   or a record persisted before this field existed — is never
+                   treated as safe without opting in.
+
+    ponytail: no producer emits DETERMINISTIC yet (Phase E audit, 2026-09-16);
+    the contract exists so the first one becomes batch-eligible with no API
+    or UI change.
+    """
+
+    DETERMINISTIC = "deterministic"
+    JUDGEMENT = "judgement"
+
+
 class CorrectionTelemetryAction(str, Enum):
     """M-4.4 — minimal telemetry vocabulary. Collection only: no
     dashboards/analytics/reports read this yet; a future benchmark report
@@ -191,6 +215,9 @@ class CorrectionRecord(BaseModel):
     # object's verifier uses, not just this one.
     evidence_items: List[EvidenceSignal] = Field(default_factory=list)
     confidence: Optional[float] = None
+    # Producer-stated, copied from Finding.decision_basis. Never derived from
+    # confidence. See DecisionBasis.
+    decision_basis: DecisionBasis = DecisionBasis.JUDGEMENT
     reason: str = ""
     reason_code: str = ""
     provider: str = "mathpix"

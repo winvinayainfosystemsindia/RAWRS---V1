@@ -13,6 +13,7 @@ const queued = {
   correction_id: "q1", object_type: "heading", object_id: "h-9", field: "level_mismatch", problem: "p", current_value: "3",
   suggested_value: "2", reason: "r", confidence: 0.9, evidence: [], status: "proposed", created_at: "2026-09-16T00:00:00Z",
   reviewed_at: null, reviewer_notes: null, rule_id: "HEADING_VERIFY_003", severity: "warning", page_number: 1, reason_code: "X",
+  decision_basis: "judgement",
 } as CorrectionItem;
 
 function Drivers() {

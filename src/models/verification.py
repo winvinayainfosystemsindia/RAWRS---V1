@@ -12,6 +12,7 @@ from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
+from src.models.correction import DecisionBasis
 from src.verification.evidence import EvidenceSignal
 
 
@@ -87,6 +88,11 @@ class Finding(BaseModel):
     # pipeline stage happens to call the rail. Default False keeps every
     # existing producer's findings reviewer-gated exactly as before.
     auto_apply: bool = False
+    # What kind of decision this is (see DecisionBasis). Separate from
+    # auto_apply: an auto-applied artifact suppression is a policy-backed
+    # heuristic, so it stays JUDGEMENT. Only a producer with an explicit
+    # deterministic basis sets DETERMINISTIC.
+    decision_basis: DecisionBasis = DecisionBasis.JUDGEMENT
 
 
 class RuleSpec(BaseModel):

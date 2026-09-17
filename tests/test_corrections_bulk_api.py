@@ -17,12 +17,16 @@ def client():
     return TestClient(app)
 
 
-def _job(tmp_path, specs):
-    """specs: (field, reason_code, proposed_value) per heading. Returns (job_id, corrections, headings)."""
+def _job(tmp_path, specs, basis="deterministic"):
+    """specs: (field, reason_code, proposed_value) per heading. Returns (job_id, corrections, headings).
+
+    ``basis`` defaults to deterministic: these tests exercise the bulk mechanics,
+    which only deterministic corrections may use (Phase E).
+    """
     import src.verification.headings  # noqa: F401 - registers HeadingVerifier
     from src.api.jobs import Job, JobStatus, _jobs, _lock
     from src.models.contracts import Document, Heading, HeadingLevel, Metadata, ProcessingStatus
-    from src.models.correction import CorrectionRecord, CorrectionStatus
+    from src.models.correction import CorrectionRecord, CorrectionStatus, DecisionBasis
     from src.pipeline.phase1_pipeline import PipelineResult
 
     doc = Document(source_pdf_path="test.pdf", metadata=Metadata(filename="test.pdf"))
@@ -40,6 +44,7 @@ def _job(tmp_path, specs):
                 reason_code=reason_code,
                 status=CorrectionStatus.PROPOSED,
                 confidence=0.99,
+                decision_basis=DecisionBasis(basis),
             )
         )
     job_id = uuid.uuid4().hex
@@ -181,3 +186,27 @@ def test_correction_out_carries_reason_code(client, tmp_path, jobs):
     data = client.get(f"/api/documents/{job_id}/corrections").json()
 
     assert data["corrections"][0]["reason_code"] == "HEADING_LEVEL_MISMATCH"
+
+
+def test_refuses_judgement_corrections_however_confident(client, tmp_path, jobs):
+    # Same cause, 0.99 confidence: still individual reviewer decisions.
+    job_id, corrections, headings = _job(tmp_path, [(*LEVEL, "1"), (*LEVEL, "2")], basis="judgement")
+    jobs.append(job_id)
+
+    for action in ("accept", "reject", "ignore"):
+        resp = _bulk(client, job_id, corrections, action)
+        assert resp.status_code == 422
+        assert "individual reviewer decision" in resp.json()["detail"]
+    assert [h.level for h in headings] == [3, 3]
+    assert all(c.status.value == "proposed" and not c.telemetry_events for c in corrections)
+
+
+def test_one_judgement_target_blocks_the_whole_batch(client, tmp_path, jobs):
+    from src.models.correction import DecisionBasis
+
+    job_id, corrections, headings = _job(tmp_path, [(*LEVEL, "1"), (*LEVEL, "2")])
+    jobs.append(job_id)
+    corrections[1].decision_basis = DecisionBasis.JUDGEMENT
+
+    assert _bulk(client, job_id, corrections, "accept").status_code == 422
+    assert [h.level for h in headings] == [3, 3]

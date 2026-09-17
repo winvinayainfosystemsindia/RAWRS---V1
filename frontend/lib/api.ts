@@ -681,6 +681,10 @@ export interface CorrectionItem {
   page_number: number | null;
   // With object_type + field, the cause key a bulk action may span.
   reason_code: string;
+  // Producer-stated kind of decision (Phase E), mirrored from the backend and
+  // never derived here — in particular never from `confidence`. Only
+  // "deterministic" corrections may be decided in bulk.
+  decision_basis: "deterministic" | "judgement";
 }
 
 export interface CorrectionsResponse {

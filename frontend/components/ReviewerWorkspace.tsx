@@ -170,16 +170,19 @@ export function ReviewerWorkspace({ jobId, active = true }: { jobId: string; act
     [current, review]
   );
 
-  // Batch review: one judgement over the pending items in view, offered only
-  // when they all share one cause (object_type + field + reason_code). The
-  // reviewer narrows the view (e.g. the Rule filter) to make the batch; a
-  // mixed view is never accepted wholesale, whatever its confidence. One
-  // all-or-nothing request, one Undo-all.
+  // Batch review: only for pending corrections the backend classified as
+  // deterministic (Phase E) — judgement corrections are always decided one at
+  // a time, whatever their confidence or shared cause. The deterministic items
+  // in view must also share one cause (object_type + field + reason_code).
+  // One all-or-nothing request, one Undo-all.
   const [bulkRunning, setBulkRunning] = useState(false);
-  const pendingInView = useMemo(() => filtered.filter((c) => !isResolved(c)), [filtered]);
+  const pendingInView = useMemo(
+    () => filtered.filter((c) => !isResolved(c) && c.decision_basis === "deterministic"),
+    [filtered]
+  );
   const pendingCause = useMemo(() => batchCauseKey(pendingInView), [pendingInView]);
-  const batchLabel = `${pendingInView[0]?.rule_id ?? pendingInView[0]?.reason_code ?? ""} correction${
-    pendingInView.length === 1 ? "" : "s"
+  const batchLabel = `${pendingInView[0]?.rule_id ?? pendingInView[0]?.reason_code ?? ""} safe fix${
+    pendingInView.length === 1 ? "" : "es"
   }`.trim();
 
   async function acceptBatch() {
@@ -324,7 +327,7 @@ export function ReviewerWorkspace({ jobId, active = true }: { jobId: string; act
           </button>
         ) : (
           <p className="text-xs text-text-secondary">
-            Batch accept is available when the view holds one rule only — filter by Rule (under Filters &amp; sort) to decide a group at once.
+            Safe fixes of different rules are in view — filter by Rule (under Filters &amp; sort) to accept one group at once.
           </p>
         )
       )}

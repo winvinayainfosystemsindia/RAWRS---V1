@@ -1,5 +1,6 @@
 import { useEffect, type ReactNode } from "react";
 import { act, fireEvent, render, screen } from "@testing-library/react";
+import { axe } from "jest-axe";
 import { ReviewerWorkspace } from "@/components/ReviewerWorkspace";
 import { api, type CorrectionItem } from "@/lib/api";
 import { DocumentDataProvider, useDocumentDispatch } from "@/lib/store/DocumentDataContext";
@@ -8,7 +9,8 @@ import { PdfViewportProvider } from "@/lib/store/PdfViewportContext";
 import { ReviewQueueProvider } from "@/lib/store/ReviewQueueContext";
 import { ToastProvider } from "@/components/Toast";
 
-// Batch review must follow cause, never confidence: every item below is 0.99.
+// Batch review follows the producer's decision basis and cause, never
+// confidence: every item below is 0.99. Items default to judgement.
 const item = (id: string, over: Partial<CorrectionItem> = {}): CorrectionItem => ({
   correction_id: id,
   object_type: "heading",
@@ -28,6 +30,7 @@ const item = (id: string, over: Partial<CorrectionItem> = {}): CorrectionItem =>
   severity: "warning",
   page_number: 1,
   reason_code: "HEADING_LEVEL_MISMATCH",
+  decision_basis: "judgement",
   ...over,
 });
 
@@ -64,11 +67,13 @@ beforeEach(() => {
 
 afterEach(() => jest.restoreAllMocks());
 
+const det = (id: string, over: Partial<CorrectionItem> = {}) => item(id, { decision_basis: "deterministic", ...over });
+
 describe("ReviewerWorkspace batch review", () => {
   it("offers no batch accept when the pending view mixes causes, however confident", () => {
     renderQueue([
-      item("a"),
-      item("b", { field: "text_correction", rule_id: "HEADING_VERIFY_004", reason_code: "HEADING_TEXT_OCR_ERROR" }),
+      det("a"),
+      det("b", { field: "text_correction", rule_id: "HEADING_VERIFY_004", reason_code: "HEADING_TEXT_OCR_ERROR" }),
     ]);
 
     expect(screen.queryByRole("button", { name: /Accept all/i })).toBeNull();
@@ -78,21 +83,21 @@ describe("ReviewerWorkspace batch review", () => {
   it("accepts one cause as a single request", async () => {
     const bulk = jest
       .spyOn(api, "bulkReviewCorrections")
-      .mockResolvedValue({ corrections: [item("a", { status: "accepted" }), item("b", { status: "accepted" })] });
-    renderQueue([item("a"), item("b")]);
+      .mockResolvedValue({ corrections: [det("a", { status: "accepted" }), det("b", { status: "accepted" })] });
+    renderQueue([det("a"), det("b")]);
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Accept all 2 HEADING_VERIFY_003 corrections in view" }));
+      fireEvent.click(screen.getByRole("button", { name: "Accept all 2 HEADING_VERIFY_003 safe fixes in view" }));
     });
 
     expect(bulk).toHaveBeenCalledTimes(1);
     expect(bulk).toHaveBeenCalledWith("job-1", ["a", "b"], "accept");
-    expect(await screen.findByText("Accepted 2 HEADING_VERIFY_003 corrections")).toBeInTheDocument();
+    expect(await screen.findByText("Accepted 2 HEADING_VERIFY_003 safe fixes")).toBeInTheDocument();
   });
 
   it("reports a refused batch as nothing changed, never as accepted", async () => {
     jest.spyOn(api, "bulkReviewCorrections").mockRejectedValue(new Error("failed on correction b; nothing was changed."));
-    renderQueue([item("a"), item("b")]);
+    renderQueue([det("a"), det("b")]);
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /Accept all 2/ }));
@@ -117,5 +122,42 @@ describe("ReviewerWorkspace batch review", () => {
 
     fireEvent.change(screen.getByLabelText("Search corrections"), { target: { value: "mismatch" } });
     expect(details.querySelector("summary")).toHaveTextContent("1 active");
+  });
+
+  it("offers no batch for judgement corrections of one cause, however confident", () => {
+    const bulk = jest.spyOn(api, "bulkReviewCorrections");
+    renderQueue([item("a"), item("b"), item("c")]);
+
+    expect(screen.queryByRole("button", { name: /Accept all/i })).toBeNull();
+    expect(screen.queryByText(/filter by Rule/i)).toBeNull();
+    expect(bulk).not.toHaveBeenCalled();
+  });
+
+  it("batches only the deterministic corrections when judgement ones share the cause", async () => {
+    const bulk = jest
+      .spyOn(api, "bulkReviewCorrections")
+      .mockResolvedValue({ corrections: [det("a", { status: "accepted" }), det("c", { status: "accepted" })] });
+    renderQueue([det("a"), item("b"), det("c")]);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Accept all 2 HEADING_VERIFY_003 safe fixes in view" }));
+    });
+
+    expect(bulk).toHaveBeenCalledWith("job-1", ["a", "c"], "accept");
+  });
+});
+
+describe("decision basis on the proposal card", () => {
+  it("names the basis in words, apart from confidence, and passes axe", async () => {
+    const { container, unmount } = renderQueue([item("a", { confidence: 0.99 })]);
+    expect(screen.getByText("Review · judgement")).toBeInTheDocument();
+    expect(screen.getByText(/Very High confidence/)).toBeInTheDocument();
+    expect(await axe(container)).toHaveNoViolations();
+    unmount();
+
+    const low = renderQueue([det("x", { confidence: 0.3 })]);
+    expect(screen.getByText("Safe fix · deterministic")).toBeInTheDocument();
+    expect(screen.getByText(/Very Low confidence/)).toBeInTheDocument();
+    expect(await axe(low.container)).toHaveNoViolations();
   });
 });

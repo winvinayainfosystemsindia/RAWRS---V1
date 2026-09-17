@@ -484,6 +484,8 @@ class CorrectionOut(BaseModel):
     suggested_value: str
     reason: str
     confidence: Optional[float] = None
+    # Producer-stated "deterministic" | "judgement"; independent of confidence.
+    decision_basis: str = "judgement"
     evidence: List[EvidenceSignalOut] = []
     status: str
     created_at: datetime

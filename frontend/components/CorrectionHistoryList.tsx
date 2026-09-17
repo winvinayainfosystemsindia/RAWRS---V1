@@ -59,8 +59,10 @@ function confidenceLabel(confidence: number): { text: string; tone: string } {
   if (confidence >= 0.95) return { text: "Very High", tone: "text-success" };
   if (confidence >= 0.80) return { text: "High", tone: "text-success" };
   if (confidence >= 0.60) return { text: "Moderate", tone: "text-warning" };
-  if (confidence >= 0.40) return { text: "Requires Review", tone: "text-warning" };
-  return { text: "Low Confidence", tone: "text-danger" };
+  // Confidence wording only — whether a human must decide is decision_basis
+  // (Phase E), so no label here says "review".
+  if (confidence >= 0.40) return { text: "Low", tone: "text-warning" };
+  return { text: "Very Low", tone: "text-danger" };
 }
 
 const ACCESSIBILITY_IMPACT: Record<string, string> = {
@@ -133,6 +135,12 @@ function CorrectionRow({ correction, jobId, onUpdated, onCorrectionClick }: { co
             <span className="text-xs text-text-secondary">Page {correction.page_number}</span>
           )}
           <Badge tone={statusTone(correction.status)}>{statusLabel(correction.status)}</Badge>
+          {/* Decision basis (Phase E): stated by the producer, shown as words
+              so it never reads as a score and never relies on colour. */}
+          <Badge tone={correction.decision_basis === "deterministic" ? "info" : "neutral"}>
+            <span className="sr-only">Decision basis: </span>
+            {correction.decision_basis === "deterministic" ? "Safe fix · deterministic" : "Review · judgement"}
+          </Badge>
         </div>
         {onCorrectionClick && (
           <button

@@ -183,6 +183,7 @@ class CrossSourceVerificationEngine:
                     evidence=finding.evidence,
                     evidence_items=finding.evidence_items,
                     confidence=finding.confidence,
+                    decision_basis=finding.decision_basis,
                     reason=finding.message,
                     reason_code=spec.reason_code,
                     provider=provider,
