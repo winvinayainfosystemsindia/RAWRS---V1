@@ -89,6 +89,11 @@ def validate_manifest_completeness() -> None:
     scattered failures across unrelated test files.
     """
     on_disk = {p.name for p in BENCHMARK_DIR.glob("*.pdf")}
+    # The PDFs are gitignored (copyrighted), so a fresh clone or CI has none
+    # at all. That is "corpus not installed", not drift: tests that need a
+    # PDF fail or skip on their own. Drift is only checkable once any exist.
+    if not on_disk:
+        return
     in_manifest = set(BENCHMARK_MANIFEST.keys())
     missing_from_manifest = on_disk - in_manifest
     missing_from_disk = in_manifest - on_disk

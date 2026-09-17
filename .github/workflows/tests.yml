@@ -38,7 +38,9 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          # npm 11 (bundled with Node 24) matches the npm that writes
+          # package-lock.json locally; npm 10 reads its optional deps differently.
+          node-version: 24
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
