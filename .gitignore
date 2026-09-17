@@ -68,12 +68,10 @@ frontend/build/
 # Research / audit screenshots (generated during sessions)
 outputs/_audit_screenshots/
 
-# Benchmark PDFs — copyrighted source documents (obtain separately; see README)
-samples/benchmark/pdfs/
+# Benchmark PDFs are tracked so CI runs the corpus tests (samples/benchmark/pdfs/).
 samples/benchmark/remediated_docx/
 
-# Regression source PDFs and generated outputs (copyrighted; obtain separately)
-samples/regressions/**/source_pdf/
+# Regression generated outputs (source_pdf/ is tracked for the regression tests)
 samples/regressions/**/generated_docx/
 
 # Mathpix binary exports — copyrighted DOCX files and extracted images
