@@ -126,7 +126,7 @@ function CorrectionRow({ correction, jobId, onUpdated, onCorrectionClick }: { co
   const warning = editFieldWarning(editValue, correction.object_type);
 
   return (
-    <div className="rounded-lg border border-border bg-surface-panel p-4 space-y-3">
+    <div className="rounded-lg border border-border bg-surface-panel p-3 space-y-2">
       {/* Row 1: Type + Location + Status + Jump */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 flex-wrap">

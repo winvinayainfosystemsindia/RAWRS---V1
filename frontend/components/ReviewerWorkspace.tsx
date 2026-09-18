@@ -267,7 +267,17 @@ export function ReviewerWorkspace({ jobId, active = true }: { jobId: string; act
           {reviewedCount} / {totalCount} reviewed
           {reviewedCount > 0 && (
             <span className="ml-2 text-text-secondary/70">
-              {acceptedCount} accepted · {rejectedCount} rejected · {ignoredCount} ignored
+              {/* Only the non-zero counts: "1 accepted" instead of
+                  "1 accepted / 0 rejected / 0 ignored", which wrapped this row
+                  and pushed the card down the rail. */}
+              {[
+                [acceptedCount, "accepted"],
+                [rejectedCount, "rejected"],
+                [ignoredCount, "ignored"],
+              ]
+                .filter(([n]) => (n as number) > 0)
+                .map(([n, label]) => `${n} ${label}`)
+                .join(" · ")}
             </span>
           )}
         </span>
