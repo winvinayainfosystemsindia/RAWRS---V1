@@ -5,27 +5,6 @@ Everything below stays inside a permanently free tier. No card is charged; Oracl
 
 ---
 
-## Option A (no card, no domain) — Hugging Face Spaces
-
-| Step | Do |
-|---|---|
-| 1 | huggingface.co → New Space → SDK **Docker** (Blank), hardware **CPU basic (free, 16 GB)**, Public |
-| 2 | huggingface.co/settings/tokens → new **Write** token |
-| 3 | `HF_TOKEN=hf_xxx scripts/deploy_hf_space.sh <user>/<space>` (Git Bash) — build ~20-40 min |
-| 4 | Space → Settings → Variables: `RAWRS_ALLOWED_ORIGINS=https://<your>.vercel.app` |
-| 5 | Vercel (section 4 below) with `NEXT_PUBLIC_API_BASE_URL=https://<user>-<space>.hf.space` |
-
-| Limit | Effect |
-|---|---|
-| Storage is ephemeral | Jobs vanish on restart/rebuild (persistent storage is paid) |
-| Sleeps after 48 h idle | First request wakes it (a few minutes) |
-| Public Space, no login | Anyone with the URL can use the API — don't upload confidential PDFs |
-| No Ollama | Alt text is flagged for a human instead of written automatically |
-
-Option B below (Oracle) has none of these limits but needs Oracle signup to work.
-
----
-
 ## Why the backend is not on Vercel
 
 | the backend needs | Vercel serverless allows |
