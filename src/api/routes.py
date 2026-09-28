@@ -2096,6 +2096,30 @@ def download_markdown(job_id: str) -> FileResponse:
     return _download(job.result.markdown_path, job.filename, ".md")
 
 
+@router.get("/documents/{job_id}/checklist")
+def get_checklist(job_id: str) -> dict:
+    """The remediation checklists, ticked against the DOCX a reader would
+    download right now.
+
+    The export is refreshed first, exactly as a download would refresh it,
+    so a reviewer's corrections are what gets audited - never a stale file.
+    Every item from docs/Checklist for Document Remediation1.docx and
+    docs/ChecklistBeforeSubmittingDoc.xlsx is reported pass / fail / warn /
+    not_applicable / manual with its evidence (src/validation/checklist_audit.py).
+    """
+    from src.validation.checklist_audit import audit_docx
+
+    job = _require_job(job_id)
+    if job.result is None or job.result.document is None:
+        raise HTTPException(status_code=404, detail="No document for this job yet.")
+    docx_path = _ensure_current_export(job, "docx")
+    if docx_path is None or not Path(docx_path).is_file():
+        raise HTTPException(status_code=404, detail="This document has no DOCX to audit.")
+    document = job.result.document
+    report = audit_docx(docx_path, document.source_pdf_path, expected_pages=len(document.pages))
+    return report.to_dict()
+
+
 @router.get("/documents/{job_id}/download/docx")
 def download_docx(job_id: str) -> FileResponse:
     """Download the DOCX, refreshed from current Document state."""

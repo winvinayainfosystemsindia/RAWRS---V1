@@ -96,11 +96,14 @@ reason to remove this guard.
 import io
 import itertools
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, NamedTuple, Optional, Tuple, Union
 
 from docx import Document as DocxDocument
-from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.style import WD_STYLE_TYPE
+from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK
+from docx.opc.constants import RELATIONSHIP_TYPE as RT
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.opc.packuri import PackURI
@@ -111,10 +114,17 @@ from loguru import logger
 from lxml import etree
 from PIL import Image as PILImage
 
+from src.docx.remediation_text import (
+    URL_PATTERN,
+    is_bullet_glyph,
+    is_label,
+    remediate_heading,
+    remediate_prose,
+)
 from src.markdown.markdown_builder import PAGE_BREAK_MARKER
 from src.models.content_stream import ContentKind
 from src.structure.content_stream import build_content_stream
-from src.models.contracts import Document, Footnote, FrontMatter, NoteType
+from src.models.contracts import Document, ExtractionMethod, Footnote, FrontMatter, NoteType
 from src.models.inline_format import format_runs
 from src.models.note_references import resolve_note_references
 from src.structure.paragraph_assembly import absorbed_block_ids
@@ -127,16 +137,17 @@ _BODY_FONT_SIZE_PT = 12
 _FOOTNOTE_FONT_SIZE_PT = 10
 _BLACK = RGBColor(0, 0, 0)
 _MAX_IMAGE_WIDTH = Inches(6.5)  # content width on a Letter page with 1" margins
+_DEFAULT_LANGUAGE = "en-US"
+_HYPERLINK_COLOR = "0563C1"
+# Deepest level a content heading may take; Heading 6 is the page number.
+_MAX_CONTENT_HEADING_LEVEL = 5
+# A TOC is navigation; a document with one heading has nothing to navigate.
+_MIN_TOC_HEADINGS = 2
 
 # Per docs/HEADING_RULES.md Formatting Rules: H1=16pt, H2=14pt, H3-H6=12pt,
 # all bold, black, Times New Roman.
 _HEADING_FONT_SIZES_PT = {1: 16, 2: 14, 3: 12, 4: 12, 5: 12, 6: 12}
 
-# Front-Matter Semantic Extraction: deliberately larger than any
-# Heading-N size above - a document's title is its own distinct
-# typographic tier, not competing with the heading hierarchy.
-_TITLE_FONT_SIZE_PT = 20
-_BYLINE_FONT_SIZE_PT = 14
 
 _W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 _XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
@@ -275,6 +286,44 @@ class _NoteRegistries:
 
     def registry_for(self, key: str) -> _FootnoteRegistry:
         return self.endnotes if key in self._endnote_keys else self.footnotes
+
+
+class _HeadingLevels:
+    """The Word level each content heading renders at, so the outline has no gaps.
+
+    The checklist wants "heading levels in hierarchical order": Level 1 is the
+    document's name, and no heading may skip a level below the one before it.
+    Detected levels are font-size ranks, so a chapter whose largest type is
+    its section headings arrives starting at H3, and a sidebar can jump
+    H2 -> H4. Two steps fix both without inventing structure:
+
+    * **rank**: the document's distinct content levels, in order, become
+      consecutive Word levels - starting at 2 when the front-matter title is
+      rendered as Heading 1, else at 1;
+    * **clamp**: a heading is never more than one level deeper than the
+      heading before it.
+
+    Heading 6 is the page number and never passes through here.
+    """
+
+    def __init__(self, raw_levels: List[int], title_is_h1: bool) -> None:
+        self._top = 2 if title_is_h1 else 1
+        distinct = sorted({level for level in raw_levels if 1 <= level <= 6})
+        self._rank = {
+            level: min(self._top + index, _MAX_CONTENT_HEADING_LEVEL)
+            for index, level in enumerate(distinct)
+        }
+        self._previous = self._top - 1
+
+    def title(self) -> int:
+        self._previous = 1
+        return 1
+
+    def content(self, raw_level: int) -> int:
+        level = self._rank.get(raw_level, min(raw_level, _MAX_CONTENT_HEADING_LEVEL))
+        level = max(self._top, min(level, self._previous + 1))
+        self._previous = level
+        return level
 
 
 _HEADING_PATTERN = re.compile(r"^(#{1,6})\s+(.+)$")
@@ -472,7 +521,6 @@ def _stream_images(
 def _add_stream_image(
     docx_document: DocxDocument,
     image,
-    alignment_by_id: Dict[str, WD_ALIGN_PARAGRAPH],
     decorative_ids: set,
 ) -> None:
     """One ``Image``, then its caption, both read off the object the node named.
@@ -491,27 +539,149 @@ def _add_stream_image(
         docx_document,
         image.file_path,
         alt_text=(getattr(figure, "alt_text", None) or "") if figure else "",
-        alignment=alignment_by_id.get(image.image_id, WD_ALIGN_PARAGRAPH.CENTER),
         decorative=image.image_id in decorative_ids,
     )
     if figure is not None and figure.caption:
         _add_caption(docx_document, figure.caption)
 
 
+class _Segment(NamedTuple):
+    """A slice ``[start, end)`` of one ``Paragraph``'s text. A rendered Word
+    paragraph is one or more of these, so a sentence the PDF split across a
+    page or a column can be written as the one sentence it is."""
+
+    paragraph: object
+    start: int
+    end: int
+
+    @property
+    def text(self) -> str:
+        return self.paragraph.text[self.start : self.end]
+
+
+# A paragraph ending in one of these has said what it had to say.
+_TERMINAL_PATTERN = re.compile(r"[.?!:;…][\"'”’)\]]*$")
+# The end of the first sentence in a paragraph: terminal punctuation followed
+# by the start of another sentence, not an abbreviation's inner stop.
+_SENTENCE_END_PATTERN = re.compile(
+    r"[.?!…][\"'”’)\]]*(?=\s+[A-Z0-9\"“(‘]|\s*$)"
+)
+_JOINING_WORDS = frozenset(
+    "a an the of to in on at by for from with and or but nor as that which who whom whose "
+    "is are was were be been being has have had this these those its their our his her "
+    "into onto upon than then so such not also more most very".split()
+)
+# Shorter than this and a "paragraph" is a label (a heading the detector did
+# not claim, a caption), which ends without punctuation by nature.
+_MIN_CONTINUED_WORDS = 4
+
+
+def _continues(tail: str, head: str) -> bool:
+    """Whether ``head`` finishes the sentence ``tail`` left open."""
+    tail, head = tail.rstrip(), head.lstrip()
+    if not tail or not head or _TERMINAL_PATTERN.search(tail):
+        return False
+    if len(tail.split()) < _MIN_CONTINUED_WORDS:
+        return False
+    last_word = re.sub(r"\W", "", tail.split()[-1]).lower()
+    return head[0].islower() or tail[-1] in ",-–—" or last_word in _JOINING_WORDS
+
+
+def _stitch_prose(
+    prose_by_page: Dict[int, List[Tuple[str, object]]],
+    pages_in_order: List[int],
+    pages_ending_in_other_content: set,
+) -> Dict[int, List[Tuple[str, object]]]:
+    """The checklist's two sentence rules, applied to the traversal's prose.
+
+    * "Eliminate ... sentence breaks": two consecutive paragraphs on a page
+      where the first stops mid-sentence and the second finishes it (a column
+      break, a figure the text flowed around) render as one Word paragraph.
+    * "The sentences should not be incomplete at the end of the page.
+      Complete the sentence by taking it from next page": when a page's last
+      paragraph stops mid-sentence, the next page's first paragraph gives up
+      its first sentence to it, and keeps the rest.
+
+    Nothing is re-ordered or rewritten - each piece is a ``_Segment`` of the
+    model's own text, and the model is untouched. A page that closes with a
+    table or figure does not hand its last sentence on, because that text is
+    not what ends the page.
+    """
+    stitched: Dict[int, List[Tuple[str, object]]] = {}
+    open_unit: Optional[List[_Segment]] = None
+    for page in pages_in_order:
+        units: List[Tuple[str, object]] = []
+        bullet_pending = False
+        for kind, obj in prose_by_page.get(page, []):
+            if kind == "heading":
+                units.append((kind, obj))
+                bullet_pending = False
+                continue
+            if is_bullet_glyph(obj.text):
+                # The glyph is the list marker; Word's list style draws its own.
+                bullet_pending = True
+                continue
+            segment = _Segment(obj, 0, len(obj.text))
+            if bullet_pending:
+                units.append(("list_item", [segment]))
+                bullet_pending = False
+                continue
+            previous = units[-1][1] if units and units[-1][0] in _PROSE_UNITS else None
+            if previous is not None and _continues(_segments_text(previous), obj.text):
+                previous.append(segment)
+                continue
+            if not units and open_unit is not None and _continues(_segments_text(open_unit), obj.text):
+                match = _SENTENCE_END_PATTERN.search(obj.text)
+                remainder = obj.text[match.end():] if match else ""
+                if match is None or not remainder.strip():
+                    open_unit.append(segment)
+                    continue
+                open_unit.append(_Segment(obj, 0, match.end()))
+                rest = match.end() + len(remainder) - len(remainder.lstrip())
+                segment = _Segment(obj, rest, len(obj.text))
+            units.append(("paragraph", [segment]))
+        stitched[page] = units
+        open_unit = None if page in pages_ending_in_other_content else _open_sentence(units)
+    return stitched
+
+
+_PROSE_UNITS = ("paragraph", "list_item")
+
+
+def _open_sentence(units: List[Tuple[str, object]]) -> Optional[List[_Segment]]:
+    """The unit whose sentence a page leaves open: its last prose unit, looking
+    past any trailing labels (a figure's "Source: Maslow (1954)" line ends a
+    page without being the text that runs on), but never past a heading."""
+    for kind, value in reversed(units):
+        if kind not in _PROSE_UNITS:
+            return None
+        if not is_label(_segments_text(value)):
+            return value
+    return None
+
+
+def _segments_text(segments: List[_Segment]) -> str:
+    return " ".join(segment.text.strip() for segment in segments)
+
+
 def _add_stream_paragraph(
     docx_document: DocxDocument,
-    paragraph_object,
+    segments: List[_Segment],
     blocks_by_id: Dict[str, object],
     notes_by_anchor_text: Dict[str, List[Footnote]],
     registries: _NoteRegistries,
+    style: Optional[str] = None,
 ) -> None:
-    """One ``Paragraph`` as OOXML runs, with no markdown in between.
+    """One Word paragraph from one or more ``Paragraph`` slices, as OOXML runs,
+    with no markdown in between.
 
     Emphasis comes from ``format_runs`` and note positions from
     ``resolve_note_references`` — the two rules P4a moved to the model
     (``src/models/inline_format.py``, ``src/models/note_references.py``), so
     this module never inspects ``TextBlock.spans[].font_flags`` and never
-    looks for ``[^label]`` in rendered text.
+    looks for ``[^label]`` in rendered text. References are resolved against
+    the whole paragraph's text, then each slice writes the ones inside it, so
+    a note keeps its place when its sentence moves to the previous page.
 
     ``source_block_ids`` names the lines the paragraph was assembled from,
     which is what both rules need: the blocks answer "is this emphasised",
@@ -520,68 +690,79 @@ def _add_stream_paragraph(
 
     **A paragraph is not a list item (P4c-4′).** This function used to
     re-match ``Paragraph.text`` against the bullet/numbered patterns and style
-    the result ``List Bullet``/``List Number``, on the grounds that it was a
-    presentation decision rather than a claim about what the paragraph is. It
-    was the second: it *invented* a list where no ``ListBlock`` existed, and
-    then deleted the evidence. Measured on the ten native documents, 11
-    paragraphs on 3 of them — a reference entry reading ``12. A. C. Kruger and
-    M. Tomasello, "Cultural Learning…"`` lost its printed ``12.`` to
-    ``match.group(2)`` and was renumbered by Word's own counter, continuous
-    with an unrelated list, on a document whose remediated target has no list
-    paragraphs at all. Nothing could review or revert it, because no object
-    said a list was there.
-
-    A real ``ListBlock`` remains the only source of list semantics; it renders
-    through ``_render_lists`` and the anchored branch of the line loop.
+    the result ``List Bullet``/``List Number``. It *invented* a list where no
+    ``ListBlock`` existed, and then deleted the evidence (a reference entry
+    lost its printed ``12.``). A real ``ListBlock`` remains the only source of
+    list semantics; it renders through ``_render_lists`` and the anchored
+    branch of the line loop.
     """
-    contributing = [
-        blocks_by_id[block_id]
-        for block_id in paragraph_object.source_block_ids
-        if block_id in blocks_by_id
-    ]
-    notes = [
-        note
-        for block in contributing
-        for note in notes_by_anchor_text.get(block.text, [])
-    ]
+    try:
+        docx_paragraph = docx_document.add_paragraph(style=style)
+    except KeyError:  # a template without the list style: plain, never lost
+        docx_paragraph = docx_document.add_paragraph()
+    written = ""
+    for segment in segments:
+        paragraph_object = segment.paragraph
+        contributing = [
+            blocks_by_id[block_id]
+            for block_id in paragraph_object.source_block_ids
+            if block_id in blocks_by_id
+        ]
+        notes = [
+            note
+            for block in contributing
+            for note in notes_by_anchor_text.get(block.text, [])
+        ]
+        text = paragraph_object.text
+        start = segment.start + (len(segment.text) - len(segment.text.lstrip()))
+        end = segment.start + len(segment.text.rstrip())
+        if start >= end:
+            continue
+        if written and not written.endswith("-"):
+            _add_formatted_run(docx_paragraph, " ", bold=False, italic=False)
+        references = [
+            r for r in resolve_note_references(text, notes) if start <= r.start < end
+        ]
+        position = start
+        for run in format_runs(text[start:end], contributing):
+            run_end = position + len(run.text)
+            _add_window_with_note_references(
+                docx_paragraph, text, position, run_end, references, registries,
+                bold=run.bold, italic=run.italic,
+            )
+            position = run_end
+        written = text[start:end]
 
-    text = paragraph_object.text
-    docx_paragraph = docx_document.add_paragraph()
 
-    for run in format_runs(text, contributing):
-        _add_runs_with_note_references(
-            docx_paragraph, run.text, notes, registries, bold=run.bold, italic=run.italic
-        )
-
-
-def _add_runs_with_note_references(
+def _add_window_with_note_references(
     docx_paragraph: Paragraph,
     text: str,
-    notes: List[Footnote],
+    start: int,
+    end: int,
+    references: list,
     registries: _NoteRegistries,
     bold: bool = False,
     italic: bool = False,
 ) -> None:
-    """``text`` as runs, with each note's printed marker replaced by a native
-    reference run.
+    """``text[start:end]`` as runs, with each note's printed marker replaced
+    by a native reference run.
 
-    The model says where each marker is (``NoteReference.start``/``.length``)
-    and which note it is; ``registries`` says which part it belongs in, from
-    ``Footnote.note_type`` (L4b). Applied in ascending position because the
-    slices are taken from the original string rather than rewritten into it.
+    The model says where each marker is (``NoteReference.start``/``.length``,
+    positions in the whole ``text``) and which note it is; ``registries``
+    says which part it belongs in, from ``Footnote.note_type`` (L4b). Applied
+    in ascending position because the slices are taken from the original
+    string rather than rewritten into it.
     """
-    position = 0
-    for reference in resolve_note_references(text, notes):
-        if reference.start < position:
-            continue  # overlapping claim; the earlier reference already owns it
-        _add_plain_run(
-            docx_paragraph, text[position : reference.start], bold=bold, italic=italic
-        )
+    position = start
+    for reference in references:
+        if reference.start < position or reference.start >= end:
+            continue  # outside this window, or an overlapping claim already owned
+        _add_plain_run(docx_paragraph, text[position : reference.start], bold=bold, italic=italic)
         _add_note_reference_run(
             docx_paragraph, registries.key_for(reference.note), registries
         )
-        position = reference.start + reference.length
-    _add_plain_run(docx_paragraph, text[position:], bold=bold, italic=italic)
+        position = min(reference.start + reference.length, end)
+    _add_plain_run(docx_paragraph, text[position:end], bold=bold, italic=italic)
 
 
 def generate_docx(
@@ -610,12 +791,11 @@ def generate_docx(
     logger.info("Generating DOCX for '{}'", document.source_pdf_path)
 
     docx_document = DocxDocument()
-    _apply_default_style(docx_document)
+    _apply_default_style(docx_document, _document_language(document))
     _apply_core_properties(docx_document, document)
 
     # Alignment and decorative status, both keyed by Image.image_id (P4c-3).
     # They were always read off the model; only the key was the file path.
-    image_alignment_map = _build_image_alignment_map(document)
     decorative_ids = _build_decorative_set(document)
     # The remaining use of the path as a name: a markdown image line on a
     # document the traversal never placed images for, which is the only path
@@ -641,6 +821,17 @@ def generate_docx(
     front_matter_groups = _front_matter_groups(document)
     front_matter_kinds = [role for role, _ in front_matter_groups]
     front_matter_index = 0
+    # Ranked from the model's headings; hand-written markdown has none, and
+    # its own heading lines are then the only record of the levels in use.
+    heading_levels = _HeadingLevels(
+        [h.level.value for h in document.headings if not h.is_page_marker]
+        or [
+            len(match.group(1))
+            for match in map(_HEADING_PATTERN.match, content_lines)
+            if match and len(match.group(1)) < 6
+        ],
+        title_is_h1="title" in front_matter_kinds,
+    )
     note_registries = _NoteRegistries(document.footnotes)
     pipe_table_rows: list = []
     pipe_table_header_count = 0
@@ -698,6 +889,11 @@ def generate_docx(
     images_before_prose, images_at_close = _stream_images(
         document, stream, stream_prose_pages
     )
+    prose_units = _stitch_prose(
+        prose_by_page,
+        stream_pages,
+        pages_ending_in_other_content=set(stream_tables_by_page) | set(images_at_close),
+    )
     # An image the traversal placed is rendered from its node, so its markdown
     # line is a restatement and is dropped — along with the ``*caption*`` line
     # after it, which _add_stream_image() has already emitted from
@@ -719,6 +915,11 @@ def generate_docx(
     # every window is prose no matter what it starts with. An index rather
     # than a flag for the same reason as above: it needs no reset.
     lists_by_id = {str(lst.id): lst for lst in (document.lists or []) if lst.id}
+    ocr_pages = {
+        page.page_number
+        for page in document.pages
+        if page.extraction_method in (ExtractionMethod.DOCLING, ExtractionMethod.SURYA)
+    }
     list_line_limit = -1
 
     def flush_pipe_table() -> None:
@@ -797,7 +998,7 @@ def generate_docx(
         """This page's images from one slot, once — popped, so the page-close
         sweep cannot re-emit what the prose run already placed."""
         for image in slot.pop(current_page, []):
-            _add_stream_image(docx_document, image, image_alignment_map, decorative_ids)
+            _add_stream_image(docx_document, image, decorative_ids)
 
     def close_page() -> None:
         """Emit this page's images and tables and register its notes, where
@@ -854,12 +1055,13 @@ def generate_docx(
             return
         prose_emitted = True
         emit_images(images_before_prose)
-        for kind, obj in prose_by_page.get(current_page, []):
+        for kind, obj in prose_units.get(current_page, []):
             if kind == "heading":
-                _add_heading(docx_document, obj.level.value, obj.text)
+                _add_heading(docx_document, heading_levels.content(obj.level.value), obj.text)
             else:
                 _add_stream_paragraph(
-                    docx_document, obj, blocks_by_id, notes_by_anchor_text, note_registries
+                    docx_document, obj, blocks_by_id, notes_by_anchor_text, note_registries,
+                    style="List Bullet" if kind == "list_item" else None,
                 )
 
     # A Document with no pages, blocks or headings — a direct generate_docx()
@@ -967,13 +1169,16 @@ def generate_docx(
                 continue
             level = len(heading_match.group(1))
             text = heading_match.group(2).strip()
-            _add_heading(docx_document, level, text)
+            # An H6 line is a page number (docs/PAGE_RULES.md), never content.
+            _add_heading(docx_document, 6 if level == 6 else heading_levels.content(level), text)
             in_front_matter_zone = False
             continue
 
         if in_front_matter_zone:
             kind, text = front_matter_groups[front_matter_index]
             front_matter_index += 1
+            if kind == "title":
+                heading_levels.title()
             _add_front_matter_line(docx_document, kind, text)
             in_front_matter_zone = front_matter_index < len(front_matter_kinds)
             continue
@@ -997,7 +1202,6 @@ def generate_docx(
                 docx_document,
                 img_path,
                 alt_text=image_match.group(1),
-                alignment=image_alignment_map.get(image_id, WD_ALIGN_PARAGRAPH.CENTER),
                 decorative=image_id in decorative_ids,
             )
             if image_obj is not None:
@@ -1056,7 +1260,12 @@ def generate_docx(
         # import placed as prose, and it became a bulleted list item purely
         # because ``✓`` is in the character class — twice, against a model
         # holding 50 items and a package rendering 52.
-        line_may_be_a_list_item = index < list_line_limit or not stream_knows_pages
+        # A scanned page is the third: Docling's layout model labelled the
+        # line a list item, and its "- "/"1. " prefix is how that label
+        # survives into the page text.
+        line_may_be_a_list_item = (
+            index < list_line_limit or not stream_knows_pages or current_page in ocr_pages
+        )
         bullet_match = _BULLET_LIST_PATTERN.match(line) if line_may_be_a_list_item else None
         if bullet_match:
             _add_list_paragraph(
@@ -1101,8 +1310,10 @@ def generate_docx(
             for page_images in list(slot.values()):
                 for image in page_images:
                     _add_stream_image(
-                        docx_document, image, image_alignment_map, decorative_ids
+                        docx_document, image, decorative_ids
                     )
+
+    _insert_table_of_contents(docx_document)
 
     # L4b: one part per note kind, and only for kinds this document
     # actually has. An endnote emitted into the footnotes part is not a
@@ -1115,6 +1326,95 @@ def generate_docx(
     docx_document.save(str(resolved_path))
     logger.info("Saved DOCX to '{}'", resolved_path)
     return resolved_path
+
+
+def _insert_table_of_contents(docx_document: DocxDocument) -> None:
+    """An automatic Table of Contents on its own page before page 1.
+
+    The submission checklist asks for "an automatic Table of Contents" with
+    fields updated. This is Word's own ``TOC \\o "1-5" \\h \\z \\u`` field over
+    the content headings (Heading 6 is the page number, so it is excluded),
+    and ``w:updateFields`` makes Word refresh it - page numbers included -
+    when the document is opened. Until then the field shows the headings
+    it will list, so the page is never blank. A document with fewer than
+    two content headings has nothing to navigate and gets none.
+    """
+    body = docx_document.element.body
+    entries = []
+    for element in body.iterchildren(qn("w:p")):
+        paragraph = Paragraph(element, docx_document)
+        match = re.match(r"Heading (\d)$", paragraph.style.name if paragraph.style else "")
+        if match and int(match.group(1)) <= _MAX_CONTENT_HEADING_LEVEL and paragraph.text.strip():
+            entries.append((int(match.group(1)), paragraph.text.strip()))
+    if len(entries) < _MIN_TOC_HEADINGS:
+        return
+
+    toc_styles = {level: _toc_style(docx_document, level) for level in {lvl for lvl, _ in entries}}
+    created = []
+    heading = docx_document.add_paragraph(style="TOC Heading")
+    _style_run(heading.add_run("Contents"), _BODY_FONT_SIZE_PT, bold=True)
+    heading_ppr = heading._p.get_or_add_pPr()
+    outline = OxmlElement("w:outlineLvl")
+    outline.set(qn("w:val"), "9")  # a label for the TOC, not part of the outline
+    heading_ppr.append(outline)
+    created.append(heading)
+    for index, (level, text) in enumerate(entries):
+        paragraph = docx_document.add_paragraph(style=toc_styles[level])
+        if index == 0:
+            _add_field_char(paragraph, "begin")
+            instruction = OxmlElement("w:instrText")
+            instruction.set(_XML_SPACE, "preserve")
+            instruction.text = ' TOC \\o "1-5" \\h \\z \\u '
+            run = OxmlElement("w:r")
+            run.append(instruction)
+            paragraph._p.append(run)
+            _add_field_char(paragraph, "separate")
+        _style_run(paragraph.add_run(_safe_run_text(text)), _BODY_FONT_SIZE_PT, bold=False)
+        if index == len(entries) - 1:
+            _add_field_char(paragraph, "end")
+        created.append(paragraph)
+    page_break = docx_document.add_paragraph()
+    page_break.add_run().add_break(WD_BREAK.PAGE)
+    created.append(page_break)
+
+    for position, paragraph in enumerate(created):
+        body.remove(paragraph._p)
+        body.insert(position, paragraph._p)
+
+    settings = docx_document.settings.element
+    if settings.find(qn("w:updateFields")) is None:
+        update = OxmlElement("w:updateFields")
+        update.set(qn("w:val"), "true")
+        settings.append(update)
+
+
+def _style_run(run, size_pt: int, bold: bool) -> None:
+    run.font.name = _FONT_NAME
+    run.font.size = Pt(size_pt)
+    run.font.bold = bold
+    run.font.color.rgb = _BLACK
+
+
+def _toc_style(docx_document: DocxDocument, level: int) -> str:
+    """Word's built-in "toc N" paragraph style, created when the template
+    lacks it, indented a quarter inch per level."""
+    name = f"toc {level}"
+    try:
+        docx_document.styles[name]
+    except KeyError:
+        style = docx_document.styles.add_style(name, WD_STYLE_TYPE.PARAGRAPH)
+        style.base_style = docx_document.styles["Normal"]
+        style.paragraph_format.left_indent = Inches(0.25 * (level - 1))
+        style.paragraph_format.space_after = Pt(4)
+    return name
+
+
+def _add_field_char(paragraph: Paragraph, kind: str) -> None:
+    run = OxmlElement("w:r")
+    field_char = OxmlElement("w:fldChar")
+    field_char.set(qn("w:fldCharType"), kind)
+    run.append(field_char)
+    paragraph._p.append(run)
 
 
 def _safe_run_text(text: str) -> str:
@@ -1144,31 +1444,152 @@ def _resolve_output_path(document: Document, output_path: Optional[Union[str, Pa
     return DEFAULT_OUTPUT_DIR / f"{stem}.docx"
 
 
-def _apply_core_properties(docx_document: DocxDocument, document: Document) -> None:
-    """Write reviewer-set accessibility properties into DOCX CoreProperties.
+# PDF "Author" values that name a machine or a template, not a person.
+_PLACEHOLDER_AUTHORS = frozenset({"user", "admin", "administrator", "owner", "author", "unknown", "default"})
 
-    These map to Dublin Core / OPC standard fields that Word, NVDA, and
-    JAWS can all read: dc:language, dc:title, dc:creator, dc:subject.
-    Only set when the reviewer has explicitly provided a value via the
-    Metadata panel (FEATURE_016F) — never overwrite with a blank string.
+
+def _pdf_info(pdf_path: str) -> Dict[str, str]:
+    """Title/author/subject/language the source PDF itself declares, blank
+    where it declares nothing usable. A missing or unreadable PDF (fixtures,
+    a regenerated document whose upload was cleaned up) declares nothing."""
+    info = {"title": "", "author": "", "subject": "", "language": ""}
+    try:
+        import fitz
+
+        with fitz.open(pdf_path) as pdf:
+            meta = pdf.metadata or {}
+            lang = pdf.xref_get_key(pdf.pdf_catalog(), "Lang")
+    except Exception:
+        return info
+    info["title"] = (meta.get("title") or "").strip()
+    author = (meta.get("author") or "").strip()
+    if author.lower() not in _PLACEHOLDER_AUTHORS and not re.search(
+        r"microsoft|adobe|acrobat|pdf|word|scanner", author, re.IGNORECASE
+    ):
+        info["author"] = author
+    info["subject"] = (meta.get("subject") or "").strip()
+    if lang and lang[0] == "string":
+        info["language"] = lang[1].strip("()")
+    return info
+
+
+def _apply_core_properties(docx_document: DocxDocument, document: Document) -> None:
+    """Title, Author, Subject and Language, as the submission checklist asks.
+
+    A reviewer-set value (the Metadata panel, FEATURE_016F) always wins.
+    Otherwise each field falls back to what the document itself says - its
+    front matter, then the PDF's own properties - and the title finally to
+    the first heading or the file name, so a document never ships untitled.
+    An author nobody stated stays blank for a person to fill: inventing one
+    would be worse than the gap.
+
+    python-docx's template also carries "python-docx" as author and
+    "generated by python-docx" as a comment; both are tool information the
+    checklist says to remove, so they are always cleared.
     """
     props = docx_document.core_properties
     m = document.metadata
-    if m.title:
-        props.title = m.title
-    if m.author:
-        props.author = m.author
-    if m.subject:
-        props.subject = m.subject
-    if m.language:
-        props.language = m.language
+    front = getattr(document, "front_matter", None)
+    pdf = _pdf_info(document.source_pdf_path)
+    first_heading = next(
+        (h.text for h in document.headings if not h.is_page_marker and h.text.strip()), ""
+    )
+    title = (
+        m.title
+        or getattr(front, "title", None)
+        or pdf["title"]
+        or first_heading
+        or Path(document.source_pdf_path).stem
+    )
+    props.title = _safe_run_text(title)
+    props.author = _safe_run_text(
+        m.author or ", ".join(getattr(front, "authors", None) or []) or pdf["author"]
+    )
+    props.subject = _safe_run_text(m.subject or pdf["subject"] or title)
+    props.language = m.language or pdf["language"] or _DEFAULT_LANGUAGE
+    props.comments = ""
+    props.last_modified_by = ""
+    props.keywords = ""
+    props.revision = 1
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    props.created = now
+    props.modified = now
 
 
-def _apply_default_style(docx_document: DocxDocument) -> None:
+def _document_language(document: Document) -> str:
+    return (
+        document.metadata.language
+        or _pdf_info(document.source_pdf_path)["language"]
+        or _DEFAULT_LANGUAGE
+    )
+
+
+def _apply_default_style(docx_document: DocxDocument, language: str = "en-US") -> None:
+    """Every style in Times New Roman, and headings as the checklist's table.
+
+    Setting fonts on runs alone is not enough: Word's built-in Heading,
+    Title, Caption and TOC styles name *theme* fonts (``w:asciiTheme``),
+    which override a plain font name, and Heading 6 is italic and blue. The
+    H6 page markers carry no run formatting of their own, so before this
+    they rendered in the theme's heading font, italic, 243F60 - three
+    checklist violations on every page. Fixing the styles makes every
+    paragraph right whatever its runs say.
+    """
+    styles = docx_document.styles.element
+    for rfonts in styles.iter(qn("w:rFonts")):
+        for attr in ("asciiTheme", "hAnsiTheme", "eastAsiaTheme", "cstheme"):
+            rfonts.attrib.pop(qn(f"w:{attr}"), None)
+        for attr in ("ascii", "hAnsi", "cs", "eastAsia"):
+            rfonts.set(qn(f"w:{attr}"), _FONT_NAME)
+
+    defaults = styles.find(qn("w:docDefaults"))
+    if defaults is None:
+        defaults = OxmlElement("w:docDefaults")
+        styles.insert(0, defaults)
+    rpr_default = defaults.find(qn("w:rPrDefault"))
+    if rpr_default is None:
+        rpr_default = OxmlElement("w:rPrDefault")
+        defaults.insert(0, rpr_default)
+    rpr = rpr_default.find(qn("w:rPr"))
+    if rpr is None:
+        rpr = OxmlElement("w:rPr")
+        rpr_default.append(rpr)
+    for tag, attrs in (
+        ("w:rFonts", {a: _FONT_NAME for a in ("ascii", "hAnsi", "cs", "eastAsia")}),
+        ("w:lang", {"val": language, "eastAsia": language, "bidi": language}),
+    ):
+        element = rpr.find(qn(tag))
+        if element is None:
+            element = OxmlElement(tag)
+            rpr.append(element)
+        for attr, value in attrs.items():
+            element.set(qn(f"w:{attr}"), value)
+
     normal_style = docx_document.styles["Normal"]
     normal_style.font.name = _FONT_NAME
     normal_style.font.size = Pt(_BODY_FONT_SIZE_PT)
     normal_style.font.color.rgb = _BLACK
+
+    for level, size in _HEADING_FONT_SIZES_PT.items():
+        _set_style_font(docx_document, f"Heading {level}", size, bold=True, italic=False)
+    _set_style_font(docx_document, "Title", _HEADING_FONT_SIZES_PT[1], bold=True, italic=False)
+    _set_style_font(docx_document, "Subtitle", _BODY_FONT_SIZE_PT, bold=False, italic=True)
+    _set_style_font(docx_document, "Caption", _BODY_FONT_SIZE_PT, bold=False, italic=True)
+    _set_style_font(docx_document, "TOC Heading", _BODY_FONT_SIZE_PT, bold=True, italic=False)
+
+
+def _set_style_font(
+    docx_document: DocxDocument, name: str, size_pt: int, bold: bool, italic: bool
+) -> None:
+    try:
+        style = docx_document.styles[name]
+    except KeyError:
+        return
+    style.font.name = _FONT_NAME
+    style.font.size = Pt(size_pt)
+    style.font.bold = bold
+    style.font.italic = italic
+    style.font.color.rgb = _BLACK
 
 
 def _add_heading(docx_document: DocxDocument, level: int, text: str) -> None:
@@ -1177,8 +1598,12 @@ def _add_heading(docx_document: DocxDocument, level: int, text: str) -> None:
     Built-in Heading 1-9 styles are what Word's Navigation Pane reads
     directly - no additional outline-level configuration is needed.
     Font overrides are applied on top per docs/HEADING_RULES.md.
+
+    A content heading's text is written the checklist's way - numbered
+    headings as ``6.1 - INTRODUCTION``, spacing and initialisms fixed. A page
+    number (level 6) is a label and is written exactly as printed.
     """
-    text = _safe_run_text(text)
+    text = _safe_run_text(text if level == 6 else remediate_heading(text))
     paragraph = docx_document.add_heading(text, level=level)
     if not paragraph.runs:
         # add_heading() creates zero runs for empty/whitespace-only text,
@@ -1308,14 +1733,46 @@ def _add_text_with_note_references(
 def _add_plain_run(
     paragraph: Paragraph, text: str, bold: bool = False, italic: bool = False
 ) -> None:
+    """Body text as the checklist wants it read: spacing, units and
+    initialisms fixed (``remediate_prose``), and every web address a live
+    hyperlink rather than inert text."""
     if not text:
         return
+    text = remediate_prose(text)
+    position = 0
+    for match in URL_PATTERN.finditer(text):
+        _add_formatted_run(paragraph, text[position : match.start()], bold, italic)
+        _add_hyperlink(paragraph, match.group(0), bold, italic)
+        position = match.end()
+    _add_formatted_run(paragraph, text[position:], bold, italic)
+
+
+def _add_formatted_run(paragraph: Paragraph, text: str, bold: bool, italic: bool):
+    if not text:
+        return None
     run = paragraph.add_run(_safe_run_text(text))
     run.font.name = _FONT_NAME
     run.font.size = Pt(_BODY_FONT_SIZE_PT)
     run.font.bold = bold
     run.font.italic = True if italic else None
     run.font.color.rgb = _BLACK
+    return run
+
+
+def _add_hyperlink(paragraph: Paragraph, address: str, bold: bool, italic: bool) -> None:
+    """``address`` as an external ``w:hyperlink``. Its display text stays the
+    address as printed, so the document still matches the PDF word for word;
+    the target gains a scheme when the print had none (``www.``)."""
+    target = address if re.match(r"https?://", address, re.IGNORECASE) else f"http://{address}"
+    relationship_id = paragraph.part.relate_to(target, RT.HYPERLINK, is_external=True)
+    hyperlink = OxmlElement("w:hyperlink")
+    hyperlink.set(qn("r:id"), relationship_id)
+    run = _add_formatted_run(paragraph, address, bold, italic)
+    run.font.color.rgb = RGBColor.from_string(_HYPERLINK_COLOR)
+    run.font.underline = True
+    paragraph._p.remove(run._r)
+    hyperlink.append(run._r)
+    paragraph._p.append(hyperlink)
 
 
 def _add_note_reference_run(
@@ -1371,7 +1828,7 @@ def _add_note_definition(
     ``key`` is the note's identity (P4c-2), so a body and the references to
     it meet on ``footnote_id`` rather than on a printed label.
     """
-    registries.registry_for(key).register_body(key, _safe_run_text(body_text))
+    registries.registry_for(key).register_body(key, _safe_run_text(remediate_prose(body_text)))
 
 
 def _add_bookmark(paragraph: Paragraph, name: str, bookmark_id: int) -> None:
@@ -1484,41 +1941,6 @@ def _attach_notes_part(
     docx_document.part.relate_to(notes_part, part.relationship_type)
 
 
-def _build_image_alignment_map(document: Document) -> Dict[str, WD_ALIGN_PARAGRAPH]:
-    """Return an image_id → WD_ALIGN_PARAGRAPH map derived from each Image's bbox.
-
-    Keyed by identity since P4c-3. It was keyed by ``file_path``, which is a
-    property of an image rather than a name for one: two images written to the
-    same path would have silently shared this alignment, and the decorative
-    set and the ``embedded_in_docx`` write with it.
-
-    Detects left / center / right alignment by comparing the image center
-    against the page's physical width (Page.width_pt). Falls back to CENTER
-    when bbox or width_pt is absent (e.g. older pipeline runs or test fixtures).
-    A 10% tolerance band around page center is treated as centered.
-    """
-    page_width_by_num: Dict[int, float] = {}
-    for page in document.pages:
-        if page.width_pt:
-            page_width_by_num[page.page_number] = page.width_pt
-
-    result: Dict[str, WD_ALIGN_PARAGRAPH] = {}
-    for image in document.images:
-        if image.bbox is None or image.page_number not in page_width_by_num:
-            result[image.image_id] = WD_ALIGN_PARAGRAPH.CENTER
-            continue
-        page_width = page_width_by_num[image.page_number]
-        image_center = image.bbox.x0 + (image.bbox.x1 - image.bbox.x0) / 2
-        margin = page_width * 0.10
-        if abs(image_center - page_width / 2) <= margin:
-            result[image.image_id] = WD_ALIGN_PARAGRAPH.CENTER
-        elif image_center < page_width / 2:
-            result[image.image_id] = WD_ALIGN_PARAGRAPH.LEFT
-        else:
-            result[image.image_id] = WD_ALIGN_PARAGRAPH.RIGHT
-    return result
-
-
 def _build_decorative_set(document: Document) -> set:
     """Return the image_ids of images marked DECORATIVE by the reviewer."""
     from src.models.figure import AltTextStatus
@@ -1570,25 +1992,27 @@ def _add_pipe_table(
         # "Table Grid" not in this template — fall back to unstyled.
         table = docx_document.add_table(rows=len(parsed), cols=num_cols)
 
-    for row_idx, cell_texts in enumerate(parsed):
-        is_header = row_idx < header_row_count
+    grid = [[row[c] if c < len(row) else "" for c in range(num_cols)] for row in parsed]
+    header_rows = set(range(header_row_count)) or {0}
+    for row_idx in range(len(grid)):
         docx_row = table.rows[row_idx]
+        if row_idx in header_rows:
+            _set_row_tbl_header(docx_row)
         for col_idx in range(num_cols):
-            text = cell_texts[col_idx] if col_idx < len(cell_texts) else ""
-            cell = docx_row.cells[col_idx]
-            para = cell.paragraphs[0]
-            para.clear()
-            run = para.add_run(_safe_run_text(text))
-            run.font.name = _FONT_NAME
-            run.font.size = Pt(_BODY_FONT_SIZE_PT)
-            run.font.color.rgb = _BLACK
-            run.bold = is_header
+            _write_cell(docx_row.cells[col_idx], grid[row_idx][col_idx], row_idx in header_rows)
+    _add_table_summary(docx_document, _describe_table(grid, header_rows))
 
 
 def _add_caption(docx_document: DocxDocument, text: str) -> None:
-    paragraph = docx_document.add_paragraph()
+    """A centered caption in Word's own "Caption" style - the style Word's
+    Insert Caption applies, which is what the checklist asks for, and what
+    lets Word list figures and tables."""
+    try:
+        paragraph = docx_document.add_paragraph(style="Caption")
+    except KeyError:
+        paragraph = docx_document.add_paragraph()
     paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = paragraph.add_run(_safe_run_text(text))
+    run = paragraph.add_run(_safe_run_text(remediate_prose(text)))
     run.font.name = _FONT_NAME
     run.font.size = Pt(_BODY_FONT_SIZE_PT)
     run.font.italic = True
@@ -1650,25 +2074,22 @@ def _add_front_matter_line(
 
 
 def _add_title(docx_document: DocxDocument, text: str) -> None:
-    """A document's title - Word's built-in "Title" style (so it reads
-    correctly in Word's outline/accessibility tooling) plus this
-    module's usual explicit font override on top, the same two-step
-    pattern _add_heading() already uses for "Heading N"."""
-    paragraph = docx_document.add_paragraph(style="Title")
-    run = paragraph.add_run(_safe_run_text(text))
-    run.font.name = _FONT_NAME
-    run.font.size = Pt(_TITLE_FONT_SIZE_PT)
-    run.font.bold = True
-    run.font.color.rgb = _BLACK
+    """A document's title is its Heading 1.
+
+    The remediation checklist's heading table says so in as many words -
+    "Level 1 (Book Name): Times New Roman 16, Black, Bold" - and a title in
+    Word's "Title" style is invisible to the Navigation Pane and to a
+    screen reader's heading list, so the outline began one level down."""
+    _add_heading(docx_document, 1, text)
 
 
 def _add_byline(docx_document: DocxDocument, text: str) -> None:
     """An author byline - Word's built-in "Subtitle" style plus an
     explicit italic font override."""
     paragraph = docx_document.add_paragraph(style="Subtitle")
-    run = paragraph.add_run(_safe_run_text(text))
+    run = paragraph.add_run(_safe_run_text(remediate_prose(text)))
     run.font.name = _FONT_NAME
-    run.font.size = Pt(_BYLINE_FONT_SIZE_PT)
+    run.font.size = Pt(_BODY_FONT_SIZE_PT)
     run.font.italic = True
     run.font.color.rgb = _BLACK
 
@@ -1680,7 +2101,7 @@ def _add_affiliation(docx_document: DocxDocument, text: str) -> None:
     line (src/markdown/markdown_builder.py) is unformatted plain text
     too."""
     paragraph = docx_document.add_paragraph()
-    run = paragraph.add_run(_safe_run_text(text))
+    run = paragraph.add_run(_safe_run_text(remediate_prose(text)))
     run.font.name = _FONT_NAME
     run.font.size = Pt(_BODY_FONT_SIZE_PT)
     run.font.bold = False
@@ -1691,21 +2112,24 @@ def _add_image(
     docx_document: DocxDocument,
     image_path: str,
     alt_text: str = "",
-    alignment: WD_ALIGN_PARAGRAPH = WD_ALIGN_PARAGRAPH.CENTER,
     decorative: bool = False,
 ) -> bool:
-    """Insert an image inline with text at the specified alignment.
+    """Insert an image inline with text, centered.
 
-    alignment defaults to CENTER (existing behavior). Pass a value from
-    _build_image_alignment_map() to match the image's original PDF position.
+    The checklist says "All images should be center-aligned and inline with
+    text", so there is no alignment to choose: an earlier version mirrored
+    the image's horizontal position on the PDF page, which put figures
+    flush left or right in the Word file.
 
-    decorative=True sets descr="" and title="" explicitly so screen readers
-    skip the image. When False (default), non-empty alt_text is set on descr
-    and title; an empty alt_text leaves both unset (existing behavior).
+    decorative=True marks the picture decorative the way Word's own "Mark as
+    decorative" does (the ``a16:decorative`` docPr extension) and clears
+    descr/title, so screen readers skip it and Word's Accessibility Checker
+    does not report it as missing alt text. Otherwise non-empty alt_text is
+    set on descr and title.
 
     Missing or unreadable image files are logged and skipped rather
     than raised, so one bad image reference does not abort generation
-    of the rest of the document.
+    of the rest of the document - and leave no empty paragraph behind.
 
     Returns True when the image was successfully embedded, False when it was
     skipped (file not found or add_picture raised). The caller records this
@@ -1717,7 +2141,7 @@ def _add_image(
         return False
 
     paragraph = docx_document.add_paragraph()
-    paragraph.alignment = alignment
+    paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
     run = paragraph.add_run()
 
     picture_source = _docx_compatible_picture_source(path)
@@ -1726,6 +2150,7 @@ def _add_image(
         picture = run.add_picture(picture_source)
     except Exception as exc:  # python-docx raises various error types on bad images
         logger.warning("Failed to insert image '{}': {}", path, exc)
+        paragraph._p.getparent().remove(paragraph._p)
         return False
 
     if picture.width > _MAX_IMAGE_WIDTH:
@@ -1733,33 +2158,49 @@ def _add_image(
         picture.width = _MAX_IMAGE_WIDTH
         picture.height = Emu(int(_MAX_IMAGE_WIDTH * aspect_ratio))
 
+    doc_properties = picture._inline.docPr
     if decorative:
-        doc_properties = picture._inline.docPr
         doc_properties.set("descr", "")
         doc_properties.set("title", "")
+        _mark_decorative(doc_properties)
     elif alt_text:
         safe_alt_text = _safe_run_text(alt_text)
-        doc_properties = picture._inline.docPr
         doc_properties.set("descr", safe_alt_text)
         doc_properties.set("title", safe_alt_text)
 
     return True
 
 
-def _add_semantic_table(docx_document: DocxDocument, table) -> None:
-    """Render a Table model as a fully accessible DOCX table.
+_DECORATIVE_EXT_URI = "{C183D7F6-B498-43B3-948B-1728B52AA6E4}"
+_A16_DECORATIVE_NS = "http://schemas.microsoft.com/office/drawing/2017/decorative"
+_A_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
 
-    Unlike _add_pipe_table() which parses markdown pipe strings, this
-    function reads the Table model directly to produce:
-      - Caption as a centered italic paragraph above the table (same
-        style as figure captions; placed before the table so Word's
-        document order matches the visual order).
-      - w:tblHeader on every header row so NVDA/JAWS/Narrator/VoiceOver
-        announce column context when a user navigates into a data cell.
-      - Bold formatting on is_header and is_row_header cells.
-      - Merged cells via cell.merge() for col_span / row_span > 1.
-      - Summary as a small italic paragraph below the table (the WCAG
-        H73-equivalent prose description for complex tables).
+
+def _mark_decorative(doc_properties) -> None:
+    """Word 365's "Mark as decorative": an ``a:extLst`` on ``wp:docPr``
+    carrying ``adec:decorative val="1"``."""
+    ext_list = etree.SubElement(doc_properties, f"{{{_A_NS}}}extLst")
+    ext = etree.SubElement(ext_list, f"{{{_A_NS}}}ext")
+    ext.set("uri", _DECORATIVE_EXT_URI)
+    flag = etree.SubElement(ext, f"{{{_A16_DECORATIVE_NS}}}decorative", nsmap={"adec": _A16_DECORATIVE_NS})
+    flag.set("val", "1")
+
+
+def _add_semantic_table(docx_document: DocxDocument, table) -> None:
+    """Render a Table model as an accessible DOCX table, checklist-style.
+
+      - Caption as a centered paragraph in Word's Caption style above the
+        table, so Word's document order matches the visual order.
+      - w:tblHeader ("Repeat Header Row") on every header row so screen
+        readers announce column context. A table whose model marks no header
+        row gets its first row marked: every data table has one, and Word's
+        Accessibility Checker fails a table without it.
+      - **No merged cells.** The remediation checklist says "no merged cells
+        involved, instead repeat the words": a spanning cell's text is
+        written into every cell it covers, so a screen reader reading any
+        cell hears its heading, and the reading order is a plain grid.
+      - A summary below the table, always: the reviewer's when there is one,
+        otherwise a factual description of its shape and column headings.
     """
     if table.caption:
         _add_caption(docx_document, table.caption)
@@ -1768,7 +2209,9 @@ def _add_semantic_table(docx_document: DocxDocument, table) -> None:
         return
 
     row_count = len(table.rows)
-    col_count = max(table.col_count, 1)
+    col_count = max(table.col_count, 1, *(len(r.cells) for r in table.rows))
+    grid = _table_text_grid(table, row_count, col_count)
+    header_rows = {i for i, row in enumerate(table.rows) if row.is_header_row} or {0}
 
     try:
         docx_table = docx_document.add_table(rows=row_count, cols=col_count, style="Table Grid")
@@ -1777,29 +2220,54 @@ def _add_semantic_table(docx_document: DocxDocument, table) -> None:
 
     for row_idx, table_row in enumerate(table.rows):
         docx_row = docx_table.rows[row_idx]
-        if table_row.is_header_row:
+        if row_idx in header_rows:
             _set_row_tbl_header(docx_row)
         for col_idx in range(col_count):
-            cell = (
-                table_row.cells[col_idx]
-                if col_idx < len(table_row.cells)
-                else None
-            )
-            text = cell.text if cell else ""
-            is_bold = bool(cell and (cell.is_header or cell.is_row_header))
-            docx_cell = docx_row.cells[col_idx]
-            para = docx_cell.paragraphs[0]
-            para.clear()
-            run = para.add_run(_safe_run_text(text))
-            run.font.name = _FONT_NAME
-            run.font.size = Pt(_BODY_FONT_SIZE_PT)
-            run.font.color.rgb = _BLACK
-            run.bold = is_bold
+            cell = next((c for c in table_row.cells if c.col_index == col_idx), None)
+            is_bold = row_idx in header_rows or bool(cell and (cell.is_header or cell.is_row_header))
+            _write_cell(docx_row.cells[col_idx], grid[row_idx][col_idx], is_bold)
 
-    _apply_cell_merges(docx_table, table)
+    _add_table_summary(docx_document, table.summary or _describe_table(grid, header_rows))
 
-    if table.summary:
-        _add_table_summary(docx_document, table.summary)
+
+def _table_text_grid(table, row_count: int, col_count: int) -> List[List[str]]:
+    """Each grid position's text, with a spanning cell's words repeated into
+    every position it covers (the checklist's alternative to merging)."""
+    grid = [["" for _ in range(col_count)] for _ in range(row_count)]
+    for row_idx, table_row in enumerate(table.rows):
+        for position, cell in enumerate(table_row.cells):
+            col_idx = cell.col_index if cell.col_index is not None else position
+            if col_idx >= col_count:
+                continue
+            row_span = max(cell.row_span or 1, 1)
+            col_span = max(cell.col_span or 1, 1)
+            for r in range(row_idx, min(row_idx + row_span, row_count)):
+                for c in range(col_idx, min(col_idx + col_span, col_count)):
+                    if not grid[r][c]:  # a covered cell the model left empty takes the span's words
+                        grid[r][c] = cell.text
+    return grid
+
+
+def _describe_table(grid: List[List[str]], header_rows: set) -> str:
+    """A factual summary for a table nobody has described: its size and, when
+    its header row has text, the column headings in order. It states only
+    what the table itself says, so it can never be wrong about the content."""
+    rows, cols = len(grid), len(grid[0]) if grid else 0
+    summary = f"Table with {rows} rows and {cols} columns."
+    headings = [text.strip() for text in grid[min(header_rows)] if text.strip()] if grid else []
+    if headings:
+        summary += " Column headings: " + "; ".join(headings) + "."
+    return summary
+
+
+def _write_cell(docx_cell, text: str, bold: bool) -> None:
+    para = docx_cell.paragraphs[0]
+    para.clear()
+    run = para.add_run(_safe_run_text(remediate_prose(text)))
+    run.font.name = _FONT_NAME
+    run.font.size = Pt(_BODY_FONT_SIZE_PT)
+    run.font.color.rgb = _BLACK
+    run.bold = bold
 
 
 def _set_row_tbl_header(docx_row) -> None:
@@ -1816,58 +2284,25 @@ def _set_row_tbl_header(docx_row) -> None:
     if trPr is None:
         trPr = OxmlElement("w:trPr")
         tr.insert(0, trPr)
-    tbl_header = OxmlElement("w:tblHeader")
-    trPr.append(tbl_header)
-
-
-def _apply_cell_merges(docx_table, table) -> None:
-    """Apply col_span / row_span from the Table model via python-docx merge().
-
-    cell.merge(other) merges the rectangular region from cell (top-left)
-    to other (bottom-right).  Only cells where span > 1 trigger a merge;
-    auto-detected tables have all spans = 1 so this is a no-op for them.
-    Manually-created tables edited by a reviewer can have spans set.
-    """
-    row_count = len(table.rows)
-    col_count = table.col_count
-
-    for row_idx, table_row in enumerate(table.rows):
-        for cell in table_row.cells:
-            col_idx = cell.col_index
-            col_span = cell.col_span if cell.col_span else 1
-            row_span = cell.row_span if cell.row_span else 1
-            if col_span <= 1 and row_span <= 1:
-                continue
-            end_row = min(row_idx + row_span - 1, row_count - 1)
-            end_col = min(col_idx + col_span - 1, col_count - 1)
-            if end_row == row_idx and end_col == col_idx:
-                continue
-            try:
-                start_cell = docx_table.cell(row_idx, col_idx)
-                end_cell = docx_table.cell(end_row, end_col)
-                start_cell.merge(end_cell)
-            except Exception as exc:
-                logger.warning(
-                    "Table cell merge failed at ({},{})→({},{}): {}",
-                    row_idx, col_idx, end_row, end_col, exc,
-                )
+    if trPr.find(qn("w:tblHeader")) is None:
+        trPr.append(OxmlElement("w:tblHeader"))
 
 
 def _add_table_summary(docx_document: DocxDocument, summary_text: str) -> None:
-    """Render the WCAG H73-equivalent summary as a small italic paragraph below the table.
+    """Render the WCAG H73-equivalent summary as a paragraph below the table.
 
     The summary is intended for screen reader users who need a prose
-    description of a complex table before (or after) navigating its cells.
-    It is rendered visibly below the table rather than hidden, because DOCX
-    has no native table-summary attribute equivalent to HTML's summary="…"
-    and this approach is the WCAG-recommended technique for Word documents.
+    description of a table before (or after) navigating its cells. It is
+    rendered visibly rather than hidden, because DOCX has no native
+    table-summary attribute equivalent to HTML's summary="...", and in the
+    document's body text (Times New Roman 12, black) like any other text.
     """
     paragraph = docx_document.add_paragraph()
-    run = paragraph.add_run(_safe_run_text(f"Table summary: {summary_text}"))
+    run = paragraph.add_run(_safe_run_text(remediate_prose(f"Table summary: {summary_text}")))
     run.font.name = _FONT_NAME
-    run.font.size = Pt(10)
+    run.font.size = Pt(_BODY_FONT_SIZE_PT)
     run.font.italic = True
-    run.font.color.rgb = RGBColor(0x44, 0x44, 0x44)
+    run.font.color.rgb = _BLACK
 
 
 def _python_docx_reads(path: Path) -> bool:

@@ -239,19 +239,27 @@ class TestHeadings:
     def test_content_heading_levels_come_from_the_model(
         self, level: int, tmp_path: Path
     ) -> None:
-        blocks = [_block(0, "A Heading"), _block(1, "Body prose here.")]
-        heading = Heading(
-            level=HeadingLevel(level),
-            text="A Heading",
-            page_number=1,
-            document_order=0,
-            source_block_id=blocks[0].block_id,
-        )
+        # One heading per level down to ``level``: the projection keeps the
+        # model's hierarchy but never lets the outline skip a level, so a
+        # lone H3 would (rightly) render as Heading 1.
+        blocks = [_block(n, f"Heading {n}") for n in range(level)] + [
+            _block(level, "Body prose here.")
+        ]
+        headings = [
+            Heading(
+                level=HeadingLevel(n + 1),
+                text=f"Heading {n}",
+                page_number=1,
+                document_order=n,
+                source_block_id=blocks[n].block_id,
+            )
+            for n in range(level)
+        ]
         paragraph = Paragraph(
-            page_number=1, text="Body prose here.", source_block_ids=[blocks[1].block_id]
+            page_number=1, text="Body prose here.", source_block_ids=[blocks[level].block_id]
         )
-        docx = _render(_document(blocks, [paragraph], [heading]), tmp_path)
-        assert (str(level), "A Heading") in _headings(docx)
+        docx = _render(_document(blocks, [paragraph], headings), tmp_path)
+        assert (str(level), f"Heading {level - 1}") in _headings(docx)
 
     def test_h6_page_marker_is_a_heading_6(self, simple: Document, tmp_path: Path) -> None:
         levels = [level for level, _ in _headings(_render(simple, tmp_path))]
@@ -389,12 +397,12 @@ class TestBlocklessSafety:
         document = Document(
             source_pdf_path="x.pdf",
             metadata=Metadata(filename="x.pdf", page_count=1),
-            pages=[Page(page_number=1, cleaned_text="Recovered by OCR.\nA second line.")],
+            pages=[Page(page_number=1, cleaned_text="Recovered by scanning.\nA second line.")],
             blocks=[],
             paragraphs=[],
         )
         body = _body(_render(document, tmp_path))
-        assert "Recovered by OCR." in body
+        assert "Recovered by scanning." in body
         assert "A second line." in body
 
     def test_mixed_document_keeps_the_blockless_page(self, tmp_path: Path) -> None:

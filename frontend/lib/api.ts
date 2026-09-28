@@ -370,6 +370,11 @@ export const api = {
     return request<ValidationResponse>(`/api/documents/${jobId}/validation`);
   },
 
+  /** The two remediation checklists, ticked against the current DOCX export. */
+  getChecklist(jobId: string): Promise<ChecklistReport> {
+    return request<ChecklistReport>(`/api/documents/${jobId}/checklist`);
+  },
+
   getImages(jobId: string): Promise<ImagesResponse> {
     return request<ImagesResponse>(`/api/documents/${jobId}/images`);
   },
@@ -695,6 +700,27 @@ export interface CorrectionActionRequest {
   action: CorrectionAction;
   proposed_value?: string | null;
   reviewer_notes?: string | null;
+}
+
+// --- Remediation checklist audit (src/validation/checklist_audit.py) --------
+
+export type ChecklistStatus = "pass" | "fail" | "warn" | "not_applicable" | "manual";
+
+export interface ChecklistItem {
+  item_id: string;
+  source: "remediation_docx" | "submission_xlsx";
+  section: string;
+  requirement: string;
+  status: ChecklistStatus;
+  evidence: string;
+  count: number;
+}
+
+export interface ChecklistReport {
+  docx_path: string;
+  passed: boolean;
+  summary: Record<ChecklistStatus, number>;
+  results: ChecklistItem[];
 }
 
 // --- Accessibility Readiness (backend-driven) ------------------------------

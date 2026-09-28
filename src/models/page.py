@@ -5,7 +5,7 @@ exists to support.
 """
 
 from enum import Enum
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -172,6 +172,12 @@ class Page(BaseModel):
     page_number: int = Field(..., ge=1)
     raw_text: str = ""
     cleaned_text: str = ""
+    # A scanned page has no fonts to rank, so heading detection has nothing
+    # to measure. Docling's layout model does label its title and section
+    # headers; this keeps that answer (line text as it appears in
+    # cleaned_text -> heading level, 1 for the title) instead of discarding
+    # it with the rest of the structure when the page is flattened to text.
+    ocr_heading_levels: Dict[str, int] = Field(default_factory=dict)
     ocr_confidence: Optional[OCRConfidence] = None
     footnote_references: List[str] = Field(default_factory=list)
     endnote_references: List[str] = Field(default_factory=list)

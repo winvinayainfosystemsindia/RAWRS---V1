@@ -155,6 +155,39 @@ def run_docling_ocr(document: Document, metrics: Optional[OCRTimingMetrics] = No
     return document
 
 
+# Docling numbers section headers from 1; the document title sits above them.
+_MAX_OCR_HEADING_LEVEL = 5
+
+
+def _layout_heading_levels(docling_document, cleaned_text: str) -> Dict[str, int]:
+    """Docling's title and section headers on this page, keyed by the line of
+    ``cleaned_text`` each one became: the title at level 1, a section header
+    at its Docling level + 1.
+
+    Only a header whose text is a whole line of the page's text is kept - the
+    heading detector matches headings to lines, so anything else could never
+    be placed. Any failure reading the structure costs the page its headings,
+    never its text.
+    """
+    try:
+        lines = {line.strip() for line in cleaned_text.splitlines() if line.strip()}
+        levels: Dict[str, int] = {}
+        for item, _ in docling_document.iterate_items():
+            label = getattr(getattr(item, "label", None), "value", None)
+            if label not in ("title", "section_header"):
+                continue
+            text, _ = sanitize_xml_text(normalize_whitespace(getattr(item, "text", "") or ""))
+            text = text.strip()
+            if text not in lines:
+                continue
+            level = 1 if label == "title" else min(int(getattr(item, "level", 1) or 1) + 1, _MAX_OCR_HEADING_LEVEL)
+            levels.setdefault(text, level)
+        return levels
+    except Exception as exc:  # structure is a bonus on top of the text
+        logger.warning("Could not read Docling layout headings: {}", exc)
+        return {}
+
+
 def _run_single_page(
     converter, pdf_path: Path, page: Page, metrics: OCRTimingMetrics
 ) -> List[SanitizationEvent]:
@@ -199,6 +232,7 @@ def _run_single_page(
         page.raw_text = text
         cleaned, removed = sanitize_xml_text(normalize_whitespace(text))
         page.cleaned_text = cleaned
+        page.ocr_heading_levels = _layout_heading_levels(result.document, cleaned)
         page.ocr_confidence = OCRConfidence.MEDIUM
         logger.info(
             "Page {} → Docling OCR in {:.2f}s ({} chars recovered)",

@@ -537,7 +537,9 @@ class TestDocxCoreProperties:
         assert result.core_properties.language == "en-AU"
         assert result.core_properties.title == "Test Document"
 
-    def test_no_properties_written_when_not_set(self, tmp_path):
+    def test_unset_properties_fall_back_and_never_invent_an_author(self, tmp_path):
+        """The submission checklist asks for Title, Subject and Language on
+        every document, and for no tool information in its properties."""
         from src.docx.docx_generator import generate_docx
         from docx import Document as DocxDocument
 
@@ -545,10 +547,12 @@ class TestDocxCoreProperties:
         docx_path = tmp_path / "out.docx"
         generate_docx(doc, "# Test\n\nBody.", output_path=docx_path)
 
-        result = DocxDocument(str(docx_path))
-        # Default python-docx CoreProperties values — should not be overwritten with None
-        assert result.core_properties.title in ("", None)
-        assert result.core_properties.language in ("", None)
+        props = DocxDocument(str(docx_path)).core_properties
+        assert props.title  # falls back to the document's own name
+        assert props.subject == props.title
+        assert props.language == "en-US"
+        assert props.author == ""  # nobody stated one; never invented
+        assert "python-docx" not in props.comments
 
 
 # ===========================================================================

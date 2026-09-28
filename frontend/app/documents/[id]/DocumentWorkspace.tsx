@@ -49,6 +49,7 @@ import { OcrPageTable } from "@/components/OcrPageTable";
 import { ReadingOrderPanel } from "@/components/ReadingOrderPanel";
 import { PageLabelManagerPanel } from "@/components/PageLabelManagerPanel";
 import { CorrectionsPanel } from "@/components/CorrectionsPanel";
+import { ChecklistAuditPanel } from "@/components/ChecklistAuditPanel";
 import { ReadinessPanel } from "@/components/ReadinessPanel";
 import { ChevronDownIcon } from "@/components/icons";
 
@@ -370,18 +371,21 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
         );
       case "readiness":
         return (
-          <ReadinessPanel
-            accessibilityReport={state.accessibilityReport}
-            onSelectCategory={handleSelectCategory}
-            onFixNext={() => {
-              // "Fix Next" opens the prioritized Review Queue itself (its
-              // default priority sort already surfaces the highest-value item)
-              // rather than routing into a category view. Clear the object-type
-              // filter so nothing is hidden. (P1-6 — replaces the old
-              // hardcoded catMap that dumped unknown categories into Validation.)
-              focusQueue(ANY_OBJECT_TYPE);
-            }}
-          />
+          <div className="space-y-6">
+            <ChecklistAuditPanel jobId={jobId} />
+            <ReadinessPanel
+              accessibilityReport={state.accessibilityReport}
+              onSelectCategory={handleSelectCategory}
+              onFixNext={() => {
+                // "Fix Next" opens the prioritized Review Queue itself (its
+                // default priority sort already surfaces the highest-value item)
+                // rather than routing into a category view. Clear the object-type
+                // filter so nothing is hidden. (P1-6 — replaces the old
+                // hardcoded catMap that dumped unknown categories into Validation.)
+                focusQueue(ANY_OBJECT_TYPE);
+              }}
+            />
+          </div>
         );
       default:
         return null;

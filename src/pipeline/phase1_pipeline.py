@@ -60,6 +60,7 @@ from src.footnotes.footnote_detector import detect_footnote_pdf_candidates, dete
 from src.frontmatter.front_matter_extractor import extract_front_matter
 from src.headings.heading_detector import detect_headings, detect_headings_from_pdf
 from src.lists.list_detector import detect_lists_from_pdf
+from src.images.auto_alt_text import apply_automatic_alt_text
 from src.images.image_extractor import _extract_images_from_pdf, extract_images
 from src.markdown.markdown_builder import build_markdown
 from src.structure.paragraph_assembly import assemble_paragraphs
@@ -72,6 +73,7 @@ from src.ocr.surya_engine import run_surya_ocr
 from src.parser.pdf_parser import parse_pdf
 from src.structure.structure_detector import detect_structure
 from src.tables.table_extractor import extract_tables
+from src.validation.checklist_audit import audit_docx, write_checklist_report
 from src.validation.validator import validate_document
 
 DEFAULT_OUTPUT_ROOT = Path("outputs")
@@ -331,6 +333,14 @@ def run_pipeline(
         if not _mathpix_path:
             document = extract_images(document, output_dir=output_root / "images")
         document.metadata.image_count = len(document.images)
+        blocks_by_page: Dict[int, List] = {}
+        for block in document.blocks:
+            blocks_by_page.setdefault(block.page_number, []).append(block)
+        alt_text_counts = apply_automatic_alt_text(
+            document,
+            nearby_text=lambda image: _nearby_block_texts(image, blocks_by_page.get(image.page_number, [])),
+        )
+        logger.info("Stage 4b (Automatic alt text): {}", alt_text_counts)
         alt_text_dataset_path = _write_alt_text_dataset(
             document, output_root / "alt_text_dataset" / f"{stem}.json"
         )
@@ -508,6 +518,7 @@ def run_pipeline(
             document, issues, output_root / "reports" / f"{stem}.json"
         )
         logger.info("Stage 8/8 (Run Validation) complete: {} issue(s)", len(issues))
+        _write_checklist_report(document, docx_path, output_root / "reports" / f"{stem}.checklist.json")
         if on_stage_complete: on_stage_complete("run_validation")
     except Exception as exc:
         logger.error("Stage 8/8 (Run Validation) failed: {}", exc)
@@ -589,6 +600,21 @@ def _build_result(
         ocr_metrics=ocr_metrics,
         surya_metrics=surya_metrics,
     )
+
+
+def _write_checklist_report(document: Document, docx_path: Path, report_path: Path) -> None:
+    """Audit the DOCX just written against the two remediation checklists
+    (src/validation/checklist_audit.py) and save the verdict beside the
+    validation report. An audit failure is logged, never fatal: the DOCX is
+    already written and the audit only describes it."""
+    try:
+        report = audit_docx(docx_path, document.source_pdf_path, expected_pages=len(document.pages))
+        write_checklist_report(report, report_path)
+        logger.info(
+            "Checklist audit: {} - failing {}", report.summary, report.failing() or "none"
+        )
+    except Exception as exc:
+        logger.error("Checklist audit failed for '{}': {}", docx_path, exc)
 
 
 def _write_validation_report(

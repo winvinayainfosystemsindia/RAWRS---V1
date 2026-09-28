@@ -14,10 +14,17 @@ highest-value duplicated cases were migrated.
 """
 
 import json
+import os
 from pathlib import Path
 from typing import Dict, List
 
 import pytest
+
+# The pipeline now writes alt text automatically whenever a real vision model
+# answers (src/images/auto_alt_text.py). On a machine running Ollama that is
+# minutes per image, and output would depend on the model, so the suite runs
+# against the deterministic stub unless a test unsets this itself.
+os.environ.setdefault("RAWRS_AI_STUB", "1")
 
 BENCHMARK_DIR = Path(__file__).resolve().parents[1] / "samples" / "benchmark" / "pdfs"
 MANIFEST_PATH = Path(__file__).resolve().parents[1] / "samples" / "benchmark" / "manifest.json"

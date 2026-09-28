@@ -99,12 +99,15 @@ class TestHeadingHierarchy:
     def test_heading_font_matches_heading_rules(
         self, tmp_path: Path, level: int, expected_pt: int
     ) -> None:
-        markdown = f"{'#' * level} Heading Text"
+        # The levels above it too: a lone "##" heading is the document's top
+        # level, and the checklist's hierarchy rule renders it as Heading 1.
+        markdown = "\n\n".join(f"{'#' * n} Heading Text" for n in range(1, level + 1))
         output_path = tmp_path / "out.docx"
         generate_docx(_dummy_document(), markdown, output_path=output_path)
 
         docx_doc = DocxDocument(str(output_path))
-        heading = _heading_paragraphs(docx_doc)[0]
+        heading = _heading_paragraphs(docx_doc)[level - 1]
+        assert heading.style.name == f"Heading {level}"
         run = heading.runs[0]
 
         assert run.font.name == "Times New Roman"

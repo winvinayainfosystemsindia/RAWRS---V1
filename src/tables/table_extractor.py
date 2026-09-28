@@ -28,6 +28,7 @@ PyMuPDF 1.23.0+ is required for page.find_tables(). This project
 uses 1.27.2.3.
 """
 
+import re
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
@@ -279,6 +280,14 @@ def _build_table(
     # Pad rows to uniform width
     raw_rows = [row + [""] * (col_count - len(row)) for row in raw_rows]
 
+    if _is_running_prose(raw_rows):
+        logger.info(
+            "Table candidate on page {} rejected: its columns are running prose "
+            "(a multi-column page or a boxed text panel), not a table",
+            page_number,
+        )
+        return None
+
     # --- Header row detection via font signals ---
     bbox_obj = _tuple_to_bbox(candidate.bbox)
 
@@ -327,6 +336,46 @@ def _build_table(
         evidence_signals=candidate.evidence.to_dict_list(),
         lifecycle_status=ObjectLifecycleStatus.DETECTED,
     )
+
+
+# A line of prose that ends here has said what it had to say.
+_TERMINAL_LINE = re.compile(r"[.?!:;)\]]\W*$")
+# Measured on the ten benchmark PDFs: the two prose "tables" (Nature of
+# Enquiry p5, a two-column page; Brinkman p1, the boxed title/abstract panel)
+# continue a sentence into the cell below in 53% and 58% of vertical cell
+# pairs, averaging 5.0 and 5.3 words a cell. The three real tables sit at
+# 0-38% and 1.9-2.7 words - wrapped header cells are what reach 38%.
+PROSE_CONTINUATION_RATIO = 0.45
+PROSE_MEAN_WORDS_PER_CELL = 4.0
+
+
+def _is_running_prose(raw_rows: List[List[str]]) -> bool:
+    """Whether a candidate's columns read as text flowing down the page.
+
+    A table cell is a value; a line of a column of prose is a fragment of a
+    sentence that goes on in the line below (it ends unpunctuated and the
+    next begins in lowercase, or it ends in a hyphenated break). When most of
+    a candidate's vertical neighbours do that *and* its cells are
+    sentence-length, the "table" is a multi-column page or a text panel, and
+    rendering it as a grid would bury that text where no reader expects it.
+    """
+    pairs = continuations = 0
+    cells = []
+    for column in range(max((len(row) for row in raw_rows), default=0)):
+        values = [
+            (row[column] or "").strip()
+            for row in raw_rows
+            if column < len(row) and (row[column] or "").strip()
+        ]
+        cells.extend(values)
+        for upper, lower in zip(values, values[1:]):
+            pairs += 1
+            if not _TERMINAL_LINE.search(upper) and (lower[:1].islower() or upper.endswith("-")):
+                continuations += 1
+    if not pairs or not cells:
+        return False
+    mean_words = sum(len(cell.split()) for cell in cells) / len(cells)
+    return continuations / pairs >= PROSE_CONTINUATION_RATIO and mean_words >= PROSE_MEAN_WORDS_PER_CELL
 
 
 def _detect_header_rows(

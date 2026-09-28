@@ -210,14 +210,15 @@ class TestSemanticsFromTheModel:
         assert header.bold is True
         assert body.bold is not True
 
-    def test_merged_cells_emit_a_single_cell(self, tmp_path: Path) -> None:
-        """col_span is a merge case the corpus never exercises (0 of 5)."""
+    def test_spanning_cell_repeats_its_words_instead_of_merging(self, tmp_path: Path) -> None:
+        """The remediation checklist: "no merged cells involved, instead repeat
+        the words". col_span is a case the corpus never exercises (0 of 5)."""
         block, paragraph = _prose_with_a_table()
         table = _table("t1", [["wide", ""], ["a", "b"]])
         table.rows[0].cells[0].col_span = 2
         docx = _render(_document([table], [block], [paragraph]), tmp_path)
-        assert docx.tables[0].cell(0, 0)._tc is docx.tables[0].cell(0, 1)._tc
-        assert "wide" in docx.tables[0].cell(0, 0).text
+        assert docx.tables[0].cell(0, 0)._tc is not docx.tables[0].cell(0, 1)._tc
+        assert [docx.tables[0].cell(0, c).text for c in (0, 1)] == ["wide", "wide"]
 
 
 class TestModelBeatsMarkdown:

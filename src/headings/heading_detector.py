@@ -277,6 +277,36 @@ def detect_headings(
                 line_index += 1
                 continue
 
+            # A line with fewer than two letters is a drop cap, a bullet glyph
+            # or a stray mark - large and alone on its line, which is exactly
+            # what the typography tiers below reward, and never a heading.
+            # Measured: Sockett rendered its drop-cap "e" as a heading 3 times.
+            if sum(ch.isalpha() for ch in line) < 2:
+                line_index += 1
+                continue
+
+            # A scanned page: Docling's layout model labelled this line a title
+            # or section header. There are no fonts on an OCR page for the
+            # tiers below to rank, so that label is the only structural
+            # evidence there is, and it decides.
+            ocr_level = page.ocr_heading_levels.get(line)
+            if ocr_level is not None and line not in emitted_heading_texts:
+                emitted_heading_texts.add(line)
+                headings.append(
+                    Heading(
+                        level=ocr_level,
+                        text=line,
+                        page_number=page.page_number,
+                        document_order=order,
+                        is_page_marker=False,
+                        source="docling_layout",
+                    )
+                )
+                h1_slot_open = h1_slot_open and ocr_level != 1
+                order += 1
+                line_index += 1
+                continue
+
             # H1-slot Robustness Repair: the slot stays open across
             # unproductive lines (bare footer page numbers, stray
             # single-character decorative glyphs) instead of being

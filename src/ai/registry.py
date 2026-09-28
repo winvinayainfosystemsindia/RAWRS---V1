@@ -6,8 +6,9 @@ selection — callers never instantiate providers directly.
 
 Provider selection order:
   1. RAWRS_AI_STUB env var set  →  StubProvider (tests / CI)
-  2. QwenProvider available      →  QwenProvider (production, local GPU/CPU)
-  3. No provider available       →  raises AIProviderUnavailableError
+  2. OllamaProvider available    →  OllamaProvider (local qwen2.5vl:3b, CPU-friendly)
+  3. QwenProvider available      →  QwenProvider (Qwen2.5-VL-7B, needs ~14 GB)
+  4. No provider available       →  raises AIProviderUnavailableError
 
 The registry does not cache provider instances — capabilities() is
 cheap and reflects current availability (e.g., after a failed load the
@@ -58,13 +59,16 @@ def get_provider() -> AIProvider:
 
 def _candidate_providers() -> List[AIProvider]:
     """Return providers in priority order, filtered by environment."""
-    from src.ai.providers.stub import StubProvider
+    from src.ai.providers.ollama import OllamaProvider
     from src.ai.providers.qwen import QwenProvider
+    from src.ai.providers.stub import StubProvider
 
     if os.environ.get("RAWRS_AI_STUB"):
         return [StubProvider()]
 
-    return [QwenProvider()]
+    # Ollama first: a 4-bit model a local Ollama already serves fits on the
+    # 8 GB machines RAWRS runs on, where the 14 GB Qwen-7B does not.
+    return [OllamaProvider(), QwenProvider()]
 
 
 def init_ai() -> None:

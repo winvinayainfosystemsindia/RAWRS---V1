@@ -344,10 +344,12 @@ class TestDocxHeaderRow:
         xml = _build_docx_xml(table)
         assert "tblHeader" in xml, "w:tblHeader must be present for header rows"
 
-    def test_w_tblHeader_absent_when_no_header_row(self):
+    def test_first_row_repeats_as_header_when_the_model_marks_none(self):
+        """Every data table has a header row, and the checklist asks for it to
+        be marked "Repeat Header Row" - so an unmarked table's first row is."""
         table = _make_minimal_table(has_header_row=False)
         xml = _build_docx_xml(table)
-        assert "tblHeader" not in xml, "w:tblHeader must not appear when no header row"
+        assert xml.count("tblHeader") == 1
 
     def test_header_row_cell_bold(self):
         table = _make_minimal_table(has_header_row=True)

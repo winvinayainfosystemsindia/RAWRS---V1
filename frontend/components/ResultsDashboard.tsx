@@ -2,7 +2,7 @@
 
 import type { FootnoteItem, ImageItem, JobSummary, PageOcrInfo, TableItem, ValidationIssue } from "@/lib/api";
 import { SeverityBadge } from "@/components/Badge";
-import { ChecklistPanel } from "@/components/ChecklistPanel";
+import { ChecklistAuditPanel } from "@/components/ChecklistAuditPanel";
 
 // ─── VERIFICATION SUMMARY section ────────────────────────────────────────────
 
@@ -426,7 +426,7 @@ export function ResultsDashboard({ job, issues, images, footnotes, pages, tables
       <AutomaticRepairsSection job={job} footnotes={footnotes} images={images} pages={pages} />
       <VerifiedSection job={job} pages={pages} tables={tables} />
       <VerificationSummarySection job={job} />
-      <ChecklistPanel job={job} issues={issues} images={images} footnotes={footnotes} pages={pages} tables={tables} />
+      {job.status === "complete" && <ChecklistAuditPanel jobId={job.job_id} />}
     </div>
   );
 }
