@@ -1,5 +1,14 @@
 # RAWRS Known Limitations
 
+## Open as of 2026-09-28
+
+| Limitation | Effect | Where |
+|---|---|---|
+| Alt text is CPU-slow | ~2.5 min per image with `qwen2.5vl:3b`; 7B needs 14 GB RAM | `src/ai/providers/ollama.py` |
+| Markdown edits bypass the object model | A saved edit wins over later object reviews until discarded | `src/api/markdown_edits.py` |
+| Heading level inference is a textbook convention | First = H1, capitals = H2, rest = H3 when the source gives one level | `src/headings/hierarchy.py` |
+| Frontend lint | 9 pre-existing React-Compiler errors (CI lint is informational) | `npx eslint .` |
+
 ## Purpose
 
 Everything in this file is a **deliberate, decided scope boundary or a confirmed gap** — not a bug to file, and not something to "just go fix" without a scope conversation first. Where a limitation was a conscious decision, see `DECISIONS_LOG.md` for the reasoning. Where it's a gap discovered during this audit (documentation said "complete," code says otherwise), that's noted explicitly so it doesn't get mistaken for an intentional boundary.

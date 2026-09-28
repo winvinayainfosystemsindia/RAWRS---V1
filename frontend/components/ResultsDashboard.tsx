@@ -194,7 +194,6 @@ interface RepairItem {
 
 function AutomaticRepairsSection({
   job,
-  footnotes,
   images,
   pages,
 }: {

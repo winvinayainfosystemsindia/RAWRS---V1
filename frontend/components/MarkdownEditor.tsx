@@ -205,7 +205,7 @@ export function MarkdownEditor({
       selection: { anchor: pos },
       effects: EditorView.scrollIntoView(pos, { y: "center" }),
     });
-  }, [scrollToLine, scrollNonce]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [scrollToLine, scrollNonce]);
 
   function handleOpenSearch() {
     if (viewRef.current) openSearchPanel(viewRef.current);

@@ -821,6 +821,19 @@ No force-push, reset or rebase at any step. Rollback: `backup/main-pre-reconcile
 
 ---
 
+## Part 26 — PDF-only, checklist-compliant output (2026-09-28)
+
+| # | Decision | Why | Where |
+|---|---|---|---|
+| 1 | A plain PDF must produce the final DOCX; Mathpix is optional | User: "a normal pdf input … could generate an remediated output" | pipeline, Docling headings on scans |
+| 2 | Every export is audited against both checklists | User: "make sure the final product follows that" | `src/validation/checklist_audit.py` |
+| 3 | Alt text is automatic (local Ollama `qwen2.5vl:3b`), reviewable | Humans only oversee; zero-cost, no cloud | `src/images/auto_alt_text.py` |
+| 4 | No TOC in the DOCX | User: no "index like headings" | `docx_generator.py`; SUB-TOC manual |
+| 5 | Saved Markdown edits override the generated export until discarded | Direct editing with a live DOCX view | `src/api/markdown_edits.py` |
+| 6 | Heading outlines repaired after extraction, for every route | Mathpix/Docling give one flat level | `src/headings/hierarchy.py` |
+
+---
+
 ## How to add a new entry
 
 Append a new `###` section under the relevant Part, dated, with: the decision, the reasoning ("why"), where it's implemented (file/module), and its current status. Do not delete or rewrite existing entries even if later superseded — add a new entry that references and supersedes the old one.

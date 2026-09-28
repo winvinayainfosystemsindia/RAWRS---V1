@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { JobSummary } from "@/lib/api";
 
 export function useElapsedSeconds(job: JobSummary | null): number {
-  const startRef = useRef<number>(Date.now());
+  const startRef = useRef<number>(0);
   const [elapsed, setElapsed] = useState(0);
 
   useEffect(() => {

@@ -176,7 +176,8 @@ function reducer(state: DocumentEntities, action: DocumentAction): DocumentEntit
     case "REPLACE_TABLES":
       return { ...state, tablesById: keyBy(action.tables, (t) => t.table_id) };
     case "REMOVE_TABLE": {
-      const { [action.tableId]: _removed, ...rest } = state.tablesById;
+      const rest = { ...state.tablesById };
+      delete rest[action.tableId];
       return { ...state, tablesById: rest };
     }
     case "UPDATE_IMAGE":

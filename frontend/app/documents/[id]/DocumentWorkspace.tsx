@@ -125,17 +125,14 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
   }, [shortcutsOpen]);
 
   // Diff against the markdown from before this render's update, so a live
-  // document_version regen can flash exactly what changed. The ref updates
-  // in an effect (after commit) so this render's diff still sees the old
-  // value — see computeChangedLines above.
-  const prevMarkdownRef = useRef(state.markdown);
-  const markdownFlashLines = useMemo(
-    () => computeChangedLines(prevMarkdownRef.current, state.markdown),
-    [state.markdown]
-  );
-  useEffect(() => {
-    prevMarkdownRef.current = state.markdown;
-  }, [state.markdown]);
+  // document_version regen can flash exactly what changed (React's
+  // "adjust state while rendering" pattern; see computeChangedLines above).
+  const [prevMarkdown, setPrevMarkdown] = useState(state.markdown);
+  const [markdownFlashLines, setMarkdownFlashLines] = useState<number[]>([]);
+  if (prevMarkdown !== state.markdown) {
+    setPrevMarkdown(state.markdown);
+    setMarkdownFlashLines(computeChangedLines(prevMarkdown, state.markdown));
+  }
 
   // Every hook must run unconditionally on every render, so this stays
   // above the notFound/loading early returns below — selectors here only

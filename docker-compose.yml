@@ -1,6 +1,6 @@
 # RAWRS backend, as deployed on an Oracle Cloud Always Free Ampere VM.
 #
-# Two services: the API, and a Cloudflare Tunnel that publishes it over HTTPS
+# Three services: the API, a local Ollama vision model for alt text, and a Cloudflare Tunnel that publishes it over HTTPS
 # without opening a port on the VM or buying a static IP. The tunnel is how
 # the Vercel-hosted frontend reaches this machine, and it is also where
 # Cloudflare Access attaches the login gate.
@@ -14,6 +14,8 @@ services:
       # Origins allowed to call this API. The Vercel production domain plus
       # local development; add preview domains here if you use them.
       RAWRS_ALLOWED_ORIGINS: "${RAWRS_ALLOWED_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}"
+      # Automatic alt text: the local vision model in the ollama service.
+      RAWRS_OLLAMA_URL: "http://ollama:11434"
     volumes:
       # A reviewer's work survives rebuilds because it lives in this volume,
       # never in the image.
@@ -22,6 +24,18 @@ services:
     # network; nothing is exposed to the public internet directly.
     ports:
       - "127.0.0.1:8001:8001"
+    depends_on:
+      - ollama
+
+  # Local vision model for alt text (qwen2.5vl:3b, ~3 GB RAM; CPU is fine,
+  # ~2.5 min per image). Pull the model once after the first start:
+  #   docker compose exec ollama ollama pull qwen2.5vl:3b
+  # Without it RAWRS still exports; images are flagged for human alt text.
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes:
+      - ollama-models:/root/.ollama
 
   tunnel:
     image: cloudflare/cloudflared:latest
@@ -36,3 +50,4 @@ services:
 
 volumes:
   rawrs-outputs:
+  ollama-models:

@@ -43,6 +43,20 @@ docker compose up -d --build     # first ARM build: 20-40 min, mostly torch
 docker compose logs -f api       # wait for "Application startup complete"
 ```
 
+Pull the alt-text model once (≈3 GB; the `ollama-models` volume keeps it across rebuilds):
+
+```bash
+docker compose exec ollama ollama pull qwen2.5vl:3b
+```
+
+| RAM on the VM | use |
+|---|---|
+| API + OCR | ~4 GB peak |
+| Ollama `qwen2.5vl:3b` | ~3 GB (CPU, ~2.5 min per image) |
+| 24 GB A1 | room for both, one document at a time |
+
+Without the model RAWRS still exports; images are flagged for a human to write alt text.
+
 No firewall rule and no open port are needed — the tunnel dials out.
 
 ---
@@ -88,7 +102,7 @@ Deploy. Then put the resulting domain into `RAWRS_ALLOWED_ORIGINS` on the VM and
 cd rawrs && git pull && docker compose up -d --build
 ```
 
-`outputs/` lives in the `rawrs-outputs` volume, so rebuilds never discard a reviewer's work. The frontend redeploys itself on push.
+`outputs/` (including saved Markdown edits in `outputs/edits/`) lives in the `rawrs-outputs` volume, so rebuilds never discard a reviewer's work. The frontend redeploys itself on push.
 
 ---
 

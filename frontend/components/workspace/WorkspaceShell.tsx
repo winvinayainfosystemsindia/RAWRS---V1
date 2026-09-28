@@ -225,7 +225,7 @@ export function WorkspaceShell({
   const bottomPanelRef = useRef<ImperativePanelHandle>(null);
   const { rootRef, isFullscreen, toggle: toggleFullscreen } = useFullscreen();
   const splitPair = SPLIT_PAIRS[centerMode];
-  const centerTabs = useArrowKeyTabs({ ids: CENTER_MODE_IDS, active: centerMode, onChange: setCenterMode });
+  const { tablistRef: centerTablistRef, getTabProps: getCenterTabProps } = useArrowKeyTabs({ ids: CENTER_MODE_IDS, active: centerMode, onChange: setCenterMode });
 
   useEffect(() => window.localStorage.setItem(CENTER_MODE_KEY, centerMode), [centerMode]);
   useEffect(() => window.localStorage.setItem(FOCUS_MODE_KEY, String(focusMode)), [focusMode]);
@@ -334,14 +334,14 @@ export function WorkspaceShell({
           <div
             role="tablist"
             aria-label="Editor layout"
-            ref={centerTabs.tablistRef as React.RefObject<HTMLDivElement>}
+            ref={centerTablistRef as React.RefObject<HTMLDivElement>}
             className="mx-auto flex shrink-0 items-center gap-0.5 rounded-md border border-border bg-surface-canvas p-0.5"
           >
             {CENTER_MODES.map((m) => (
               <button
                 key={m.id}
                 type="button"
-                {...centerTabs.getTabProps(m.id)}
+                {...getCenterTabProps(m.id)}
                 className={`rounded px-2.5 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
                   centerMode === m.id
                     ? "bg-accent text-accent-contrast shadow-sm"

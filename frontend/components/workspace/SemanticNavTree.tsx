@@ -120,7 +120,6 @@ export function SemanticNavTree({
   const [mode, setMode] = useState<NavMode>("outline");
   useEffect(() => {
     if (focusSignal) setMode("search");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusSignal]);
   // Phase F-3.2 — shared ARIA-tabs keyboard model.
   const navTabs = useArrowKeyTabs({ ids: MODE_IDS, active: mode, onChange: setMode });

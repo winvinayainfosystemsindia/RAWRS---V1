@@ -8,17 +8,19 @@ RAWRS is a local-first, accessibility remediation platform for academic PDFs, bu
 
 ## What it does
 
-- **PDF-native path:** extracts text from born-digital PDFs (PyMuPDF) with OCR fallback (Docling → Surya).
+- **PDF-native path:** extracts text from born-digital PDFs (PyMuPDF) with OCR fallback (Docling → Surya); scanned/image PDFs get headings and lists from Docling's layout model.
+- **Checklist-compliant DOCX:** every export is audited against both remediation checklists (`docs/CHECKLIST_COMPLIANCE.md`); alt text is written automatically by a local vision model (Ollama `qwen2.5vl:3b`), with statistics explained for charts and tables.
 - **Mathpix import path:** imports a Mathpix MMD file as the primary extraction source; RAWRS provides verification, enrichment, and accessibility output. Every proposed correction is recorded as a `CorrectionRecord` (audit trail) — Mathpix extraction is never silently overwritten.
 - Detects headings (H1–H6), footnotes/endnotes, images, tables, lists, callouts (boxed asides), and front matter.
 - Generates structured Markdown and accessible DOCX (Word Heading styles, native table markup, `w:tblHeader`, `dc:language`, `dc:title`, bold/italic inline formatting, native Word footnotes and endnotes).
 - Validates 40 accessibility and structural rules (WCAG 2.4.2, 3.1.1, H73, etc.), including cross-source verification findings.
 - Cross-checks Mathpix-imported content against the original PDF via a generic evidence-fusion verification engine (`src/verification/`), proposing REPAIR/RECOVER/REMOVE corrections a reviewer accepts or rejects — never silently overwriting Mathpix output.
 - Proven page alignment: on the Mathpix path, a block's page is *stated by the source package* (package DOCX markers, image filenames, PDF text layer) rather than estimated from its position; the estimate remains only as a documented fallback, and nothing is invented where evidence is absent.
-- Provides a web-based review platform (PDF/Markdown/DOCX split-view workspace, PDF object inspector, theme toggle) with workspaces for every reviewable object:
+- Provides a VS Code-style review workspace (full-width, fullscreen, PDF + editable Markdown + live DOCX preview side by side, optional reading-order markers) with workspaces for every reviewable object:
   - **Headings** — approve/level-change/reject, screen reader preview
   - **Reading Order** — drag-reorder blocks, approve pages
-  - **Images** — on-demand AI alt text (Qwen2.5-VL), approve/reject/decorative/complex/skip/edit
+  - **Images** — automatic AI alt text, approve/reject/decorative/complex/skip/edit
+  - **Markdown** — edit the text directly; the DOCX preview and downloads follow the saved edit
   - **Footnotes** — edit body, approve, reject
   - **Tables** — auto-detect bordered tables, manual create for borderless, edit cells, caption, summary, header rows; WCAG H73 screen reader simulation
   - **Page Labels** — override individual pages or apply a bulk numbering scheme (arabic/roman, start number, prefix/suffix) per page range
@@ -69,6 +71,7 @@ python -m venv .venv
 .venv\Scripts\activate        # Windows
 pip install -r requirements.lock     # reproducible install (preferred)
 pip install -r requirements-ai.txt   # optional — only needed for real AI alt text/table analysis
+ollama pull qwen2.5vl:3b             # optional — automatic alt text (https://ollama.com)
 
 # Run the backend
 uvicorn src.api.main:app --reload

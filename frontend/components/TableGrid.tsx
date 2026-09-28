@@ -73,7 +73,7 @@ export function TableGrid({ tables, jobId, aiStatus, onTablesUpdated }: Props) {
           </p>
           <p className="text-xs text-text-secondary">
             Tables with visible borders are detected automatically.
-            Use "+ Add Table" to manually define a table.
+            Use &ldquo;+ Add Table&rdquo; to manually define a table.
           </p>
         </div>
       )}

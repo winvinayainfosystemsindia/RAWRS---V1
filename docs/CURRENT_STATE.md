@@ -1,5 +1,20 @@
 # RAWRS Current State
 
+## Update 2026-09-28 (newest first — older sections below are history)
+
+| Area | State | Evidence |
+|---|---|---|
+| Input | Plain PDF (born-digital or scanned) is enough; Mathpix optional | O'Leary scan: 28 pass / 0 fail checklist audit |
+| Output | DOCX audited against both checklists every run | `src/validation/checklist_audit.py`, `docs/CHECKLIST_COMPLIANCE.md` |
+| Alt text | **Automatic** via Ollama `qwen2.5vl:3b`; decorative detection; statistics explained | `src/images/auto_alt_text.py` |
+| TOC | Not generated (user decision) | SUB-TOC manual |
+| Headings | Flat/noisy outlines repaired | `src/headings/hierarchy.py` |
+| Mathpix pages | Placed by text position + figure crop anchors (+ OCR text on scans) | `src/mathpix/page_estimation.py` |
+| Images | Printed at the PDF's size and shape | `_printed_size` in `docx_generator.py` |
+| Editing | Markdown editable; saved edits drive preview + downloads | `src/api/markdown_edits.py`, `MarkdownEditPane.tsx` |
+| Frontend | VS Code-style full-width workspace, fullscreen, PDF+MD+DOCX view | `WorkspaceShell.tsx`, `ActivityBar.tsx` |
+| Deploy | Vercel + Oracle Always Free + Cloudflare; Ollama in compose | `docs/DEPLOYMENT.md` |
+
 **As of:** this documentation reconciliation audit (June 2026), updated again in a follow-up reconciliation pass the same month covering XML Sanitization Architecture C, bug_001 (paragraph reconstruction), bug_002 (heading fallback tier), and the platform layer (backend/frontend) coming into existence.
 **Read this first** if you want a one-page answer to "what does RAWRS actually do right now."
 

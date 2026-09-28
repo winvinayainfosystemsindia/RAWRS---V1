@@ -73,7 +73,6 @@ export function PdfViewer({
   // re-jump to the same target) so it fires every time, not just on change.
   useEffect(() => {
     highlightRef.current?.scrollIntoView({ block: "center", inline: "center" });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jumpTarget?.nonce]);
 
   const pageOverlays = overlays?.filter((o) => o.pageNumber === pageNumber) ?? [];
