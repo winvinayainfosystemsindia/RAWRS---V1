@@ -672,17 +672,15 @@ class _Audit:
                  f"{len(orphan)} bodies never referenced", len(dangling) + len(orphan))
 
     def toc(self):
-        structural = sum(1 for p in self.paragraphs if _heading_level(p) not in (None, 6))
+        """RAWRS does not insert a Table of Contents: reviewers found the
+        generated index cluttered the document (2026-09-28). The headings are
+        real Word headings, so Word builds one in two clicks where a
+        publisher wants it."""
         has_toc = any("TOC" in _field_codes(p) for p in self.paragraphs)
-        updates = b"updateFields" in self.parts.get("word/settings.xml", b"")
-        if structural < 2:
-            status, evidence = Status.NOT_APPLICABLE, f"{structural} headings"
-        else:
-            status = Status.PASS if has_toc and updates else Status.FAIL
-            evidence = (f"TOC field {'present' if has_toc else 'missing'}, "
-                        f"update-on-open {'on' if updates else 'off'}")
         self.add("SUB-TOC", "submission_xlsx", "Page Layout & Navigation",
-                 "Automatic Table of Contents, fields updated", status, evidence)
+                 "Automatic Table of Contents, fields updated",
+                 Status.PASS if has_toc else Status.MANUAL,
+                 "present" if has_toc else "not generated; add in Word (References > Table of Contents) if required")
 
     def metadata(self):
         props = self.doc.core_properties

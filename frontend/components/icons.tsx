@@ -239,3 +239,79 @@ export function ChevronDownIcon({ open, className = "h-3 w-3" }: { open: boolean
     </svg>
   );
 }
+
+// Workspace chrome (VS Code-style activity bar, title bar and status bar).
+export function IconDocument(props: IconProps) {
+  return (
+    <Stroke {...props}>
+      <path d="M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7z" />
+      <polyline points="14 3 14 7 18 7" />
+      <line x1="9" y1="12" x2="15" y2="12" />
+      <line x1="9" y1="16" x2="15" y2="16" />
+    </Stroke>
+  );
+}
+
+export function IconOverview(props: IconProps) {
+  return (
+    <Stroke {...props}>
+      <rect x="3.5" y="3.5" width="7" height="7" rx="1" />
+      <rect x="13.5" y="3.5" width="7" height="7" rx="1" />
+      <rect x="3.5" y="13.5" width="7" height="7" rx="1" />
+      <rect x="13.5" y="13.5" width="7" height="7" rx="1" />
+    </Stroke>
+  );
+}
+
+export function IconFullscreen({ exit, ...props }: IconProps & { exit?: boolean }) {
+  return (
+    <Stroke {...props}>
+      {exit ? (
+        <>
+          <path d="M9 4v4a1 1 0 0 1-1 1H4" />
+          <path d="M15 4v4a1 1 0 0 0 1 1h4" />
+          <path d="M9 20v-4a1 1 0 0 0-1-1H4" />
+          <path d="M15 20v-4a1 1 0 0 1 1-1h4" />
+        </>
+      ) : (
+        <>
+          <path d="M4 9V4h5" />
+          <path d="M20 9V4h-5" />
+          <path d="M4 15v5h5" />
+          <path d="M20 15v5h-5" />
+        </>
+      )}
+    </Stroke>
+  );
+}
+
+export function IconMarkers(props: IconProps) {
+  return (
+    <Stroke {...props}>
+      <circle cx="6" cy="6" r="2.2" />
+      <circle cx="6" cy="12" r="2.2" />
+      <circle cx="6" cy="18" r="2.2" />
+      <line x1="11" y1="6" x2="20" y2="6" />
+      <line x1="11" y1="12" x2="20" y2="12" />
+      <line x1="11" y1="18" x2="20" y2="18" />
+    </Stroke>
+  );
+}
+
+export function IconPanelBottom(props: IconProps) {
+  return (
+    <Stroke {...props}>
+      <rect x="3.5" y="4.5" width="17" height="15" rx="1.5" />
+      <line x1="3.5" y1="14.5" x2="20.5" y2="14.5" />
+    </Stroke>
+  );
+}
+
+export function IconPanelSide({ right, ...props }: IconProps & { right?: boolean }) {
+  return (
+    <Stroke {...props}>
+      <rect x="3.5" y="4.5" width="17" height="15" rx="1.5" />
+      <line x1={right ? 14.5 : 9.5} y1="4.5" x2={right ? 14.5 : 9.5} y2="19.5" />
+    </Stroke>
+  );
+}

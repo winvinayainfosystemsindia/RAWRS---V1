@@ -140,17 +140,28 @@ body {
    surface (Times New Roman, white paper) regardless of app theme, since
    it's a preview of the generated Word document, not app chrome. */
 .docx-preview {
+  /* Sized as Word prints it (checklist: Times New Roman 12 pt body). */
   font-family: "Times New Roman", Times, serif;
-  font-size: 14px;
-  line-height: 1.7;
-  color: #111827;
+  font-size: 12pt;
+  line-height: 1.5;
+  color: #000;
 }
-.docx-preview h1 { font-size: 1.5rem; font-weight: 700; margin: 1.4rem 0 0.6rem; }
-.docx-preview h2 { font-size: 1.25rem; font-weight: 700; margin: 1.2rem 0 0.5rem; }
+.docx-preview h1 { font-size: 16pt; font-weight: 700; margin: 1.2em 0 0.5em; }
+.docx-preview h2 { font-size: 14pt; font-weight: 700; margin: 1.1em 0 0.4em; }
 .docx-preview h3, .docx-preview h4, .docx-preview h5, .docx-preview h6 {
-  font-size: 1.05rem; font-weight: 600; margin: 1rem 0 0.4rem;
+  font-size: 12pt; font-weight: 700; margin: 1em 0 0.35em;
 }
-.docx-preview p { margin: 0.55rem 0; }
+/* Heading 6 is the printed page number that opens each page. */
+.docx-preview h6 { margin-top: 1.6em; padding-top: 0.6em; border-top: 1px dashed #d1d5db; }
+.docx-preview h6:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+.docx-preview p { margin: 0.5em 0; }
+.docx-preview p:has(> img) { text-align: center; }
+.docx-preview img { display: inline-block; max-width: 100%; }
+.docx-preview .docx-caption { text-align: center; font-style: italic; }
+.docx-preview .docx-toc-heading { font-weight: 700; }
+.docx-preview ul, .docx-preview ol { margin: 0.5em 0; padding-left: 1.5em; }
+.docx-preview ul { list-style: disc; }
+.docx-preview ol { list-style: decimal; }
 .docx-preview table { border-collapse: collapse; width: 100%; margin: 0.75rem 0; }
 .docx-preview table td, .docx-preview table th {
   border: 1px solid #d1d5db; padding: 0.35rem 0.6rem; font-size: 13px;

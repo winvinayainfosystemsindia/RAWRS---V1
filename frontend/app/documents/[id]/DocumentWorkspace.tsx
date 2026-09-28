@@ -28,14 +28,14 @@ import { useElapsedSeconds } from "@/lib/store/useElapsedSeconds";
 import { PipelineView } from "@/components/PipelineView";
 import { ResultsDashboard } from "@/components/ResultsDashboard";
 import { OutputWorkspace } from "@/components/OutputWorkspace";
-import { MarkdownEditor } from "@/components/MarkdownEditor";
+import { MarkdownEditPane } from "@/components/MarkdownEditPane";
 import { DocxPreview } from "@/components/DocxPreview";
 import { WorkspaceShell } from "@/components/workspace/WorkspaceShell";
 import { readinessState } from "@/lib/readinessState";
 import { isPending } from "@/lib/correctionFilters";
 import { ReviewRail } from "@/components/workspace/ReviewRail";
 import { SemanticNavTree, type NavSection } from "@/components/workspace/SemanticNavTree";
-import { NavChips } from "@/components/workspace/NavChips";
+import { ActivityBar } from "@/components/workspace/ActivityBar";
 import { BottomPanel } from "@/components/workspace/BottomPanel";
 import { ValidationIssueTable } from "@/components/ValidationIssueTable";
 import { ImageGrid } from "@/components/ImageGrid";
@@ -51,7 +51,6 @@ import { PageLabelManagerPanel } from "@/components/PageLabelManagerPanel";
 import { CorrectionsPanel } from "@/components/CorrectionsPanel";
 import { ChecklistAuditPanel } from "@/components/ChecklistAuditPanel";
 import { ReadinessPanel } from "@/components/ReadinessPanel";
-import { ChevronDownIcon } from "@/components/icons";
 
 // Naive positional line diff for the "flash changed lines" signal after a
 // live document_version regen — not a real LCS diff (would misreport a
@@ -95,11 +94,14 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
   const { pageNumber, jumpToObject } = usePdfViewport();
   const { focusQueue } = useReviewQueue();
   const [activeSpecialView, setActiveSpecialView] = useState("");
-  const [overviewOpen, setOverviewOpen] = useState(false);
   // Bumped by WorkspaceShell's toolbar Search button; SemanticNavTree
   // watches this to switch itself into Search mode (see focusSignal).
   const [searchNonce, setSearchNonce] = useState(0);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  // The Markdown editor's unsaved draft, which the DOCX pane previews live;
+  // docxRefresh re-renders that pane after a save or discard.
+  const [markdownDraft, setMarkdownDraft] = useState<string | null>(null);
+  const [docxRefresh, setDocxRefresh] = useState(0);
   const shortcutsDialogRef = useRef<HTMLDialogElement>(null);
   const elapsed = useElapsedSeconds(state.job);
 
@@ -170,19 +172,23 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
 
   if (notFound) {
     return (
-      <div className="space-y-4">
+      <main id="main-content" className="flex h-dvh flex-col items-center justify-center gap-4 p-6">
         <p className="text-sm text-danger" role="alert">
           No document found for this ID. It may have been processed before the API was last restarted.
         </p>
         <Link href="/" className="text-sm font-medium text-accent hover:underline">
           &larr; Upload a document
         </Link>
-      </div>
+      </main>
     );
   }
 
   if (!job) {
-    return <p role="status" className="text-sm text-text-secondary">Loading document…</p>;
+    return (
+      <main id="main-content" className="flex h-dvh items-center justify-center">
+        <p role="status" className="text-sm text-text-secondary">Loading document…</p>
+      </main>
+    );
   }
 
   const isActive = job.status === "queued" || job.status === "processing";
@@ -242,6 +248,7 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
   }
 
   const specialViews: NavSection[] = [
+    { id: "overview", label: "Overview" },
     { id: "validation", label: "Validation", count: state.validationIssues.length },
     { id: "images", label: "Images", count: images.length },
     { id: "tables", label: "Tables", count: tables.length },
@@ -264,6 +271,28 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
 
   function renderSpecialView() {
     switch (activeSpecialView) {
+      case "overview":
+        return (
+          <div className="mx-auto max-w-5xl space-y-6">
+            <ResultsDashboard
+              job={job!}
+              issues={state.validationIssues}
+              images={images}
+              footnotes={footnotes}
+              pages={state.pages}
+              tables={tables}
+            />
+            <OutputWorkspace job={job!} generatedMarkdown={state.markdown} />
+            <details className="rounded-lg border border-border">
+              <summary className="cursor-pointer select-none px-4 py-2 text-xs font-semibold uppercase tracking-wider text-text-secondary hover:text-text-primary">
+                Processing Log
+              </summary>
+              <div className="border-t border-border p-4">
+                <PipelineView status={job!.status} elapsed={elapsed} />
+              </div>
+            </details>
+          </div>
+        );
       case "validation":
         return (
           <ValidationIssueTable
@@ -392,38 +421,26 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
     }
   }
 
-  return (
-    <div className="space-y-4">
-      {/* Phase F-2.2: this workspace had zero heading elements of any level
-          (confirmed via live accessibility-tree inspection) — screen
-          reader "jump to next heading" navigation had nothing to land on.
-          Visually hidden since the filename is already shown in
-          WorkspaceShell's own toolbar; this exists purely so the page has
-          the one H1 every page needs, same as app/page.tsx already has. */}
-      <h1 className="sr-only">{job.filename}</h1>
-      {/* Error banner */}
+  const banners = (
+    <>
       {job.status === "failed" && (
-        <div role="alert" className="rounded-lg border border-danger/30 bg-danger/10 p-4">
+        <div role="alert" className="shrink-0 border-b border-danger/30 bg-danger/10 px-4 py-2">
           <p className="text-sm font-semibold text-danger">
             Processing failed{job.failed_stage ? ` at stage "${job.failed_stage}"` : ""}.
+            {job.error_message && <span className="ml-2 font-normal text-danger/90">{job.error_message}</span>}
           </p>
-          {job.error_message && <p className="mt-1 text-sm text-danger/90">{job.error_message}</p>}
         </div>
       )}
-
-      {/* Partial-load banner (P0-4) — an errored result slice must never be
-          silently rendered as an empty one. A compliance reviewer certifying
-          "no image issues" needs to know the image check failed to load, not
-          that it passed. Retry re-runs the load with no page refresh. */}
+      {/* Partial-load banner (P0-4) - an errored result slice must never be
+          silently rendered as an empty one. */}
       {state.loadErrors.length > 0 && (
         <div
           role="alert"
-          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-warning/40 bg-warning/10 p-3"
+          className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-warning/40 bg-warning/10 px-4 py-2"
         >
           <p className="text-sm text-warning">
-            Some document data could not be loaded ({state.loadErrors.join(", ")}). What you
-            see may be incomplete — a section that failed to load is not the same as one with
-            no issues.
+            Some document data could not be loaded ({state.loadErrors.join(", ")}). What you see may be
+            incomplete - a section that failed to load is not the same as one with no issues.
           </p>
           <button
             type="button"
@@ -434,148 +451,126 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
           </button>
         </div>
       )}
+    </>
+  );
 
-      {/* Processing status */}
+  return (
+    <main id="main-content" className="flex h-dvh flex-col overflow-hidden">
+      {/* The page's one H1 (screen-reader heading navigation); visually the
+          filename is in the workspace title bar. */}
+      <h1 className="sr-only">{job.filename}</h1>
+      {banners}
+
       {isActive && (
-        <div role="status" className="rounded-lg border border-accent/30 bg-accent/10 p-4">
-          <p className="text-sm font-medium text-text-primary">
-            {job.status === "queued"
-              ? "Queued — waiting to start…"
-              : "Verification pipeline is running. This page updates automatically."}
-          </p>
-          <p className="mt-1 text-xs text-text-secondary">
-            Scanned PDFs that require OCR may take several minutes per page.
-          </p>
-        </div>
-      )}
-
-      {/* Overview — collapsed by default once processing completes. The
-          document is the product; pipeline/stat cards are a glance, not
-          the default view. */}
-      {isDone && (
-        <div className="rounded-lg border border-border bg-surface-panel">
-          <button
-            type="button"
-            onClick={() => setOverviewOpen((v) => !v)}
-            aria-expanded={overviewOpen}
-            className="flex w-full items-center justify-between px-4 py-2 text-xs font-semibold uppercase tracking-wider text-text-secondary hover:text-text-primary"
-          >
-            <span>Overview</span>
-            <ChevronDownIcon open={overviewOpen} />
-          </button>
-          {overviewOpen && (
-            <div className="space-y-6 border-t border-border p-4">
-              <ResultsDashboard
-                job={job}
-                issues={state.validationIssues}
-                images={images}
-                footnotes={footnotes}
-                pages={state.pages}
-                tables={tables}
-              />
-              <OutputWorkspace job={job} generatedMarkdown={state.markdown} />
-              {/* Phase R-2 M4: internal pipeline-stage detail demoted below
-                  the reviewer-relevant sections above and behind its own
-                  disclosure — it answers "did the pipeline run", not "what
-                  should I do first", so it no longer leads the panel.
-                  Same native <details> pattern already used elsewhere
-                  (Export menu, validation category accordions). */}
-              <details className="rounded-lg border border-border">
-                <summary className="cursor-pointer select-none px-4 py-2 text-xs font-semibold uppercase tracking-wider text-text-secondary hover:text-text-primary">
-                  Processing Log
-                </summary>
-                <div className="border-t border-border p-4">
-                  <PipelineView status={job.status} elapsed={elapsed} />
-                </div>
-              </details>
+        <div className="flex min-h-0 flex-1 flex-col">
+          <header className="flex h-11 shrink-0 items-center gap-3 border-b border-border bg-surface-panel px-3">
+            <Link href="/" className="text-sm font-bold tracking-wide text-text-primary">RAWRS</Link>
+            <span className="h-4 w-px bg-border" aria-hidden="true" />
+            <span className="truncate text-sm font-medium text-text-primary">{job.filename}</span>
+          </header>
+          <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto p-6">
+            <div role="status" className="w-full max-w-md space-y-4 rounded-lg border border-border bg-surface-panel p-6">
+              <p className="text-sm font-medium text-text-primary">
+                {job.status === "queued"
+                  ? "Queued - waiting to start…"
+                  : "Remediation is running. This page opens the workspace automatically when it finishes."}
+              </p>
+              <p className="text-xs text-text-secondary">
+                Scanned PDFs need OCR (about 20 seconds a page) and every real figure gets a description
+                from the local vision model (about 2-3 minutes each).
+              </p>
+              <PipelineView status={job.status} elapsed={elapsed} />
             </div>
-          )}
-        </div>
-      )}
-      {isActive && (
-        <div className="w-full lg:w-64">
-          <PipelineView status={job.status} elapsed={elapsed} />
+          </div>
         </div>
       )}
 
       {isDone && (
-        <WorkspaceShell
-          filename={job.filename}
-          status={job.status}
-          documentVersion={job.document_version}
-          elapsedSeconds={elapsed}
-          durationSeconds={job.duration_seconds}
-          mode={activeSpecialView ? "special" : "document"}
-          currentPage={pageNumber}
-          readiness={readinessState(state.accessibilityReport, state.loadErrors.includes("accessibility report"))}
-          onOpenSearch={() => {
-            setActiveSpecialView("");
-            setSearchNonce((n) => n + 1);
-          }}
-          jobId={jobId}
-          docxAvailable={job.docx_available}
-          markdownAvailable={job.markdown_available}
-          reportAvailable={job.report_available}
-          docxStale={job.docx_generated_at_version !== null && job.docx_generated_at_version !== job.document_version}
-          markdownStale={
-            job.markdown_generated_at_version !== null && job.markdown_generated_at_version !== job.document_version
-          }
-          quickNav={
-            <NavChips
-              sections={specialViews}
-              activeSpecialView={activeSpecialView || null}
-              onSelect={setActiveSpecialView}
-            />
-          }
-          nav={
-            <SemanticNavTree
-              specialViews={specialViews}
-              activeSpecialView={activeSpecialView || null}
-              onSelectSpecialView={setActiveSpecialView}
-              focusSignal={searchNonce}
-            />
-          }
-          centerViews={{
-            pdf: (
-              <PdfViewer
-                jobId={jobId}
-                overlays={pdfOverlays}
-                selectedOverlayId={selection?.objectId ?? null}
-                onOverlayClick={handlePdfOverlayClick}
-                readingOrderBlocks={readingOrder.flatMap((p) => p.blocks)}
+        <div className="min-h-0 flex-1">
+          <WorkspaceShell
+            filename={job.filename}
+            status={job.status}
+            documentVersion={job.document_version}
+            elapsedSeconds={elapsed}
+            durationSeconds={job.duration_seconds}
+            mode={activeSpecialView ? "special" : "document"}
+            currentPage={pageNumber}
+            readiness={readinessState(state.accessibilityReport, state.loadErrors.includes("accessibility report"))}
+            pendingCount={pendingCorrections}
+            onOpenSearch={() => {
+              setActiveSpecialView("");
+              setSearchNonce((n) => n + 1);
+            }}
+            jobId={jobId}
+            docxAvailable={job.docx_available}
+            markdownAvailable={job.markdown_available}
+            reportAvailable={job.report_available}
+            docxStale={job.docx_generated_at_version !== null && job.docx_generated_at_version !== job.document_version}
+            markdownStale={
+              job.markdown_generated_at_version !== null && job.markdown_generated_at_version !== job.document_version
+            }
+            activityBar={
+              <ActivityBar
+                sections={specialViews}
+                activeSpecialView={activeSpecialView || null}
+                onSelect={setActiveSpecialView}
               />
-            ),
-            markdown: (
-              <div className="h-full p-4">
-                <MarkdownEditor
-                  key={`md-${job.document_version ?? 0}`}
-                  initialContent={state.markdown}
-                  readOnly
+            }
+            nav={
+              <SemanticNavTree
+                specialViews={specialViews}
+                activeSpecialView={activeSpecialView || null}
+                onSelectSpecialView={setActiveSpecialView}
+                focusSignal={searchNonce}
+              />
+            }
+            centerViews={{
+              pdf: (
+                <PdfViewer
+                  jobId={jobId}
+                  overlays={pdfOverlays}
+                  selectedOverlayId={selection?.objectId ?? null}
+                  onOverlayClick={handlePdfOverlayClick}
+                  readingOrderBlocks={readingOrder.flatMap((p) => p.blocks)}
+                />
+              ),
+              markdown: (
+                <MarkdownEditPane
+                  jobId={jobId}
+                  content={state.markdown}
+                  documentVersion={job.document_version}
                   scrollToLine={mdJumpTarget?.line ?? null}
                   scrollNonce={mdJumpTarget?.nonce}
                   flashLines={markdownFlashLines}
+                  onDraftChange={setMarkdownDraft}
+                  onContentReplaced={(content) => {
+                    dispatch({ type: "UPDATE_MARKDOWN", markdown: content });
+                    setDocxRefresh((n) => n + 1);
+                  }}
                 />
-              </div>
-            ),
-            docx: (
-              <DocxPreview
+              ),
+              docx: (
+                <DocxPreview
+                  jobId={jobId}
+                  available={job.docx_available}
+                  documentVersion={job.document_version}
+                  markdown={markdownDraft}
+                  refreshKey={docxRefresh}
+                />
+              ),
+            }}
+            rightRail={
+              <ReviewRail
                 jobId={jobId}
-                available={job.docx_available}
-                documentVersion={job.document_version}
+                aiStatus={state.aiStatus}
+                pendingCount={pendingCorrections}
+                onOpenValidation={() => setActiveSpecialView("validation")}
               />
-            ),
-          }}
-          rightRail={
-            <ReviewRail
-              jobId={jobId}
-              aiStatus={state.aiStatus}
-              pendingCount={pendingCorrections}
-              onOpenValidation={() => setActiveSpecialView("validation")}
-            />
-          }
-          specialView={renderSpecialView()}
-          bottomPanel={<BottomPanel job={job} issues={state.validationIssues} />}
-        />
+            }
+            specialView={renderSpecialView()}
+            bottomPanel={<BottomPanel job={job} issues={state.validationIssues} />}
+          />
+        </div>
       )}
 
       {/* Native <dialog> (P2-11): showModal() gives a focus trap, Escape-to-
@@ -621,6 +616,6 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
           ))}
         </dl>
       </dialog>
-    </div>
+    </main>
   );
 }

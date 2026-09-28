@@ -3,7 +3,8 @@
 import { useEffect, useRef } from "react";
 import { EditorView, basicSetup } from "codemirror";
 import { EditorState, StateEffect, StateField } from "@codemirror/state";
-import { Decoration, type DecorationSet } from "@codemirror/view";
+import { Decoration, keymap, type DecorationSet } from "@codemirror/view";
+import type { ReactNode } from "react";
 import { markdown } from "@codemirror/lang-markdown";
 import { openSearchPanel } from "@codemirror/search";
 
@@ -61,6 +62,10 @@ interface Props {
   scrollNonce?: number;
   // 1-indexed lines to briefly highlight on mount (see flashField above).
   flashLines?: number[];
+  // Editable mode: Ctrl/Cmd+S calls this, and `toolbar` renders at the left
+  // of the header (save state, Save / Discard buttons).
+  onSave?: () => void;
+  toolbar?: ReactNode;
 }
 
 // CSS-variable-based theme — responds to light/dark token switching without
@@ -138,11 +143,19 @@ export function MarkdownEditor({
   scrollToLine,
   scrollNonce,
   flashLines,
+  onSave,
+  toolbar,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
+  // The editor is created once; these refs let its listeners call the latest
+  // callbacks. Synced after each render, never written during one.
   const onChangeRef = useRef(onChange);
-  onChangeRef.current = onChange;
+  const onSaveRef = useRef(onSave);
+  useEffect(() => {
+    onChangeRef.current = onChange;
+    onSaveRef.current = onSave;
+  });
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -153,6 +166,7 @@ export function MarkdownEditor({
       extensions.push(EditorState.readOnly.of(true));
     } else {
       extensions.push(
+        keymap.of([{ key: "Mod-s", preventDefault: true, run: () => (onSaveRef.current?.(), true) }]),
         EditorView.updateListener.of((update) => {
           if (update.docChanged) {
             onChangeRef.current?.(update.state.doc.toString());
@@ -202,6 +216,7 @@ export function MarkdownEditor({
       className={`flex h-full flex-col overflow-hidden rounded border border-border ${className ?? ""}`}
     >
       <div className="flex shrink-0 items-center justify-end gap-1 border-b border-border bg-surface-panel px-2 py-1">
+        {toolbar && <div className="mr-auto flex min-w-0 items-center gap-2">{toolbar}</div>}
         <button
           type="button"
           onClick={handleOpenSearch}

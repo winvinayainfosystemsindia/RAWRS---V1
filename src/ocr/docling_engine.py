@@ -155,6 +155,35 @@ def run_docling_ocr(document: Document, metrics: Optional[OCRTimingMetrics] = No
     return document
 
 
+def ocr_page_texts(pdf_path: Path) -> List[str]:
+    """OCR text of every page, one string per page (index 0 is page 1).
+
+    For callers that only need to know what text is on which page - the
+    Mathpix import of a scanned PDF aligns its blocks to these, because a scan
+    has no text layer to align against. A page that fails yields "", which the
+    alignment treats as proving nothing; a converter that cannot start yields
+    an empty list, which means no evidence at all.
+    """
+    try:
+        import fitz
+
+        with fitz.open(str(pdf_path)) as pdf:
+            page_count = pdf.page_count
+        converter = build_converter()
+    except Exception as exc:
+        logger.warning("OCR page texts unavailable for '{}': {}", pdf_path, exc)
+        return []
+    texts: List[str] = []
+    for page_number in range(1, page_count + 1):
+        try:
+            result = converter.convert(pdf_path, page_range=(page_number, page_number))
+            texts.append(result.document.export_to_text())
+        except Exception as exc:
+            logger.warning("OCR of page {} failed: {}", page_number, exc)
+            texts.append("")
+    return texts
+
+
 # Docling numbers section headers from 1; the document title sits above them.
 _MAX_OCR_HEADING_LEVEL = 5
 

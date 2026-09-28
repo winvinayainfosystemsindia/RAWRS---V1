@@ -64,6 +64,10 @@ class Image(SemanticObject):
     object_type: str = "image"
     image_id: str = Field(..., min_length=1)
     page_number: int = Field(..., ge=1)
+    # Where an imported figure sits in its source's reading order (the MMD
+    # line of its block). None for native images, which are placed by their
+    # position on the page instead.
+    source_line: Optional[int] = None
     file_path: str = Field(..., min_length=1)
     width: Optional[int] = Field(default=None, ge=0)
     height: Optional[int] = Field(default=None, ge=0)

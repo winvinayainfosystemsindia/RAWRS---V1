@@ -17,6 +17,7 @@ Configuration (environment):
 import base64
 import json
 import os
+import re
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -74,6 +75,31 @@ class OllamaProvider(AIProvider):
         except Exception as exc:
             raise AltTextGenerationError(f"Ollama inference failed: {exc}") from exc
         return _parse_response(text)
+
+    def explain_statistics(self, description: str) -> str:
+        """One plain-language sentence on what a chart's numbers mean.
+
+        The 3B vision model reliably reads the values off a chart but rarely
+        says what they add up to, however the prompt asks. This is a second,
+        text-only pass over its own description (seconds, not minutes - no
+        image to encode) that does only that. An answer that is not a single
+        "This means ..." sentence is discarded, never pasted in.
+        """
+        prompt = (
+            "Here is the description of a chart or table from a document:\n"
+            f"{description}\n\n"
+            "Write ONE sentence, starting with \"This means\", that tells a reader who cannot "
+            "see it what the numbers show: compare them (for example 'about twice as many', "
+            "'a gap of 20 points', 'fewer than a quarter') instead of listing them again. "
+            "Use only numbers that appear in the description. Reply with the sentence only."
+        )
+        try:
+            text = _generate(prompt, None)
+        except Exception as exc:
+            logger.warning("Statistics explanation failed: {}", exc)
+            return ""
+        match = re.search(r"This means[^\n]*?[.!](?=\s|$)", text)
+        return match.group(0).strip() if match else ""
 
     def analyze_table(self, request):
         from src.ai.providers.qwen import _TABLE_PROMPT_TEMPLATE, _parse_table_response

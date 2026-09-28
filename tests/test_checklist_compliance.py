@@ -190,8 +190,16 @@ class TestSentenceStitching:
 
 
 def test_table_summary_states_only_what_the_table_says() -> None:
-    grid = [["Name", "Score"], ["A", "1"]]
+    grid = [["Name", "Score"], ["A", "x"]]
     assert _describe_table(grid, {0}) == "Table with 2 rows and 2 columns. Column headings: Name; Score."
+
+
+def test_table_summary_explains_its_statistics() -> None:
+    grid = [["State", "Agree", "Year"], ["Bihar", "12%", "2010"], ["Kerala", "45%", "n/a"], ["Goa", "30%", "2012"]]
+    assert _describe_table(grid, {0}) == (
+        "Table with 4 rows and 3 columns. Column headings: State; Agree; Year. "
+        "Agree: highest 45% (Kerala), lowest 12% (Bihar)."
+    )
 
 
 # --- the generated DOCX ---------------------------------------------------------------
@@ -246,11 +254,12 @@ class TestGeneratedDocx:
             ("Heading 2", "Deep heading"),
         ]
 
-    def test_toc_is_first_and_fields_update(self, generated: Path) -> None:
+    def test_no_table_of_contents_is_generated(self, generated: Path) -> None:
+        """Reviewers asked for no generated index (2026-09-28); the audit
+        leaves the TOC to the reviewer rather than failing the document."""
         doc = open_docx(str(generated))
-        assert doc.paragraphs[0].style.name == "TOC Heading"
-        assert any("TOC" in (t.text or "") for t in doc.element.body.iter(qn("w:instrText")))
-        assert doc.settings.element.find(qn("w:updateFields")) is not None
+        assert not any("TOC" in (t.text or "") for t in doc.element.body.iter(qn("w:instrText")))
+        assert _results(audit_docx(generated))["SUB-TOC"].status is Status.MANUAL
 
     def test_properties_carry_no_tool_information(self, generated: Path) -> None:
         props = open_docx(str(generated)).core_properties
@@ -260,7 +269,7 @@ class TestGeneratedDocx:
     def test_audit_passes_the_generated_document(self, generated: Path) -> None:
         results = _results(audit_docx(generated))
         for item in ("DR-02", "DR-06", "DR-HD-FMT", "DR-HD-ORDER", "DR-HD-HYPHEN", "DR-PUNCT",
-                     "DR-11", "DR-UNITS", "SUB-LANG", "SUB-TOC", "SUB-META-PRIV", "SUB-LINK"):
+                     "DR-11", "DR-UNITS", "SUB-LANG", "SUB-META-PRIV", "SUB-LINK"):
             assert results[item].status is Status.PASS, (item, results[item].evidence)
 
 
@@ -519,3 +528,43 @@ def test_checklist_endpoint_audits_the_current_export(tmp_path: Path, monkeypatc
     ids = {r["item_id"] for r in body["results"]}
     assert {"DR-02", "DR-06", "SUB-TOC", "SUB-META", "SUB-KEYBOARD"} <= ids
     assert set(body["summary"]) == {"pass", "fail", "warn", "not_applicable", "manual"}
+
+
+def test_charts_with_numbers_get_a_plain_language_explanation(tmp_path: Path, monkeypatch) -> None:
+    import src.ai.alt_text_generator as generator
+    import src.ai.registry as registry
+    from src.ai.alt_text_generator import AltTextResult
+    from src.images.auto_alt_text import apply_automatic_alt_text, needs_explanation
+
+    assert needs_explanation("CHART", "45% agree and 22% disagree.")
+    assert not needs_explanation("DIAGRAM", "Four boxes, 3 arrows.")
+    assert not needs_explanation("CHART", "45% agree. This means most agree.")
+
+    provider = SimpleNamespace(
+        name="Ollama (test)",
+        explain_statistics=lambda description: "This means about twice as many agree as disagree.",
+    )
+    monkeypatch.delenv("RAWRS_AI_STUB", raising=False)
+    monkeypatch.setattr(registry, "get_provider", lambda: provider)
+    monkeypatch.setattr(
+        generator,
+        "generate_alt_text",
+        lambda request: AltTextResult(
+            description="A bar chart: 45% agree, 22% disagree.", purpose="p",
+            visible_text="None", confidence=0.9, image_type="CHART",
+        ),
+    )
+    document = _images_document(tmp_path)
+    apply_automatic_alt_text(document, nearby_text=lambda image: [])
+    assert document.images[0].figure.alt_text == (
+        "A bar chart: 45% agree, 22% disagree. This means about twice as many agree as disagree."
+    )
+
+
+def test_a_note_reference_without_a_body_is_dropped_not_left_dangling(tmp_path: Path) -> None:
+    markdown = "###### 1\n\nText with a stray marker[^ghost] and a real one[^real].\n\n[^real]: The real note."
+    path = generate_docx(_document(), markdown, output_path=tmp_path / "notes.docx")
+    doc = open_docx(str(path))
+    ids = [el.get(qn("w:id")) for el in doc.element.body.iter(qn("w:footnoteReference"))]
+    assert ids == ["2"]  # "ghost" claimed id 1 first, has no body, and is gone
+    assert _results(audit_docx(path))["SUB-NOTES"].status is Status.PASS

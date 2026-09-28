@@ -205,6 +205,10 @@ export interface PagesResponse {
 
 export interface MarkdownResponse {
   content: string;
+  /** True when this is the reviewer's saved hand edit, which both downloads are built from. */
+  edited?: boolean;
+  /** The document version the edit was made against. */
+  edited_at_version?: number | null;
 }
 
 export type TableStatus = "auto_detected" | "manually_created" | "reviewed";
@@ -401,6 +405,32 @@ export const api = {
 
   getMarkdown(jobId: string): Promise<MarkdownResponse> {
     return request<MarkdownResponse>(`/api/documents/${jobId}/markdown`);
+  },
+
+  /** Save hand-edited Markdown; it becomes the Markdown and DOCX deliverable. */
+  saveMarkdown(jobId: string, content: string): Promise<MarkdownResponse> {
+    return request<MarkdownResponse>(`/api/documents/${jobId}/markdown`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content }),
+    });
+  },
+
+  /** Throw hand edits away and return to the generated Markdown. */
+  discardMarkdownEdits(jobId: string): Promise<MarkdownResponse> {
+    return request<MarkdownResponse>(`/api/documents/${jobId}/markdown`, { method: "DELETE" });
+  },
+
+  /** The DOCX a Markdown draft would produce, without saving it. */
+  async previewDocx(jobId: string, content: string, signal?: AbortSignal): Promise<ArrayBuffer> {
+    const response = await fetch(`${API_BASE_URL}/api/documents/${jobId}/docx-preview`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content }),
+      signal,
+    });
+    if (!response.ok) throw new ApiError(response.status, response.statusText);
+    return response.arrayBuffer();
   },
 
   imageUrl(jobId: string, imageId: string): string {

@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from src.images.image_extractor import _build_placeholder_alt_text, _CAPTION_PATTERN
-from src.mathpix.page_estimation import estimate_page
+from src.mathpix.page_estimation import estimate_page, page_from_filename
 from src.models.correction import CorrectionRecord
 from src.models.figure import AltTextStatus, Figure
 from src.models.image import Image
@@ -225,26 +225,10 @@ def _apply_alt_text_state(image: Any, payload: str) -> None:
     image.figure.alt_text_status = AltTextStatus(status) if status else None
 
 
-_FILENAME_PAGE_RE = re.compile(r"-(\d{1,3})_\d+_\d+_\d+_\d+$")
-
-
 def _page_from_filename(path: Path, page_count: int) -> Optional[int]:
-    """The physical page Mathpix's own filename states, when it states one.
-
-    P-1 C3. Mathpix names each extracted image
-    ``{uuid}-{PAGE}_{x}_{y}_{w}_{h}.jpg``, and that page token is the physical
-    page the pixels came from - checked against PyMuPDF's own per-page image
-    list, 14 of the corpus' 17 encoded filenames name a page that really does
-    carry an image, and the three that do not belong to a scan whose pages
-    expose no image objects at all. Purely structural: no ordering, no
-    nearest-page, no text. A stem that does not match, or a page outside the
-    document, yields None and changes nothing.
-    """
-    match = _FILENAME_PAGE_RE.search(path.stem)
-    if not match:
-        return None
-    page = int(match.group(1))
-    return page if 1 <= page <= page_count else None
+    """The physical page Mathpix's own filename states (see
+    src/mathpix/page_estimation.page_from_filename)."""
+    return page_from_filename(path, page_count)
 
 
 def _resolve_image_page(
@@ -305,6 +289,8 @@ class FigureVerifier(SemanticVerifier):
     def to_canonical(self, match_result: MatchResult, **context: Any) -> List[Image]:
         page_count: int = context["page_count"]
         total_blocks: int = context["total_blocks"]
+        # Text-position page estimates from the ingestor, when it has them.
+        positions = context.get("positions")
         # P-1 C3. ``page_evidence`` is the import path's page evidence, handed
         # over by the Mathpix ingestor; it answers ``stated_page(source_line)``
         # and ``resolve_page(source_line, estimate)``. Absent - every other
@@ -321,6 +307,7 @@ class FigureVerifier(SemanticVerifier):
                     confidence=pair.confidence,
                     signal=pair.matched_by,
                     total_blocks=total_blocks,
+                    positions=positions,
                     page_count=page_count,
                     page_evidence=page_evidence,
                 )
@@ -337,6 +324,7 @@ class FigureVerifier(SemanticVerifier):
                     confidence=None,
                     signal=None,
                     total_blocks=total_blocks,
+                    positions=positions,
                     page_count=page_count,
                     orphan=True,
                     page_evidence=page_evidence,
@@ -356,11 +344,18 @@ class FigureVerifier(SemanticVerifier):
         total_blocks: int,
         page_count: int,
         orphan: bool = False,
+        positions: Optional[Any] = None,
         page_evidence: Optional[Any] = None,
     ) -> Image:
         caption = block.figure.caption if block and block.figure else None
         page_number = (
-            estimate_page(block.source_line, total_blocks, page_count) if block else page_count
+            (
+                positions.page(block.source_line)
+                if positions is not None
+                else estimate_page(block.source_line, total_blocks, page_count)
+            )
+            if block
+            else page_count
         )
         page_number = _resolve_image_page(
             page_number,
@@ -379,6 +374,7 @@ class FigureVerifier(SemanticVerifier):
             width=width,
             height=height,
             import_source=ImportSource.MATHPIX,
+            source_line=block.source_line if block else None,
             source_reference=(block.figure.image_path if block and block.figure else None),
             uploaded_filename=path.name,
             match_confidence=confidence,

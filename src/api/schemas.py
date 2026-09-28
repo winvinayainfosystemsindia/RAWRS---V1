@@ -206,6 +206,16 @@ class PagesResponse(BaseModel):
 
 class MarkdownResponse(BaseModel):
     content: str
+    # True when this is the reviewer's hand-edited Markdown (src/api/markdown_edits.py),
+    # which is then also what both downloads are built from.
+    edited: bool = False
+    # The document version the edit was made against; a later version means
+    # corrections were accepted that the edited text does not contain.
+    edited_at_version: Optional[int] = None
+
+
+class MarkdownEditRequest(BaseModel):
+    content: str = Field(..., max_length=5_000_000)
 
 
 class UploadResponse(BaseModel):

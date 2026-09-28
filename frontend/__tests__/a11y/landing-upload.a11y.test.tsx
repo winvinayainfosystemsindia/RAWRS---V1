@@ -6,7 +6,7 @@ jest.mock("next/navigation", () => ({
   useRouter: () => ({ push: jest.fn() }),
 }));
 
-import UploadPage from "@/app/page";
+import UploadPage from "@/app/(site)/page";
 
 // Landing / Upload (Phase F-2.1 minimum scope). next/navigation is mocked
 // at the module boundary; the API module is imported for real and only

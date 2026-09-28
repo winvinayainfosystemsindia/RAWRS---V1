@@ -260,9 +260,19 @@ Figure context:
 IMPORTANT: Do NOT simply restate the caption. The caption is provided as context only.
 Your DESCRIPTION must describe what is visually shown in the image.
 
-Analyze the image and respond in EXACTLY this format (no other text before or after):
+If the image shows numbers - a chart, graph, table or any statistic - a screen reader
+user cannot see them, so the DESCRIPTION must carry them: say what is measured, give
+the key values with their units or percentages, and explain what they mean in plain
+words. Name the largest and smallest values and any clear trend (rising, falling, a
+gap between groups), then END the description with a sentence that starts "This means"
+and says what the numbers show. For example: "A bar chart of teachers' views: 45% agree,
+33% are neutral and 22% disagree. This means about twice as many teachers agree as
+disagree, and fewer than a quarter reject rote learning."
+
+Analyze the image and respond in EXACTLY this format (no other text before or after),
+with every field on a single line:
 IMAGE_TYPE: <CHART|GRAPH|PHOTOGRAPH|DIAGRAM|EQUATION|SCREENSHOT|TABLE|OTHER>
-DESCRIPTION: <one or two sentences describing what the image visually shows>
+DESCRIPTION: <what the image shows: one or two sentences, up to four for charts, graphs and tables so the key figures and their meaning fit>
 PURPOSE: <why this figure appears in the document — what argument or data it supports>
 VISIBLE_TEXT: <any text legible inside the image itself, or None>
 CONFIDENCE: <a number from 0.0 to 1.0 reflecting how certain you are>
@@ -382,7 +392,7 @@ Table structure:
 Analyze this table and respond in EXACTLY this format (no other text before or after):
 TABLE_TYPE: <simple|complex|data|layout>
 SUGGESTED_CAPTION: <one concise sentence describing the table, or KEEP if the existing caption is good>
-SUGGESTED_SUMMARY: <2-3 sentences describing what the table shows, for screen reader users>
+SUGGESTED_SUMMARY: <2-4 sentences for screen reader users: what the table measures, the key figures with units or percentages, the highest and lowest values, and what they mean in plain words>
 HEADER_ROWS: <integer — how many leading rows are column headers, typically 1 or 2>
 HEADER_COLS: <integer — how many leading columns are row headers, typically 0 or 1>
 WARNINGS: <comma-separated accessibility warnings, or None>

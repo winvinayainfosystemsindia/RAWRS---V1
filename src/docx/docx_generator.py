@@ -101,8 +101,8 @@ from pathlib import Path
 from typing import Dict, List, NamedTuple, Optional, Tuple, Union
 
 from docx import Document as DocxDocument
-from docx.enum.style import WD_STYLE_TYPE
-from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK
+
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.opc.constants import RELATIONSHIP_TYPE as RT
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
@@ -128,6 +128,7 @@ from src.models.contracts import Document, ExtractionMethod, Footnote, FrontMatt
 from src.models.inline_format import format_runs
 from src.models.note_references import resolve_note_references
 from src.structure.paragraph_assembly import absorbed_block_ids
+from src.utils.mathpix_crop import crop_box
 from src.utils.text_sanitization import sanitize_xml_text
 
 DEFAULT_OUTPUT_DIR = Path("outputs/docx")
@@ -141,8 +142,6 @@ _DEFAULT_LANGUAGE = "en-US"
 _HYPERLINK_COLOR = "0563C1"
 # Deepest level a content heading may take; Heading 6 is the page number.
 _MAX_CONTENT_HEADING_LEVEL = 5
-# A TOC is navigation; a document with one heading has nothing to navigate.
-_MIN_TOC_HEADINGS = 2
 
 # Per docs/HEADING_RULES.md Formatting Rules: H1=16pt, H2=14pt, H3-H6=12pt,
 # all bold, black, Times New Roman.
@@ -522,6 +521,7 @@ def _add_stream_image(
     docx_document: DocxDocument,
     image,
     decorative_ids: set,
+    page_widths: Optional[Dict[int, float]] = None,
 ) -> None:
     """One ``Image``, then its caption, both read off the object the node named.
 
@@ -540,6 +540,7 @@ def _add_stream_image(
         image.file_path,
         alt_text=(getattr(figure, "alt_text", None) or "") if figure else "",
         decorative=image.image_id in decorative_ids,
+        printed_size=_printed_size(image, page_widths or {}),
     )
     if figure is not None and figure.caption:
         _add_caption(docx_document, figure.caption)
@@ -658,6 +659,62 @@ def _open_sentence(units: List[Tuple[str, object]]) -> Optional[List[_Segment]]:
         if not is_label(_segments_text(value)):
             return value
     return None
+
+
+_NOT_PROSE_LINE = re.compile(r"^(#|!\[|\||<!--|\[\^|[-*•]\s|\d+[.)]\s)")
+# A page may end inside a list item, whose sentence runs on just like prose;
+# only headings, figures, tables, comments and note definitions end a thought.
+_CANNOT_RUN_ON = re.compile(r"^(#|!\[|\||<!--|\[\^)")
+# A figure or table label as OCR reads it - plain text at the top of the page
+# ("FIGURE 3.4 CYCLES OF RESEARCH QUESTION DEVELOPMENT"), not the sentence
+# that runs on from the page before.
+_FIGURE_LABEL_LINE = re.compile(r"^(figure|fig\.|table|chart|box|plate)\s*\d", re.IGNORECASE)
+# A whole-line italic caption ("*FIGURE 3.1 CONCEPT MAP ...*").
+_CAPTION_LINE = re.compile(r"^\*[^*].*\*$")
+
+
+def _complete_sentences_across_page_breaks(lines: List[str]) -> List[str]:
+    """The checklist's page-end rule for pages rendered from Markdown lines -
+    Mathpix imports and OCR'd scans - where ``_stitch_prose`` cannot reach,
+    because those pages have no traversal.
+
+    When the last line of prose before a page break stops mid-sentence and the
+    first line of prose on the next page (after its page number) finishes it,
+    that first sentence moves up to the previous page and the rest stays. A
+    page that ends in a figure, table, list or heading hands nothing on, and
+    neither does one whose next page starts with a heading.
+    """
+    lines = list(lines)
+    for index, line in enumerate(lines):
+        if line != PAGE_BREAK_MARKER:
+            continue
+        # The open sentence is the last text before the break - looking past a
+        # figure and its caption, which often close a page while the paragraph
+        # above them runs on to the next.
+        before = index - 1
+        while before >= 0 and (lines[before].startswith("![") or _CAPTION_LINE.match(lines[before])):
+            before -= 1
+        if before < 0 or _CANNOT_RUN_ON.match(lines[before]) or is_label(lines[before]):
+            continue
+        after = index + 1
+        while after < len(lines) and (
+            lines[after].startswith("######")
+            or lines[after].startswith("![")
+            or _CAPTION_LINE.match(lines[after])
+            or _FIGURE_LABEL_LINE.match(lines[after])
+        ):
+            after += 1
+        if after >= len(lines) or _NOT_PROSE_LINE.match(lines[after]) or lines[after] == PAGE_BREAK_MARKER:
+            continue
+        if not _continues(lines[before], lines[after]):
+            continue
+        head = lines[after]
+        match = _SENTENCE_END_PATTERN.search(head)
+        moved, rest = (head, "") if match is None else (head[: match.end()], head[match.end():].strip())
+        joiner = "" if lines[before].endswith("-") else " "
+        lines[before] = f"{lines[before]}{joiner}{moved.strip()}"
+        lines[after] = rest
+    return [line for line in lines if line]
 
 
 def _segments_text(segments: List[_Segment]) -> str:
@@ -801,6 +858,7 @@ def generate_docx(
     # document the traversal never placed images for, which is the only path
     # that still has nothing but the line to identify the Image by.
     images_by_path = {img.file_path: img for img in document.images}
+    page_widths = {p.page_number: p.width_pt for p in document.pages if getattr(p, "width_pt", None)}
 
     # P4b: the traversal, not the markdown, says what order this document's
     # prose is in, which pages exist and where each page begins.
@@ -815,7 +873,9 @@ def generate_docx(
         notes_by_anchor_text.setdefault(note.anchor_text, []).append(note)
     has_endnotes = any(note.note_type == NoteType.ENDNOTE for note in document.footnotes)
 
-    content_lines = [line.strip() for line in markdown_content.splitlines() if line.strip()]
+    content_lines = _complete_sentences_across_page_breaks(
+        [line.strip() for line in markdown_content.splitlines() if line.strip()]
+    )
     pending_caption_after_image = False
     in_front_matter_zone = False
     front_matter_groups = _front_matter_groups(document)
@@ -998,7 +1058,7 @@ def generate_docx(
         """This page's images from one slot, once — popped, so the page-close
         sweep cannot re-emit what the prose run already placed."""
         for image in slot.pop(current_page, []):
-            _add_stream_image(docx_document, image, decorative_ids)
+            _add_stream_image(docx_document, image, decorative_ids, page_widths)
 
     def close_page() -> None:
         """Emit this page's images and tables and register its notes, where
@@ -1187,9 +1247,20 @@ def generate_docx(
         if image_match:
             img_path = image_match.group(2)
             if img_path in stream_image_paths:
-                # P4c-3: the IMAGE node already emitted this image and its
-                # caption from the Image the node named. The line restates
-                # three of that object's fields and nothing else.
+                # P4c-3: the IMAGE node names this image, and it is emitted
+                # from the Image the node named - with its caption - so the
+                # line restates three of that object's fields and nothing else.
+                # On a page whose prose the traversal does not carry (a scan,
+                # a Mathpix import) the line is the only record of *where* the
+                # figure sits, so it is emitted here rather than at page close:
+                # at page close O'Leary's four top-of-page figures landed below
+                # the text they head.
+                if not is_stream_page():
+                    waiting = images_at_close.get(current_page, [])
+                    placed = next((img for img in waiting if img.file_path == img_path), None)
+                    if placed is not None:
+                        waiting.remove(placed)
+                        _add_stream_image(docx_document, placed, decorative_ids, page_widths)
                 stream_caption_index = index + 1
                 pending_caption_after_image = False
                 continue
@@ -1203,6 +1274,7 @@ def generate_docx(
                 img_path,
                 alt_text=image_match.group(1),
                 decorative=image_id in decorative_ids,
+                printed_size=_printed_size(image_obj, page_widths) if image_obj is not None else None,
             )
             if image_obj is not None:
                 image_obj.embedded_in_docx = embedded
@@ -1310,10 +1382,10 @@ def generate_docx(
             for page_images in list(slot.values()):
                 for image in page_images:
                     _add_stream_image(
-                        docx_document, image, decorative_ids
+                        docx_document, image, decorative_ids, page_widths
                     )
 
-    _insert_table_of_contents(docx_document)
+    _drop_dangling_note_references(docx_document, note_registries)
 
     # L4b: one part per note kind, and only for kinds this document
     # actually has. An endnote emitted into the footnotes part is not a
@@ -1328,93 +1400,26 @@ def generate_docx(
     return resolved_path
 
 
-def _insert_table_of_contents(docx_document: DocxDocument) -> None:
-    """An automatic Table of Contents on its own page before page 1.
+def _drop_dangling_note_references(docx_document: DocxDocument, registries: _NoteRegistries) -> None:
+    """Remove any footnote/endnote reference whose note has no body.
 
-    The submission checklist asks for "an automatic Table of Contents" with
-    fields updated. This is Word's own ``TOC \\o "1-5" \\h \\z \\u`` field over
-    the content headings (Heading 6 is the page number, so it is excluded),
-    and ``w:updateFields`` makes Word refresh it - page numbers included -
-    when the document is opened. Until then the field shows the headings
-    it will list, so the page is never blank. A document with fewer than
-    two content headings has nothing to navigate and gets none.
+    A ``[^label]`` in the markdown whose definition never reached a registry
+    (a label the model does not know, a definition line an edit deleted)
+    still gets a reference run and an id - but no body, and when no note of
+    that kind has a body the part is not written at all. The result points
+    at a note that does not exist: Word reports the file as damaged, and
+    mammoth (the in-app preview) cannot render it. A reference with nothing
+    to show is dropped, loudly, rather than shipping a broken document.
     """
     body = docx_document.element.body
-    entries = []
-    for element in body.iterchildren(qn("w:p")):
-        paragraph = Paragraph(element, docx_document)
-        match = re.match(r"Heading (\d)$", paragraph.style.name if paragraph.style else "")
-        if match and int(match.group(1)) <= _MAX_CONTENT_HEADING_LEVEL and paragraph.text.strip():
-            entries.append((int(match.group(1)), paragraph.text.strip()))
-    if len(entries) < _MIN_TOC_HEADINGS:
-        return
-
-    toc_styles = {level: _toc_style(docx_document, level) for level in {lvl for lvl, _ in entries}}
-    created = []
-    heading = docx_document.add_paragraph(style="TOC Heading")
-    _style_run(heading.add_run("Contents"), _BODY_FONT_SIZE_PT, bold=True)
-    heading_ppr = heading._p.get_or_add_pPr()
-    outline = OxmlElement("w:outlineLvl")
-    outline.set(qn("w:val"), "9")  # a label for the TOC, not part of the outline
-    heading_ppr.append(outline)
-    created.append(heading)
-    for index, (level, text) in enumerate(entries):
-        paragraph = docx_document.add_paragraph(style=toc_styles[level])
-        if index == 0:
-            _add_field_char(paragraph, "begin")
-            instruction = OxmlElement("w:instrText")
-            instruction.set(_XML_SPACE, "preserve")
-            instruction.text = ' TOC \\o "1-5" \\h \\z \\u '
-            run = OxmlElement("w:r")
-            run.append(instruction)
-            paragraph._p.append(run)
-            _add_field_char(paragraph, "separate")
-        _style_run(paragraph.add_run(_safe_run_text(text)), _BODY_FONT_SIZE_PT, bold=False)
-        if index == len(entries) - 1:
-            _add_field_char(paragraph, "end")
-        created.append(paragraph)
-    page_break = docx_document.add_paragraph()
-    page_break.add_run().add_break(WD_BREAK.PAGE)
-    created.append(page_break)
-
-    for position, paragraph in enumerate(created):
-        body.remove(paragraph._p)
-        body.insert(position, paragraph._p)
-
-    settings = docx_document.settings.element
-    if settings.find(qn("w:updateFields")) is None:
-        update = OxmlElement("w:updateFields")
-        update.set(qn("w:val"), "true")
-        settings.append(update)
-
-
-def _style_run(run, size_pt: int, bold: bool) -> None:
-    run.font.name = _FONT_NAME
-    run.font.size = Pt(size_pt)
-    run.font.bold = bold
-    run.font.color.rgb = _BLACK
-
-
-def _toc_style(docx_document: DocxDocument, level: int) -> str:
-    """Word's built-in "toc N" paragraph style, created when the template
-    lacks it, indented a quarter inch per level."""
-    name = f"toc {level}"
-    try:
-        docx_document.styles[name]
-    except KeyError:
-        style = docx_document.styles.add_style(name, WD_STYLE_TYPE.PARAGRAPH)
-        style.base_style = docx_document.styles["Normal"]
-        style.paragraph_format.left_indent = Inches(0.25 * (level - 1))
-        style.paragraph_format.space_after = Pt(4)
-    return name
-
-
-def _add_field_char(paragraph: Paragraph, kind: str) -> None:
-    run = OxmlElement("w:r")
-    field_char = OxmlElement("w:fldChar")
-    field_char.set(qn("w:fldCharType"), kind)
-    run.append(field_char)
-    paragraph._p.append(run)
+    for registry, tag in ((registries.footnotes, "footnoteReference"), (registries.endnotes, "endnoteReference")):
+        present = {str(note_id) for note_id, _ in registry.ordered_entries()}
+        for reference in list(body.iter(qn(f"w:{tag}"))):
+            if reference.get(qn("w:id")) in present:
+                continue
+            run = reference.getparent()
+            run.getparent().remove(run)
+            logger.warning("Dropped a {} with no note body (w:id={})", tag, reference.get(qn("w:id")))
 
 
 def _safe_run_text(text: str) -> str:
@@ -1473,6 +1478,32 @@ def _pdf_info(pdf_path: str) -> Dict[str, str]:
     return info
 
 
+def _looks_like_a_filename(title: str) -> bool:
+    """A PDF "Title" that is really the name of the file it was printed from
+    ("Zina O Leary_The_essential_guide_to_doing_research.pdf")."""
+    return bool(re.search(r"\.(pdf|docx?|pptx?|txt)$", title.strip(), re.IGNORECASE)) or title.count("_") >= 2
+
+
+def _named_in_document(author: str, document: Document) -> bool:
+    """Whether the PDF's "Author" is someone the document itself names.
+
+    That field records whoever made the PDF - on a scan, the person who
+    printed it ("Sharad Sure" on O'Leary's chapter, a book by Zina O'Leary).
+    Putting a stranger's name in the author field is both wrong and a privacy
+    leak the checklist asks to remove, so the name is only trusted when its
+    surname appears in the document's own text.
+    """
+    surname = author.strip().split()[-1] if author.strip() else ""
+    if len(surname) < 2:
+        return False
+    text = " ".join(
+        [page.cleaned_text or page.raw_text or "" for page in document.pages]
+        + [paragraph.text for paragraph in getattr(document, "paragraphs", []) or []]
+        + [heading.text for heading in document.headings]
+    )
+    return re.search(rf"\b{re.escape(surname)}\b", text, re.IGNORECASE) is not None
+
+
 def _apply_core_properties(docx_document: DocxDocument, document: Document) -> None:
     """Title, Author, Subject and Language, as the submission checklist asks.
 
@@ -1497,13 +1528,15 @@ def _apply_core_properties(docx_document: DocxDocument, document: Document) -> N
     title = (
         m.title
         or getattr(front, "title", None)
-        or pdf["title"]
+        or (pdf["title"] if not _looks_like_a_filename(pdf["title"]) else "")
         or first_heading
         or Path(document.source_pdf_path).stem
     )
     props.title = _safe_run_text(title)
     props.author = _safe_run_text(
-        m.author or ", ".join(getattr(front, "authors", None) or []) or pdf["author"]
+        m.author
+        or ", ".join(getattr(front, "authors", None) or [])
+        or (pdf["author"] if _named_in_document(pdf["author"], document) else "")
     )
     props.subject = _safe_run_text(m.subject or pdf["subject"] or title)
     props.language = m.language or pdf["language"] or _DEFAULT_LANGUAGE
@@ -2113,8 +2146,13 @@ def _add_image(
     image_path: str,
     alt_text: str = "",
     decorative: bool = False,
+    printed_size: Optional[Tuple[int, int]] = None,
 ) -> bool:
     """Insert an image inline with text, centered.
+
+    ``printed_size`` (EMU width, height) is how big the picture was on the PDF
+    page (see ``_printed_size``); without it the picture keeps its pixel size,
+    capped at the text width.
 
     The checklist says "All images should be center-aligned and inline with
     text", so there is no alignment to choose: an earlier version mirrored
@@ -2153,6 +2191,8 @@ def _add_image(
         paragraph._p.getparent().remove(paragraph._p)
         return False
 
+    if printed_size is not None:
+        picture.width, picture.height = Emu(printed_size[0]), Emu(printed_size[1])
     if picture.width > _MAX_IMAGE_WIDTH:
         aspect_ratio = picture.height / picture.width
         picture.width = _MAX_IMAGE_WIDTH
@@ -2169,6 +2209,32 @@ def _add_image(
         doc_properties.set("title", safe_alt_text)
 
     return True
+
+
+_EMU_PER_POINT = 12700
+_LETTER_WIDTH_PT = 612.0
+
+
+def _printed_size(image, page_widths: Dict[int, float]) -> Optional[Tuple[int, int]]:
+    """How big the picture was printed on the PDF page, in EMU - so the Word
+    page shows it at the same share of the page as the PDF did, instead of
+    stretching every figure to the full text width.
+
+    A Mathpix crop states its own box (``src/utils/mathpix_crop.py``): its
+    share of the page's width, applied to the page's width in points. Any
+    other image has the rectangle PyMuPDF found it drawn at. Height follows
+    the width at the picture's own proportions, which for a Mathpix crop are
+    exactly the printed ones. None when neither is known.
+    """
+    page_width_pt = page_widths.get(getattr(image, "page_number", 0), _LETTER_WIDTH_PT)
+    box = crop_box(getattr(image, "file_path", None))
+    if box is not None and box.width and box.height:
+        width_pt = box.width_fraction() * page_width_pt
+        return int(width_pt * _EMU_PER_POINT), int(width_pt * box.height / box.width * _EMU_PER_POINT)
+    bbox = getattr(image, "bbox", None)
+    if bbox is not None and bbox.x1 > bbox.x0 and bbox.y1 > bbox.y0:
+        return int((bbox.x1 - bbox.x0) * _EMU_PER_POINT), int((bbox.y1 - bbox.y0) * _EMU_PER_POINT)
+    return None
 
 
 _DECORATIVE_EXT_URI = "{C183D7F6-B498-43B3-948B-1728B52AA6E4}"
@@ -2257,7 +2323,56 @@ def _describe_table(grid: List[List[str]], header_rows: set) -> str:
     headings = [text.strip() for text in grid[min(header_rows)] if text.strip()] if grid else []
     if headings:
         summary += " Column headings: " + "; ".join(headings) + "."
+    statistics = _numeric_column_statistics(grid, header_rows)
+    if statistics:
+        summary += " " + " ".join(statistics)
     return summary
+
+
+_NUMBER_IN_CELL = re.compile(r"^[-−]?\d[\d,]*(?:\.\d+)?%?$|^[-−]?\.\d+%?$")
+# A screen reader user hears a summary before the table; four columns of
+# statistics is already a paragraph.
+_MAX_SUMMARISED_COLUMNS = 4
+_MIN_NUMERIC_VALUES = 2
+
+
+def _numeric_column_statistics(grid: List[List[str]], header_rows: set) -> List[str]:
+    """For each numeric column, its highest and lowest value and which row each
+    belongs to - "Score: highest 45% (Kerala), lowest 12% (Bihar)." - so a
+    listener knows what the numbers say before hearing them cell by cell.
+    Stated only from the table's own cells; a column that is not wholly
+    numeric (years mixed with notes, say) is left out rather than guessed at.
+    """
+    if not grid:
+        return []
+    header = grid[min(header_rows)]
+    body = [row for index, row in enumerate(grid) if index not in header_rows]
+    sentences: List[str] = []
+    for column in range(1, len(header)):
+        values = []
+        for row in body:
+            text = row[column].strip() if column < len(row) else ""
+            if not text:
+                continue
+            if not _NUMBER_IN_CELL.match(text):
+                values = []
+                break
+            number = float(text.replace(",", "").replace("%", "").replace("−", "-"))
+            values.append((number, text, row[0].strip()))
+        if len(values) < _MIN_NUMERIC_VALUES or not header[column].strip():
+            continue
+        highest, lowest = max(values), min(values)
+        sentences.append(
+            f"{header[column].strip()}: highest {highest[1]}{_row_name(highest[2])}, "
+            f"lowest {lowest[1]}{_row_name(lowest[2])}."
+        )
+        if len(sentences) == _MAX_SUMMARISED_COLUMNS:
+            break
+    return sentences
+
+
+def _row_name(label: str) -> str:
+    return f" ({label})" if label else ""
 
 
 def _write_cell(docx_cell, text: str, bold: bool) -> None:

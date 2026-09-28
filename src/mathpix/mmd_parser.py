@@ -75,6 +75,10 @@ _CAPTION_RE = re.compile(r"\\caption\{([^}]*)\}")
 _FOOTNOTETEXT_RE = re.compile(r"^\\footnotetext\{(\d+)\}\{(.+)\}\s*$")
 # Pipe table row: | ... |
 _PIPE_ROW_RE = re.compile(r"^\|.+\|\s*$")
+# Markdown-flavoured MMD (what Mathpix emits for many scans): "## Heading"
+# and "![alt](https://cdn.mathpix.com/cropped/...-04.jpg?height=..)".
+_MARKDOWN_HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*#*\s*$")
+_MARKDOWN_IMAGE_RE = re.compile(r"^!\[([^\]]*)\]\((\S+?)\)\s*$")
 # Pipe separator row: |---|:---:|---| (only dashes, colons, pipes, spaces)
 _PIPE_SEP_RE = re.compile(r"^\|[\s\-:|]+\|\s*$")
 # List items
@@ -342,6 +346,40 @@ def parse_mmd(content: str) -> P2Document:
                 doc.blocks.append(block)
             continue
 
+        # ── Markdown heading: ## text ──────────────────────────────────
+        # Mathpix writes headings of scanned books this way instead of as
+        # \section{...}. Without this they became paragraphs reading "## 3".
+        md_h = _MARKDOWN_HEADING_RE.match(stripped)
+        if md_h:
+            text = transform_inline_math(md_h.group(2).strip())
+            doc.blocks.append(
+                P2Block(
+                    block_type=P2BlockType.HEADING,
+                    heading=P2Heading(
+                        level=len(md_h.group(1)),
+                        text=text,
+                        mmd_command="markdown",
+                        callout_type=classify_callout_type(text),
+                    ),
+                    source_line=i,
+                )
+            )
+            i += 1
+            continue
+
+        # ── Markdown image: ![alt](url) ────────────────────────────────
+        md_img = _MARKDOWN_IMAGE_RE.match(stripped)
+        if md_img:
+            doc.blocks.append(
+                P2Block(
+                    block_type=P2BlockType.FIGURE,
+                    figure=P2Figure(image_path=md_img.group(2), caption=md_img.group(1).strip() or None),
+                    source_line=i,
+                )
+            )
+            i += 1
+            continue
+
         # ── Publisher caption label ────────────────────────────────────
         if _PUBLISHER_LABEL_RE.match(stripped):
             doc.blocks.append(
@@ -394,7 +432,50 @@ def parse_mmd(content: str) -> P2Document:
         i += 1
 
     _prove_note_apparatus(doc, markers)
+    _place_publisher_lines(doc)
     return doc
+
+
+# How far (in blocks) a printed label may sit from the figure or table it names.
+_LABEL_REACH = 2
+
+
+def _place_publisher_lines(doc: P2Document) -> None:
+    """Give every printed label ("FIGURE 3.1 CONCEPT MAP ...", "TABLE 2 ...")
+    a home, so none is lost.
+
+    PUBLISHER_LINE blocks were recognised and then consumed by nothing: all
+    four of O'Leary's figure captions vanished from the output. A FIGURE/FIG
+    label becomes the caption of the figure beside it, a TABLE label the
+    caption of the table beside it (when that caption is empty); every other
+    label - and one with nothing to attach to - stays in the text as the
+    paragraph it was printed as.
+    """
+    blocks = doc.blocks
+    for index, block in enumerate(blocks):
+        if block.block_type != P2BlockType.PUBLISHER_LINE:
+            continue
+        label = (block.text or "").strip()
+        kind = label.split()[0].upper().rstrip(".") if label else ""
+        target_type = {"FIGURE": P2BlockType.FIGURE, "FIG": P2BlockType.FIGURE, "TABLE": P2BlockType.TABLE}.get(kind)
+        neighbour = None
+        if target_type is not None:
+            for distance in range(1, _LABEL_REACH + 1):
+                for candidate in (index - distance, index + distance):
+                    if 0 <= candidate < len(blocks) and blocks[candidate].block_type == target_type:
+                        neighbour = blocks[candidate]
+                        break
+                if neighbour is not None:
+                    break
+        holder = None
+        if neighbour is not None:
+            holder = neighbour.figure if target_type == P2BlockType.FIGURE else neighbour.table
+        if holder is not None and not holder.caption:
+            holder.caption = label
+            block.text = None  # now the caption; dropped below
+        else:
+            block.block_type = P2BlockType.PARAGRAPH
+    doc.blocks = [b for b in blocks if not (b.block_type == P2BlockType.PUBLISHER_LINE and b.text is None)]
 
 
 # ── Internal helpers ───────────────────────────────────────────────────

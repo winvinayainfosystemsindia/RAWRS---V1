@@ -60,6 +60,7 @@ from src.footnotes.footnote_detector import detect_footnote_pdf_candidates, dete
 from src.frontmatter.front_matter_extractor import extract_front_matter
 from src.headings.heading_detector import detect_headings, detect_headings_from_pdf
 from src.lists.list_detector import detect_lists_from_pdf
+from src.headings.hierarchy import repair_headings
 from src.images.auto_alt_text import apply_automatic_alt_text
 from src.images.image_extractor import _extract_images_from_pdf, extract_images
 from src.markdown.markdown_builder import build_markdown
@@ -451,6 +452,11 @@ def run_pipeline(
             surya_metrics=surya_metrics,
             alt_text_dataset_path=alt_text_dataset_path,
         )
+
+    # Stage 5d: one outline for every route - quotes and attributions stop being
+    # headings, a lone chapter number joins its title, and a source that gave
+    # every heading one level gets a real hierarchy (src/headings/hierarchy.py).
+    repair_headings(document)
 
     # Stage 6: Generate Markdown
     markdown_path: Optional[Path] = None

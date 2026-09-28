@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import uuid
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Union
 
 from loguru import logger
 
@@ -31,7 +31,7 @@ from src.frontmatter.front_matter_roles import build_title_heading
 from src.headings.page_markers import build_page_marker
 from src.mathpix.mmd_parser import parse_mmd
 from src.mathpix.page_alignment import PageAlignment, align_blocks_to_pages
-from src.mathpix.page_estimation import estimate_page
+from src.mathpix.page_estimation import TextPositionPages, estimate_page
 from src.models.contracts import (
     Callout,
     Document,
@@ -83,6 +83,15 @@ def _align_to_pdf_pages(document: Document, p2doc: Any) -> Optional[PageAlignmen
         logger.warning("Mathpix page alignment: PDF text layer unavailable ({})", exc)
         return None
 
+    if _is_scan(page_texts):
+        # A scanned PDF has no text layer, so its pages could prove nothing and
+        # every block fell back to an estimate. OCR states what each page says,
+        # which is the same evidence a text layer gives.
+        from src.ocr.docling_engine import ocr_page_texts
+
+        logger.info("Mathpix page alignment: PDF is a scan; reading its pages with OCR")
+        page_texts = ocr_page_texts(Path(source)) or page_texts
+
     alignment = align_blocks_to_pages(p2doc.blocks, page_texts)
     logger.info(
         "Mathpix page alignment: {} ({} anchor(s), {} ambiguous, {} short, "
@@ -98,9 +107,21 @@ def _align_to_pdf_pages(document: Document, p2doc: Any) -> Optional[PageAlignmen
     return alignment if alignment.usable else None
 
 
+# Fewer characters than this per page, on average, and the PDF is a scan: a
+# printed page of prose carries ~2,000, and a scan's text layer carries none
+# (or a stray page number).
+_SCAN_MAX_CHARS_PER_PAGE = 50
+
+
+def _is_scan(page_texts: List[str]) -> bool:
+    if not page_texts:
+        return False
+    return sum(len(text.strip()) for text in page_texts) / len(page_texts) < _SCAN_MAX_CHARS_PER_PAGE
+
+
 def _resolved_page(
     source_line: Optional[int],
-    total_blocks: int,
+    total_blocks: Union[int, TextPositionPages],
     page_count: int,
     alignment: Optional[PageAlignment] = None,
 ) -> int:
@@ -112,7 +133,11 @@ def _resolved_page(
     only to lie between two anchors). No alignment, no change — the default
     is exactly the call this function replaced.
     """
-    estimate = estimate_page(source_line, total_blocks, page_count)
+    estimate = (
+        total_blocks.page(source_line)
+        if isinstance(total_blocks, TextPositionPages)
+        else estimate_page(source_line, total_blocks, page_count)
+    )
     if alignment is None:
         return estimate
     return alignment.resolve_page(source_line, estimate)
@@ -166,7 +191,9 @@ class MathpixImportProvider:
         p2doc = parse_mmd(content)
 
         page_count = max(len(document.pages), 1)
-        total_blocks = max(len(p2doc.blocks), 1)
+        # Where each block falls on the page, by its position in the text (see
+        # TextPositionPages). Passed wherever the block count used to be.
+        total_blocks = TextPositionPages(p2doc.blocks, page_count)
 
         logger.info(
             "Mathpix import: {} block(s), {} footnote(s) parsed from '{}'",
@@ -330,7 +357,8 @@ class MathpixImportProvider:
             figure_blocks,
             uploaded_files,
             page_count=page_count,
-            total_blocks=total_blocks,
+            total_blocks=len(p2doc.blocks) or 1,
+            positions=total_blocks if isinstance(total_blocks, TextPositionPages) else None,
             # P-1 C3: a figure's page comes from the same evidence as every
             # other block's, and the verifier asks it two questions - what was
             # proven, and how to hold an estimate inside what was proven.

@@ -101,7 +101,12 @@ def parse_pdf(file_path: Union[str, Path]) -> Document:
             if page_count == 0:
                 raise PDFParserError(f"PDF '{path}' contains no pages")
 
-            pages = [Page(page_number=i + 1) for i in range(page_count)]
+            # Each page's width, so a figure can be sized at the share of the
+            # page it was printed at - on every route, scanned PDFs included.
+            pages = [
+                Page(page_number=i + 1, width_pt=pdf_document[i].rect.width)
+                for i in range(page_count)
+            ]
     except PDFParserError:
         raise
     except Exception as exc:  # PyMuPDF raises various error types on bad input

@@ -7,10 +7,15 @@ import "react-pdf/dist/Page/TextLayer.css";
 import { api, type BlockItem, type BoundingBox } from "@/lib/api";
 import { usePdfViewport } from "@/lib/store/PdfViewportContext";
 import type { SelectableObjectType } from "@/lib/store/SelectionContext";
+import { IconMarkers } from "@/components/icons";
+import { orderMarkerRows } from "@/lib/orderMarkers";
 
 pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
 const ZOOM_STEP = 0.1;
+// Space between a reading-order marker and the text block it numbers.
+const ORDER_MARKER_GAP_PX = 3;
+const ORDER_MARKERS_KEY = "rawrs-pdf-order-markers";
 
 export type PdfViewerMode = "view" | "region-select";
 
@@ -48,7 +53,17 @@ export function PdfViewer({
   const { pageNumber, zoom, jumpTarget, setPageNumber, setZoom } = usePdfViewport();
   const [numPages, setNumPages] = useState<number | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [showOrderMarkers, setShowOrderMarkers] = useState(
+    () => typeof window !== "undefined" && window.localStorage.getItem(ORDER_MARKERS_KEY) === "true"
+  );
   const highlightRef = useRef<HTMLDivElement>(null);
+
+  function toggleOrderMarkers() {
+    setShowOrderMarkers((shown) => {
+      window.localStorage.setItem(ORDER_MARKERS_KEY, String(!shown));
+      return !shown;
+    });
+  }
 
   const highlight =
     jumpTarget && jumpTarget.pageNumber === pageNumber && jumpTarget.bbox ? jumpTarget.bbox : null;
@@ -91,6 +106,22 @@ export function PdfViewer({
             +
           </button>
         </div>
+        {!!readingOrderBlocks?.length && (
+          <button
+            type="button"
+            onClick={toggleOrderMarkers}
+            aria-pressed={showOrderMarkers}
+            title="Number each text block in reading order (drawn in the margin)"
+            className={`inline-flex items-center gap-1.5 rounded border px-2 py-0.5 text-xs transition-colors ${
+              showOrderMarkers
+                ? "border-accent bg-accent/15 text-text-primary"
+                : "border-border text-text-secondary hover:border-border-strong hover:text-text-primary"
+            }`}
+          >
+            <IconMarkers className="h-3.5 w-3.5" />
+            Reading order
+          </button>
+        )}
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -117,7 +148,7 @@ export function PdfViewer({
       </div>
 
       {/* Page canvas */}
-      <div className="flex-1 overflow-auto bg-surface-canvas p-4" data-pdf-mode={mode}>
+      <div className={`flex-1 overflow-auto bg-surface-canvas py-4 pr-6 ${showOrderMarkers ? "pl-16" : "pl-6"}`} data-pdf-mode={mode}>
         {loadError ? (
           <p className="p-4 text-sm text-danger" role="alert">
             {loadError}
@@ -194,21 +225,21 @@ export function PdfViewer({
                 />
               )}
 
-              {/* Reading order sequence badges — decorative, pointer-events-none;
-                  the numbered list with reorder controls lives in ReadingOrderPanel. */}
-              {pageOrderBlocks.map((block, idx) => (
-                <div
-                  key={block.block_order}
-                  title={block.text.slice(0, 140)}
-                  className="pointer-events-none absolute flex h-5 w-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-accent bg-accent font-mono text-[10px] font-semibold text-accent-contrast shadow"
-                  style={{
-                    left: block.bbox_x0 * zoom,
-                    top: block.bbox_y0 * zoom,
-                  }}
-                >
-                  {idx + 1}
-                </div>
-              ))}
+              {/* Reading-order markers - optional, off by default. They sit in
+                  the margin just left of each block, small and translucent, so
+                  they never cover a word; the numbered list with reorder
+                  controls lives in ReadingOrderPanel. */}
+              {showOrderMarkers &&
+                orderMarkerRows(pageOrderBlocks, zoom).map((row) => (
+                  <div
+                    key={row.top}
+                    aria-hidden="true"
+                    className="pointer-events-none absolute flex h-3 items-center justify-end rounded-sm bg-accent/70 px-1 font-mono text-[8px] font-semibold leading-none text-accent-contrast"
+                    style={{ right: `calc(100% + ${ORDER_MARKER_GAP_PX}px)`, top: row.top }}
+                  >
+                    {row.label}
+                  </div>
+                ))}
             </div>
           </Document>
         )}

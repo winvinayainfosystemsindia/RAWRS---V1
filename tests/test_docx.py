@@ -329,7 +329,9 @@ class TestFootnoteEndnoteRendering:
     def test_inline_reference_renders_as_native_footnote_reference(
         self, tmp_path: Path
     ) -> None:
-        markdown = "A claim with a marker[^p1-1]."
+        # Reference plus its definition: a reference with no note body is
+        # dropped (it would make Word report the file as damaged).
+        markdown = "A claim with a marker[^p1-1].\n\n[^p1-1]: The note."
         output_path = tmp_path / "out.docx"
         generate_docx(_dummy_document(), markdown, output_path=output_path)
 
@@ -340,7 +342,9 @@ class TestFootnoteEndnoteRendering:
         assert len(refs) == 1
 
     def test_inline_reference_is_superscript(self, tmp_path: Path) -> None:
-        markdown = "A claim with a marker[^p1-1]."
+        # Reference plus its definition: a reference with no note body is
+        # dropped (it would make Word report the file as damaged).
+        markdown = "A claim with a marker[^p1-1].\n\n[^p1-1]: The note."
         output_path = tmp_path / "out.docx"
         generate_docx(_dummy_document(), markdown, output_path=output_path)
 

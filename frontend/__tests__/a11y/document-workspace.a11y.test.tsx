@@ -1,7 +1,7 @@
 import { render } from "@testing-library/react";
 import { axe } from "jest-axe";
 import { WorkspaceShell } from "@/components/workspace/WorkspaceShell";
-import { NavChips } from "@/components/workspace/NavChips";
+import { ActivityBar } from "@/components/workspace/ActivityBar";
 import { ThemeProvider } from "@/lib/theme/ThemeProvider";
 
 // Document Workspace (Phase F-2.1 minimum scope). WorkspaceShell is a pure
@@ -42,7 +42,7 @@ describe("Document Workspace (WorkspaceShell) accessibility", () => {
   // prop and quickNav so the icon-bearing buttons, the readiness badge,
   // the NavChips row, and Focus Mode's aria-pressed state are all present
   // in the tree axe scans, not just the baseline empty-shell case above.
-  it("has no automatically detectable accessibility violations (toolbar + quick-jump chips populated)", async () => {
+  it("has no automatically detectable accessibility violations (title bar, activity bar and status bar populated)", async () => {
     const { container } = render(
       <ThemeProvider>
         <WorkspaceShell
@@ -62,8 +62,9 @@ describe("Document Workspace (WorkspaceShell) accessibility", () => {
           reportAvailable
           docxStale={false}
           markdownStale={false}
-          quickNav={
-            <NavChips
+          pendingCount={4}
+          activityBar={
+            <ActivityBar
               sections={[
                 { id: "validation", label: "Validation", count: 2 },
                 { id: "images", label: "Images", count: 0 },

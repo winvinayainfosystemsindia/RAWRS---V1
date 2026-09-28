@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, UploadFile, File
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from loguru import logger
 
 from src.api.document_store import (
@@ -33,7 +33,9 @@ from src.api.document_store import (
 )
 from src.pipeline.phase1_pipeline import DEFAULT_OUTPUT_ROOT
 from src.api.jobs import Job, JobStatus, create_job, get_job, list_jobs, start_job, _lock
+from src.api import markdown_edits
 from src.api.schemas import (
+    MarkdownEditRequest,
     AIStatusResponse,
     AccessibilityCategoryScoreOut,
     AccessibilityDebtReportOut,
@@ -1235,7 +1237,62 @@ def get_markdown(job_id: str) -> MarkdownResponse:
     # On a failed rebuild this returns the previous artifact rather than
     # raising: a read must not 500.
     path = _ensure_current_export(job, "markdown") or job.result.markdown_path
+    edit = markdown_edits.load_edit(DEFAULT_OUTPUT_ROOT, job_id)
+    return MarkdownResponse(
+        content=path.read_text(encoding="utf-8"),
+        edited=edit is not None,
+        edited_at_version=edit.get("base_version") if edit else None,
+    )
+
+
+@router.put("/documents/{job_id}/markdown", response_model=MarkdownResponse)
+def save_markdown(job_id: str, body: MarkdownEditRequest) -> MarkdownResponse:
+    """Save the reviewer's edited Markdown. From now on it is what the Markdown
+    download serves and what the DOCX download is rendered from."""
+    job = _require_job(job_id)
+    if job.result is None or job.result.document is None:
+        raise HTTPException(status_code=404, detail="No document for this job yet.")
+    if len(body.content.encode("utf-8")) > markdown_edits.MAX_MARKDOWN_BYTES:
+        raise HTTPException(status_code=413, detail="The Markdown is too large to save.")
+    version = job.result.document.version
+    markdown_edits.save_edit(DEFAULT_OUTPUT_ROOT, job_id, body.content, version)
+    return MarkdownResponse(content=body.content, edited=True, edited_at_version=version)
+
+
+@router.delete("/documents/{job_id}/markdown", response_model=MarkdownResponse)
+def discard_markdown_edits(job_id: str) -> MarkdownResponse:
+    """Throw the hand edits away; both deliverables go back to being rendered
+    from the document model."""
+    job = _require_job(job_id)
+    markdown_edits.discard_edit(DEFAULT_OUTPUT_ROOT, job_id)
+    path = _ensure_current_export(job, "markdown")
+    if path is None:
+        raise HTTPException(status_code=404, detail="Markdown has not been generated for this document.")
     return MarkdownResponse(content=path.read_text(encoding="utf-8"))
+
+
+@router.post("/documents/{job_id}/docx-preview")
+def preview_docx(job_id: str, body: MarkdownEditRequest) -> Response:
+    """The DOCX that ``content`` would produce, without saving anything - the
+    live preview beside the Markdown editor."""
+    import tempfile
+
+    job = _require_job(job_id)
+    if job.result is None or job.result.document is None:
+        raise HTTPException(status_code=404, detail="No document for this job yet.")
+    with tempfile.TemporaryDirectory() as scratch:
+        try:
+            built = markdown_edits.render_docx_from_markdown(
+                job.result.document, body.content, Path(scratch) / "preview.docx"
+            )
+        except Exception as exc:
+            logger.error("DOCX preview failed for job {}: {}", job_id, exc)
+            raise HTTPException(status_code=422, detail="This Markdown could not be turned into a DOCX.") from exc
+        data = built.read_bytes()
+    return Response(
+        content=data,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
 
 
 # --- Reading order review (FEATURE_016B) ------------------------------------
@@ -2043,6 +2100,12 @@ def _ensure_current_export(job: Job, kind: str) -> Optional[Path]:
     if result is None:
         return None
 
+    # A reviewer's saved Markdown edit is the deliverable once it exists
+    # (src/api/markdown_edits.py): both exports are built from it.
+    edit = markdown_edits.load_edit(DEFAULT_OUTPUT_ROOT, job.job_id)
+    if edit is not None:
+        return markdown_edits.edited_export(DEFAULT_OUTPUT_ROOT, job.job_id, result.document, kind, edit)
+
     path_attr, marker_attr, subdir, suffix = _EXPORT_SPECS[kind]
     document = result.document
     current_path: Optional[Path] = getattr(result, path_attr)
@@ -2092,8 +2155,10 @@ def download_markdown(job_id: str) -> FileResponse:
     if job.result is None:
         raise HTTPException(status_code=404, detail="This output was not generated for this document.")
 
-    _ensure_current_export(job, "markdown")
-    return _download(job.result.markdown_path, job.filename, ".md")
+    # The path the export helper returns, not the pipeline's own file: after a
+    # reviewer saves hand edits, that is the edited deliverable.
+    path = _ensure_current_export(job, "markdown") or job.result.markdown_path
+    return _download(path, job.filename, ".md")
 
 
 @router.get("/documents/{job_id}/checklist")
@@ -2127,8 +2192,10 @@ def download_docx(job_id: str) -> FileResponse:
     if job.result is None:
         raise HTTPException(status_code=404, detail="This output was not generated for this document.")
 
-    _ensure_current_export(job, "docx")
-    return _download(job.result.docx_path, job.filename, ".docx")
+    # The path the export helper returns, not the pipeline's own file: after a
+    # reviewer saves hand edits, that is the edited deliverable.
+    path = _ensure_current_export(job, "docx") or job.result.docx_path
+    return _download(path, job.filename, ".docx")
 
 
 @router.get("/documents/{job_id}/download/report")

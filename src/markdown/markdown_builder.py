@@ -1029,7 +1029,12 @@ def _render_page_semantic(
         items.append((table.source_line if table.source_line is not None else _UNPOSITIONED, offset + order, table))
     offset += len(page_tables)
     for order, image in enumerate(page_images):
-        items.append((_UNPOSITIONED, offset + order, image))
+        # A figure sits where its block does in the source's reading order.
+        # Without this every figure went to the end of its page - splitting
+        # the page's last sentence around it, and moving figures printed at
+        # the top of a page (all four of O'Leary's) below the text they head.
+        position = getattr(image, "source_line", None)
+        items.append((position if position is not None else _UNPOSITIONED, offset + order, image))
 
     items.sort(key=lambda item: (item[0], item[1]))
 

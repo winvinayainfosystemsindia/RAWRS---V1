@@ -100,6 +100,19 @@ def is_visually_empty(image_path: str) -> bool:
         return False
 
 
+_DATA_IMAGE_TYPES = frozenset({"CHART", "GRAPH", "TABLE"})
+
+
+def needs_explanation(image_type: str, description: str) -> bool:
+    """A chart, graph or table whose description carries numbers but does not
+    yet say what they mean - the checklist reader needs both."""
+    return (
+        (image_type or "").upper() in _DATA_IMAGE_TYPES
+        and any(ch.isdigit() for ch in description)
+        and "this means" not in description.lower()
+    )
+
+
 def speakable_alt_text(description: str, visible_text: str) -> str:
     """The description, plus any text printed in the image, with the symbols
     the checklist says a screen reader does not read ("In alt text box,
@@ -172,6 +185,11 @@ def apply_automatic_alt_text(document, nearby_text: Callable[[object], List[str]
             logger.warning("Automatic alt text failed for image {}: {}", image.image_id, exc)
             counts["unchanged"] += 1
             continue
+        if needs_explanation(result.image_type, result.description):
+            explain = getattr(provider, "explain_statistics", None)
+            explanation = explain(result.description) if callable(explain) else ""
+            if explanation:
+                result.description = f"{result.description.rstrip()} {explanation}"
         figure.ai_description = result.description
         figure.ai_purpose = result.purpose
         figure.ai_visible_text = result.visible_text
