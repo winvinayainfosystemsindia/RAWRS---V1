@@ -128,7 +128,7 @@ export function DocxPreview({ jobId, available, documentVersion, markdown, refre
                 theme - it shows the Word document, not app chrome. */}
             <article
               aria-label="Word output preview"
-              className={`docx-preview mx-auto max-w-[8.5in] bg-white px-[clamp(1rem,8%,1in)] py-[clamp(1rem,6%,0.9in)] shadow-lg ring-1 ring-black/5 transition-opacity ${
+              className={`docx-preview mx-auto max-w-[8.5in] [overflow-wrap:anywhere] bg-white px-[clamp(1rem,8%,1in)] py-[clamp(1rem,6%,0.9in)] shadow-lg ring-1 ring-black/5 transition-opacity ${
                 isUpdating ? "opacity-70" : ""
               }`}
               // Mammoth escapes document text; the HTML is only its own tags.

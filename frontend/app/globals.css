@@ -183,3 +183,10 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .pdf-highlight-enter { animation: none; }
 }
+
+/* Thin, theme-coloured scrollbars (VS Code style) instead of the browser's
+   default, which reads as a light bar on the dark canvas. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}

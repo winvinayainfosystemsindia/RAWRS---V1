@@ -115,11 +115,11 @@ function MathpixPackageZone({
       <div className="flex items-center justify-between mb-5">
         <div className="flex items-center gap-2.5">
           <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent text-xs font-bold text-accent-contrast">
-            1
+            2
           </span>
           <h2 className="text-sm font-bold text-text-primary">Mathpix Package</h2>
-          <span className="rounded-full bg-accent/15 px-2 py-0.5 text-xs font-semibold text-accent">
-            Primary Input
+          <span className="rounded-full bg-surface-elevated px-2 py-0.5 text-xs font-semibold text-text-secondary">
+            Optional
           </span>
         </div>
         {loaded ? (
@@ -130,14 +130,14 @@ function MathpixPackageZone({
             Loaded
           </span>
         ) : (
-          <span className="text-xs font-medium text-danger">Required</span>
+          <span className="text-xs font-medium text-text-secondary">Optional</span>
         )}
       </div>
 
       {/* Markdown file */}
       <div className="mb-4">
         <p className="mb-2 text-xs font-semibold text-text-secondary uppercase tracking-wide">
-          Markdown File <span className="text-danger">*</span>
+          Markdown File
         </p>
 
         {state.markdownFile ? (
@@ -250,11 +250,11 @@ function SourcePdfZone({
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2.5">
           <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent text-xs font-bold text-accent-contrast">
-            2
+            1
           </span>
-          <h2 className="text-sm font-bold text-text-primary">Original Source PDF</h2>
-          <span className="rounded-full bg-surface-elevated px-2 py-0.5 text-xs font-semibold text-text-secondary">
-            Verification Reference
+          <h2 className="text-sm font-bold text-text-primary">Source PDF</h2>
+          <span className="rounded-full bg-accent/15 px-2 py-0.5 text-xs font-semibold text-accent">
+            Primary Input
           </span>
         </div>
         {file ? (
@@ -270,15 +270,10 @@ function SourcePdfZone({
       </div>
 
       {/* Purpose note */}
-      <div className="mb-4 rounded-lg border border-warning/30 bg-warning/10 px-4 py-3">
-        <p className="text-xs font-semibold text-warning mb-1">
-          This PDF is NOT the primary text source.
-        </p>
-        <p className="text-xs text-warning/90">
-          Used only for: OCR verification · layout verification · heading verification ·
-          figure verification · geometry comparison · accessibility validation
-        </p>
-      </div>
+      <p className="mb-4 text-xs text-text-secondary">
+        Born-digital or scanned. Text is read from the PDF (OCR for scanned pages);
+        with a Mathpix package added, the package supplies the text and the PDF verifies it.
+      </p>
 
       {/* Drop zone or loaded state */}
       {file ? (
@@ -421,22 +416,22 @@ export default function UploadPage() {
 
   const mathpixReady = mathpix.markdownFile !== null;
   const pdfReady = pdfFile !== null;
-  const canRun = mathpixReady && pdfReady && !isProcessing;
+  const canRun = pdfReady && !isProcessing;
 
   async function handleRun() {
-    const mmdFile = mathpix.markdownFile;
-    if (!pdfFile || !mmdFile) return;
+    const mmdFile = mathpix.markdownFile ?? undefined;
+    if (!pdfFile) return;
     setIsProcessing(true);
     setUploadError(null);
     try {
-      const upload = await api.uploadDocument(pdfFile, mmdFile, mathpix.imageFiles, false);
+      const upload = await api.uploadDocument(pdfFile, mmdFile, mmdFile ? mathpix.imageFiles : [], !mmdFile);
       router.push(`/documents/${upload.job_id}`);
     } catch (err) {
       setIsProcessing(false);
       setUploadError(
         err instanceof ApiError
           ? `Upload failed: ${err.message}`
-          : "Could not reach the RAWRS API. Confirm the backend is running on port 8000."
+          : "Could not reach the RAWRS API. Confirm the backend is running."
       );
     }
   }
@@ -449,8 +444,8 @@ export default function UploadPage() {
           Accessibility Verification &amp; Remediation Engine
         </h1>
         <p className="mt-1.5 text-sm text-text-secondary max-w-2xl">
-          Verifies Mathpix output against the original PDF source. Applies deterministic
-          accessibility remediation. Generates accessible DOCX and Markdown deliverables.
+          Turns a PDF - born-digital or scanned - into an accessible, checklist-compliant
+          DOCX and Markdown. A Mathpix package is optional.
         </p>
       </section>
 
@@ -459,15 +454,15 @@ export default function UploadPage() {
         <h2 id="upload-heading" className="sr-only">Upload documents</h2>
 
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <MathpixPackageZone state={mathpix} onChange={setMathpix} disabled={isProcessing} />
           <SourcePdfZone file={pdfFile} onChange={setPdfFile} disabled={isProcessing} />
+          <MathpixPackageZone state={mathpix} onChange={setMathpix} disabled={isProcessing} />
         </div>
 
         {/* Readiness + Run */}
         <div className="mt-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between rounded-xl border border-border bg-surface-panel px-6 py-4">
           <ul className="flex flex-col gap-2 sm:flex-row sm:gap-6" aria-label="Upload readiness">
-            <ReadinessRow label="Mathpix package loaded" ready={mathpixReady} />
             <ReadinessRow label="Source PDF loaded" ready={pdfReady} />
+            <ReadinessRow label="Mathpix package (optional)" ready={mathpixReady} />
           </ul>
 
           <div className="flex flex-col items-start sm:items-end gap-1.5">
@@ -481,10 +476,10 @@ export default function UploadPage() {
                   : "bg-surface-elevated text-text-secondary/60 cursor-not-allowed"
               }`}
             >
-              {isProcessing ? "Starting pipeline…" : "Run Verification Pipeline →"}
+              {isProcessing ? "Starting pipeline…" : "Remediate →"}
             </button>
             {!canRun && !isProcessing && (
-              <p className="text-xs text-text-secondary/70">Both inputs required to proceed</p>
+              <p className="text-xs text-text-secondary/70">Add the source PDF to proceed</p>
             )}
           </div>
         </div>

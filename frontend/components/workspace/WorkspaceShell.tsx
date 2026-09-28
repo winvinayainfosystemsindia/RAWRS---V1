@@ -70,6 +70,9 @@ interface WorkspaceShellProps {
 const RESIZE_HANDLE =
   "shrink-0 bg-border transition-colors hover:bg-accent focus-visible:bg-accent focus-visible:outline-none data-[resize-handle-state=drag]:bg-accent";
 const RESIZE_HANDLE_V = `w-px ${RESIZE_HANDLE} data-[resize-handle-state=hover]:w-1`;
+// react-resizable-panels puts an inline `overflow: hidden` on every Panel,
+// which beats any overflow class - scrolling has to be an inline style too.
+const SCROLLS = { overflow: "auto" } as const;
 const RESIZE_HANDLE_H = `h-px ${RESIZE_HANDLE} data-[resize-handle-state=hover]:h-1`;
 
 type CenterMode = "all" | "split-pdf-md" | "split-pdf-docx" | "split-md-docx" | "pdf" | "markdown" | "docx";
@@ -272,7 +275,7 @@ export function WorkspaceShell({
         {(["pdf", "markdown", "docx"] as const).map((view, index) => (
           <Fragment key={view}>
             {index > 0 && <PanelResizeHandle className={RESIZE_HANDLE_V} />}
-            <Panel id={`center-${view}`} order={index + 1} defaultSize={100 / 3} minSize={15} className="overflow-auto bg-surface-canvas">
+            <Panel id={`center-${view}`} order={index + 1} defaultSize={100 / 3} minSize={15} style={SCROLLS} className="bg-surface-canvas">
               {centerViews[view]}
             </Panel>
           </Fragment>
@@ -281,12 +284,12 @@ export function WorkspaceShell({
     ) : splitPair ? (
       <PanelGroup autoSaveId="rawrs-workspace-center-split" direction="horizontal">
         <Panel id="center-a" order={1} defaultSize={50} minSize={20} maxSize={80}
-          className="overflow-auto bg-surface-canvas">
+          style={SCROLLS} className="bg-surface-canvas">
           {centerViews[splitPair[0]]}
         </Panel>
         <PanelResizeHandle className={RESIZE_HANDLE_V} />
         <Panel id="center-b" order={2} defaultSize={50} minSize={20} maxSize={80}
-          className="overflow-auto bg-surface-canvas">
+          style={SCROLLS} className="bg-surface-canvas">
           {centerViews[splitPair[1]]}
         </Panel>
       </PanelGroup>
@@ -450,7 +453,7 @@ export function WorkspaceShell({
             collapsedSize={0}
             onCollapse={() => setNavOpen(false)}
             onExpand={() => setNavOpen(true)}
-            className="overflow-y-auto bg-surface-panel"
+            style={SCROLLS} className="bg-surface-panel"
           >
             {nav}
           </Panel>
@@ -473,7 +476,7 @@ export function WorkspaceShell({
                 collapsedSize={0}
                 onCollapse={() => setBottomOpen(false)}
                 onExpand={() => setBottomOpen(true)}
-                className="overflow-y-auto bg-surface-panel"
+                style={SCROLLS} className="bg-surface-panel"
               >
                 {bottomOpen && bottomPanel}
               </Panel>
@@ -494,7 +497,7 @@ export function WorkspaceShell({
                 collapsedSize={0}
                 onCollapse={() => setRailOpen(false)}
                 onExpand={() => setRailOpen(true)}
-                className="overflow-auto bg-surface-canvas"
+                style={SCROLLS} className="bg-surface-canvas"
               >
                 {rightRail}
               </Panel>

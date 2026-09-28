@@ -6,6 +6,8 @@ import { EditorState, StateEffect, StateField } from "@codemirror/state";
 import { Decoration, keymap, type DecorationSet } from "@codemirror/view";
 import type { ReactNode } from "react";
 import { markdown } from "@codemirror/lang-markdown";
+import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
+import { tags } from "@lezer/highlight";
 import { openSearchPanel } from "@codemirror/search";
 
 const setFlashLines = StateEffect.define<number[]>();
@@ -67,6 +69,22 @@ interface Props {
   onSave?: () => void;
   toolbar?: ReactNode;
 }
+
+// Syntax colours from the same tokens, so they stay readable in both themes
+// (basicSetup's default style is tuned for a white page: its dark greys and
+// browns vanish on the dark canvas, and it underlines every heading).
+const rawrsHighlight = HighlightStyle.define([
+  { tag: tags.heading, color: "var(--accent)", fontWeight: "700" },
+  { tag: [tags.processingInstruction, tags.meta, tags.contentSeparator], color: "var(--text-secondary)" },
+  { tag: tags.comment, color: "var(--text-secondary)", fontStyle: "italic" },
+  { tag: tags.strong, fontWeight: "700" },
+  { tag: tags.emphasis, fontStyle: "italic" },
+  { tag: tags.strikethrough, textDecoration: "line-through" },
+  { tag: [tags.link, tags.url], color: "var(--accent)" },
+  { tag: tags.monospace, color: "var(--warning)" },
+  { tag: tags.quote, color: "var(--text-secondary)" },
+  { tag: tags.list, color: "var(--text-primary)" },
+]);
 
 // CSS-variable-based theme — responds to light/dark token switching without
 // re-mounting the editor.
@@ -160,7 +178,7 @@ export function MarkdownEditor({
   useEffect(() => {
     if (!containerRef.current) return;
 
-    const extensions = [basicSetup, markdown(), EditorView.lineWrapping, rawrsTheme, flashField];
+    const extensions = [basicSetup, markdown(), EditorView.lineWrapping, rawrsTheme, syntaxHighlighting(rawrsHighlight), flashField];
 
     if (readOnly) {
       extensions.push(EditorState.readOnly.of(true));
