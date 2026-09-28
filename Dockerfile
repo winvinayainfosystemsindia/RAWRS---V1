@@ -40,7 +40,8 @@ COPY src/ ./src/
 # Job records, document sidecars and every extracted image/DOCX/markdown live
 # here. Mounted as a named volume by docker-compose so a rebuild does not
 # discard a reviewer's work.
-RUN mkdir -p /app/outputs
+# World-writable: Hugging Face Spaces run the container as uid 1000, not root.
+RUN mkdir -p /app/outputs && chmod 777 /app/outputs
 VOLUME ["/app/outputs"]
 
 EXPOSE 8001
