@@ -1,5 +1,23 @@
 # RAWRS Phase Status
 
+## Update 2026-09-30 — milestones since the last reconciliation (newest first)
+
+The per-phase sections below are accurate for the phases they name but **pre-date** these milestones. Test figures in the paragraph after "Purpose" are stale; the current figure is CI run 36454387742 (2026-09-28): backend **2537 passed / 5 failed**, frontend 38 passed.
+
+| Milestone | Commit(s) | Verdict |
+|---|---|---|
+| Equations, Phase A (Mathpix route): `Equation` model, parser captures display maths, pandoc conversion with round-trip check, `\ce` subset, correction-rail verifier, `GET/PATCH /equations`, `EQUATION_001`, `DR-EQ`/`DR-EQ-STRUCT`, PI-14. Also fixes note detection reading `x^{2}` as footnote 2 | uncommitted 2026-10-01 | Built and tested (`tests/test_equation_*.py`); not read in Word; PDF-only route not built; allowlist narrow — `docs/EQUATION_DESIGN.md` §8 |
+| Hugging Face Spaces route tried, then dropped; Docker/compose for API + Ollama + Cloudflare tunnel | `ec00fcd`, `127bbd0` | Packaging done; **nothing deployed** |
+| Panes scroll, continuous fit-width PDF, dark-mode editor colours, PDF-only upload | `bd657f7` | Complete |
+| Editable Markdown with live DOCX preview; VS Code-style workspace; scanned/Mathpix repairs | `373db67` | Complete; edits bypass the object model by design |
+| DOCX follows both remediation checklists and is audited every run (`checklist_audit.py`, `docs/CHECKLIST_COMPLIANCE.md`); automatic alt text via Ollama `qwen2.5vl:3b` | `054a891` | Complete; alt-text speed ~2.5 min/image on CPU |
+| Review rail, producer-owned safe/semantic decisions, bulk-decide safety (frontend phases A–E) | `694653c`–`f155203` | Complete; phases F–I open |
+| GitHub Actions CI (frontend typecheck/Jest/build + batched backend pytest) | `fa31f2d`–`0944d17` | **Red on the last 3 runs that finished** (`d6a81b1`, `bd657f7`, `127bbd0`; cause checked only for the latest): 5 failing tests in `tests/test_pipeline.py` (3 stale-assertion, 2 undiagnosed) |
+
+Open items and the plan: `docs/STATUS_REPORT_2026-09-30.md` §4–5.
+
+---
+
 ## Purpose
 
 The authoritative, per-phase implementation status of RAWRS, reconciled directly against source code and the live test suite (not against a handover document or aspirational plan). This file supersedes `TASKS.md` as the place to check "is X actually done."

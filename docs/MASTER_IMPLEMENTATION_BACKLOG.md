@@ -17,6 +17,8 @@ Consolidates: Architecture Inventory · Architecture Review · ADR · Implementa
 | Fresh-clone reproducible | **No** |
 | Architecture | Ratified (ADR), unchanged here |
 
+> **Status 2026-09-30:** this backlog's figures are from July. Since then: W-1, P3, P4a–c, frontend phases A–E, the checklist/PDF-only milestone and CI shipped (see `PHASE_STATUS.md` top table). CI on 2026-09-28 shows 2537 backend passed / **5 failed**, so "suite green" below is no longer true. Open items and estimates: `STATUS_REPORT_2026-09-30.md`.
+
 **Health: amber.** Architecture is sound and settled. Engineering substrate is improving but not yet sufficient: the suite is still slow (37m46s), the benchmark corpus is unavailable to CI, and object identity is actively corrupting review data. The red test is **fixed** (P0-1) and the suite is green.
 
 **Closed since this document was written:** P0-1 (dependency pinning), P0-0 (suite profile), FE-0-004, FE-0-005, FE-0-006, and **FE-0-001 (2026-07-21)** — the last of these closed the top release blocker and, with it, three of the release audit's four Critical risks. `FE-4`'s dependency is now satisfied. Remaining P0s from FE-0: **FE-0-002, FE-0-003**. See `P0-0_SUITE_PROFILE_2026-07-20.md` — it flags that **P0-2's stated dependency order is wrong**: the fast tier cannot reach <2min without P0-3's fixtures, so `P0-2 → P0-3` needs reconciling before P0-2 starts.

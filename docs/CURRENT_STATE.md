@@ -13,7 +13,11 @@
 | Images | Printed at the PDF's size and shape | `_printed_size` in `docx_generator.py` |
 | Editing | Markdown editable; saved edits drive preview + downloads | `src/api/markdown_edits.py`, `MarkdownEditPane.tsx` |
 | Frontend | VS Code-style full-width workspace, fullscreen, PDF+MD+DOCX view | `WorkspaceShell.tsx`, `ActivityBar.tsx` |
-| Deploy | Vercel + Oracle Always Free + Cloudflare; Ollama in compose | `docs/DEPLOYMENT.md` |
+| Deploy | **Nothing deployed.** Oracle route needs a card and its free allowance is now 2 OCPU / 12 GB; options in `docs/DEPLOYMENT.md` | `docs/DEPLOYMENT.md`, `docs/STATUS_REPORT_2026-09-30.md` |
+| Tests | CI run 2026-09-28: backend **2537 passed / 5 failed**, frontend 38 passed. CI is red (3 of 5 failures explained: stale `IMAGE_004` assertion; 2 undiagnosed) | `docs/STATUS_REPORT_2026-09-30.md` §4 |
+| Rules | ~68 validation/verification rule IDs; 40 checklist-audit checks | `src/validation/`, `src/verification/` |
+| Status report | Done / open / planned, hosting estimates, company questions | `docs/STATUS_REPORT_2026-09-30.md` |
+| Equations | **Phase A built 2026-10-01 (uncommitted):** Mathpix-route display and inline maths become native Word equations (numbers outside, `m:func`, `REF` cross-references); `\ce` subset; flagged when not provably right; `EQUATION_001` review queue, `GET/PATCH /equations`, `DR-EQ`/`DR-EQ-STRUCT`, PI-14. PDF-only route not built; not yet read in Word | `docs/EQUATION_DESIGN.md` §8 |
 
 **As of:** this documentation reconciliation audit (June 2026), updated again in a follow-up reconciliation pass the same month covering XML Sanitization Architecture C, bug_001 (paragraph reconstruction), bug_002 (heading fallback tier), and the platform layer (backend/frontend) coming into existence.
 **Read this first** if you want a one-page answer to "what does RAWRS actually do right now."
@@ -53,7 +57,7 @@ In both paths, the RAWRS Document Model is the single canonical representation. 
 
 ## Test suite
 
-**Current authoritative figure (2026-07-08): 1487 passed, 7 skipped, 5 deselected, 0 failed** (fast subset, `pytest -m "not real_docling and not real_surya"`). Phase M-2 (cross-source verification engine, evidence fusion, page label manager) added ~121 tests on top of the 1296 recorded at Phase M-1. See `PHASE_STATUS.md` for the per-feature test history.
+**Current authoritative figure: GitHub Actions run 36454387742 (2026-09-28) — backend 2537 passed / 5 failed, frontend 38 passed** (see the update table at the top and `STATUS_REPORT_2026-09-30.md` §4). The figure below is **historical** (2026-07-08): 1487 passed, 7 skipped, 5 deselected, 0 failed (fast subset, `pytest -m "not real_docling and not real_surya"`). Phase M-2 (cross-source verification engine, evidence fusion, page label manager) added ~121 tests on top of the 1296 recorded at Phase M-1. See `PHASE_STATUS.md` for the per-feature test history.
 
 ## What it can do, end to end (additions since last update)
 
@@ -62,7 +66,7 @@ In both paths, the RAWRS Document Model is the single canonical representation. 
 
 ## What does NOT exist yet
 
-* **AI alt text is on-demand, not automatic.** The pipeline generates deterministic placeholder alt text. The Qwen2.5-VL interface (`src/ai/alt_text_generator.py`) is built. `torch`, `transformers`, and `qwen-vl-utils` are now installed in the venv (installed 2026-06-29). A one-time model weight download is still required before real AI generation works (run the backend once with a real image to trigger the download). In `RAWRS_AI_STUB=1` mode, a deterministic stub is used (all tests run this way). Human review actions (Approve/Reject/Decorative/Complex/Skip/Edit) are fully implemented — AI generation is always on-demand, never automatic.
+* **(Superseded 2026-09-28: alt text is now automatic through local Ollama `qwen2.5vl:3b` — see the update table at the top. The rest of this bullet describes the earlier in-process Qwen path, which still exists as an alternative.)** AI alt text was on-demand, not automatic. The pipeline generates deterministic placeholder alt text. The Qwen2.5-VL interface (`src/ai/alt_text_generator.py`) is built. `torch`, `transformers`, and `qwen-vl-utils` are now installed in the venv (installed 2026-06-29). A one-time model weight download is still required before real AI generation works (run the backend once with a real image to trigger the download). In `RAWRS_AI_STUB=1` mode, a deterministic stub is used (all tests run this way). Human review actions (Approve/Reject/Decorative/Complex/Skip/Edit) are fully implemented — AI generation is always on-demand, never automatic.
 * **No equation or multi-column reconstruction.** Span-level text architecture (`feature_005_span_level_text_model`) is not implemented — no inline equations, superscripts (except as detected footnote markers), or subscripts. **FEATURE_015 (2026-06-29):** Tables with visible PDF borders are now auto-detected and rendered (see Platform layer section). Borderless tables (academic journal style — common in e.g. Brinkman) return 0 auto-detections and require manual creation via the Tables workspace tab.
 * **Reading-order correction is human-initiated only.** Phase I.1 (PAGE_003 validation) detects anomalies. FEATURE_016B adds a Reading Order workspace where reviewers can drag-reorder blocks and approve pages. Automatic reordering is not performed — the pipeline never reorders without human instruction.
 * **No dataset directories beyond `alt_text_dataset/`** — `ocr_dataset/`, `heading_dataset/`, `footnote_dataset/`, `validation_dataset/` are named as future work in the project handover but have zero corresponding code today.
@@ -99,4 +103,4 @@ Still notably absent despite being named in `docs/TECH_STACK.md`'s target stack:
 
 ## Engagement model
 
-This is a single-developer, local-only Phase 1 codebase being driven through iterative AI-assisted sessions (see `DECISIONS_LOG.md` Part 3 for the standing strategic agreements that govern how that work proceeds — deterministic-first, human-review-always, dataset-collection-from-day-one, near-zero-cost, preserve-previous-behavior).
+This is a single-developer Phase 1 codebase (runs locally; hosting not yet chosen — `docs/DEPLOYMENT.md`) being driven through iterative AI-assisted sessions (see `DECISIONS_LOG.md` Part 3 for the standing strategic agreements that govern how that work proceeds — deterministic-first, human-review-always, dataset-collection-from-day-one, near-zero-cost, preserve-previous-behavior).

@@ -3,7 +3,7 @@
 > See `CURRENT_STATE.md` for what's actually implemented right now and `DOCUMENTATION_MAP.md` for which document governs which question.
 
 Project Name:
-RAWRS (Remediation Automation Workflow & Review System)
+RAWRS (Remediation & Accessibility Work Reduction System)
 
 Organization:
 WinVinaya Foundation

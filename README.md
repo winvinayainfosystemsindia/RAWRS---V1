@@ -12,8 +12,9 @@ RAWRS is a local-first, accessibility remediation platform for academic PDFs, bu
 - **Checklist-compliant DOCX:** every export is audited against both remediation checklists (`docs/CHECKLIST_COMPLIANCE.md`); alt text is written automatically by a local vision model (Ollama `qwen2.5vl:3b`), with statistics explained for charts and tables.
 - **Mathpix import path:** imports a Mathpix MMD file as the primary extraction source; RAWRS provides verification, enrichment, and accessibility output. Every proposed correction is recorded as a `CorrectionRecord` (audit trail) — Mathpix extraction is never silently overwritten.
 - Detects headings (H1–H6), footnotes/endnotes, images, tables, lists, callouts (boxed asides), and front matter.
+- **Equations (Mathpix route, built 2026-10-01):** display and inline maths become native Word equations with the number outside the box, functions from the equation tool and cross-references; a subset of `\ce` chemistry is translated; anything not provably right is flagged for review instead of guessed (`docs/EQUATION_DESIGN.md`). PDF-only input does not get this yet.
 - Generates structured Markdown and accessible DOCX (Word Heading styles, native table markup, `w:tblHeader`, `dc:language`, `dc:title`, bold/italic inline formatting, native Word footnotes and endnotes).
-- Validates 40 accessibility and structural rules (WCAG 2.4.2, 3.1.1, H73, etc.), including cross-source verification findings.
+- Validates against ~68 accessibility, structural and cross-source verification rule IDs (WCAG 2.4.2, 3.1.1, H73, etc.), plus 40 checklist-audit checks on the exported DOCX.
 - Cross-checks Mathpix-imported content against the original PDF via a generic evidence-fusion verification engine (`src/verification/`), proposing REPAIR/RECOVER/REMOVE corrections a reviewer accepts or rejects — never silently overwriting Mathpix output.
 - Proven page alignment: on the Mathpix path, a block's page is *stated by the source package* (package DOCX markers, image filenames, PDF text layer) rather than estimated from its position; the estimate remains only as a documented fallback, and nothing is invented where evidence is absent.
 - Provides a VS Code-style review workspace (full-width, fullscreen, PDF + editable Markdown + live DOCX preview side by side, optional reading-order markers) with workspaces for every reviewable object:
@@ -54,7 +55,7 @@ Mathpix:     PDF + MMD → MathpixImportProvider → Document Model → Markdown
 
 - **Validation first** — extraction and interpretation are provisional until validated.
 - **Human in the loop** — RAWRS does not silently make decisions requiring accessibility expertise.
-- **Local first** — runs on the filesystem. No database, cloud storage, queue or container requirement.
+- **Local first** — runs on the filesystem. No database, cloud storage or queue. Docker (`docker-compose.yml`) is an optional way to host it, not a requirement.
 - **Model agnostic** — no dependency on a single AI vendor.
 - **Auditability** — decisions retain evidence, provenance and review state.
 - **Reversibility** — corrections preserve the original value and support undo.
@@ -114,6 +115,10 @@ result = run_pipeline(
 | `docs/KNOWN_LIMITATIONS.md` | What's deliberately not built and confirmed gaps |
 | `docs/VALIDATION_RULES.md` | All validation rule IDs, severities, and checks |
 | `docs/DOCUMENTATION_MAP.md` | Precedence order when documents conflict |
+| `docs/STATUS_REPORT_2026-09-30.md` | Done / open / planned, hosting estimates, questions for the company |
+| `docs/EQUATION_DESIGN.md` | How equations and `\ce` chemistry are remediated, and what real data showed |
+| `docs/CHECKLIST_COMPLIANCE.md` | Every remediation-checklist item, how RAWRS meets it, and the audit check |
+| `docs/DEPLOYMENT.md` | Hosting routes and what each one costs |
 
 The `docs/` folder also carries dated product audits (`RAWRS_PRODUCT_AUDIT_*.md`, `M1_*`, `P4C4_*`, `N2_*`, `N3_*`, `RAWRS_REMEDIATION_AUDIT_*.md`) that measure the benchmark corpus against the human-remediated targets and record what was deliberately *not* built at each step. Consult the latest one before implementing changes.
 
@@ -141,13 +146,19 @@ Full suite including real OCR benchmark tests:
 pytest -q
 ```
 
+Equation tests are `tests/test_equation_*.py`. Most need `pandoc` (PATH or `pypandoc-binary`) and skip without it; `test_equation_groundtruth.py` also needs the arXiv samples under `data/cache/equation_samples/` (git-ignored, list in `SOURCES.txt`) and skips without them.
+
+**CI status (2026-09-28, run 36454387742):** backend 2537 passed / **5 failed**, frontend 38 Jest tests passed. The 5 failures are all in `tests/test_pipeline.py`; three trace to a stale assertion that predates automatic alt text, two are not yet diagnosed. See `docs/STATUS_REPORT_2026-09-30.md` §4. The full suite takes tens of minutes and needs several GB of RAM — run it in batches.
+
 ---
 
 ## Dependencies
 
 Core: `pydantic`, `pymupdf`, `python-docx`, `docling` (+ `onnxruntime`, its OCR backend), `surya-ocr`, `rapidocr`, `loguru`, `beautifulsoup4`, `fastapi`, `uvicorn`, `python-multipart`.
 
-AI alt text (on-demand, optional — `requirements-ai.txt`): `torch`, `transformers`, `qwen-vl-utils`, `psutil`. The base install runs fully without these; `GET /api/ai/status` reports unavailability with a clear reason if they're not installed, and a startup RAM/VRAM preflight (`src/ai/providers/qwen.py`) checks hardware suitability before attempting to load the model. Model weights download on first real inference call. Note that `torch` and `transformers` are pulled in as *base* dependencies of `docling` regardless — see `requirements-ai.txt`.
+Automatic alt text uses a local [Ollama](https://ollama.com) server (`RAWRS_OLLAMA_URL`, `RAWRS_OLLAMA_MODEL`, default `qwen2.5vl:3b`, ~2.5 min per image on CPU). Without it RAWRS still exports and flags images for a human to write alt text. The in-process Qwen provider (`requirements-ai.txt`: `torch`, `transformers`, `qwen-vl-utils`, `psutil`) is the alternative; `GET /api/ai/status` reports availability, and a startup RAM/VRAM preflight (`src/ai/providers/qwen.py`) checks hardware before loading. Note that `torch` and `transformers` are pulled in as *base* dependencies of `docling` regardless — see `requirements-ai.txt`.
+
+**Licences to be aware of before any commercial or networked use:** `pymupdf` is AGPL-3.0 (or a paid Artifex licence); the Surya model weights and `qwen2.5vl:3b` (Qwen Research licence) carry non-commercial or revenue-capped terms. Details and questions in `docs/STATUS_REPORT_2026-09-30.md` §7. The repository has no `LICENSE` file yet.
 
 External runtime (for Surya on CPU): `llama-server` binary (llama.cpp) — required by `surya-ocr` on non-GPU hosts; set `LLAMA_CPP_BINARY` env var or add to PATH.
 
@@ -161,7 +172,7 @@ All packages are pinned exactly in `requirements.txt` (direct dependencies) and 
 
 **In Phase 1** — OCR, reading-order analysis, OCR cleanup, header/footer removal, page markers, page-break preservation, heading detection, image extraction, figure detection, metadata capture, Markdown and DOCX generation, tables, notes, lists, cross-source verification, accessibility evaluation, human review.
 
-**Out of Phase 1** — unattended alt-text automation, equation and STEM remediation, PDF/UA tag-tree generation, model training, knowledge graphs, multi-agent architecture, cloud infrastructure, database-backed or multi-tenant deployment, collaborative multi-reviewer workflow.
+**Out of Phase 1** — alt text published without human review (it is now generated automatically, but every image stays reviewable), STEM remediation beyond the Mathpix-route equations above (PDF-only formulas, structure diagrams), PDF/UA tag-tree generation, model training, knowledge graphs, multi-agent architecture, cloud infrastructure, database-backed or multi-tenant deployment, collaborative multi-reviewer workflow.
 
 ---
 

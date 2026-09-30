@@ -1,6 +1,10 @@
 # RAWRS Frontend
 
-Next.js/React/TypeScript/Tailwind review platform for the RAWRS accessibility remediation pipeline. Talks to the FastAPI backend in `../src/api/` over `localhost` only.
+Next.js/React/TypeScript/Tailwind review platform for the RAWRS accessibility remediation pipeline. Talks to the FastAPI backend in `../src/api/` at the URL in `NEXT_PUBLIC_API_BASE_URL` (`.env.local` sets `http://127.0.0.1:8001` for local development; the value is fixed at build time, so a hosted build needs the hosted API URL — see `../docs/DEPLOYMENT.md`).
+
+**Equations:** the backend exposes `GET/PATCH /api/documents/{id}/equations` and raises `EQUATION_001` in the validation queue; there is **no equations panel in the frontend yet**.
+
+**Upload:** a PDF is required; a Mathpix MMD export is optional. **Workspace:** VS Code-style, full-width, with PDF, editable Markdown and live DOCX preview side by side. Tests: `npx jest --ci` (14 suites / 38 tests in CI on 2026-09-28), `npx tsc --noEmit`, `npm run build`.
 
 ## Getting started
 

@@ -6,7 +6,7 @@
 
 # 1. Executive Overview
 
-**RAWRS** (Remediation Automation Workflow & Review System) is a local-first document remediation pipeline built for **WinVinaya Foundation**, an organization that performs accessibility remediation of educational/academic PDFs into accessible DOCX format for visually-impaired and other readers.
+**RAWRS** (Remediation & Accessibility Work Reduction System) is a local-first document remediation pipeline built for **WinVinaya Foundation**, an organization that performs accessibility remediation of educational/academic PDFs into accessible DOCX format for visually-impaired and other readers.
 
 **Why it exists:** WinVinaya's human remediators currently take a PDF and manually rebuild it in Word — applying heading styles, alt text, page markers, footnote linking, table reconstruction, etc. — following two checklists that govern that manual process (`docs/Checklist for Document Remediation1.docx`, `docs/ChecklistBeforeSubmittingDoc.xlsx`; see §9). This is slow and repetitive. RAWRS automates the deterministic, rule-based parts of that workflow (structure detection, heading hierarchy, page markers, footnote detection, image extraction/filtering, alt-text placeholder infrastructure) so the human remediator's effort concentrates on the parts that genuinely need judgment (descriptive alt text, table reconstruction, equation handling, final accessibility sign-off).
 

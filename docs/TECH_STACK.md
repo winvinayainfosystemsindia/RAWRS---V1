@@ -2,6 +2,10 @@
 
 > **Implementation status (reconciled 2026-09-16, `DECISIONS_LOG.md` Part 25):** the Frontend and Backend sections below describe the stack that is **built and in use** (`frontend/package.json`, `requirements.txt`). The frontend was built on Next.js + React Context rather than the originally planned Vite + Zustand + shadcn/ui + Lucide, and that built stack is now the decided stack — do not migrate it. The Code Quality section (Black/Ruff/MyPy) is still aspirational — none of the three are installed or configured. See `CURRENT_STATE.md` for the installed dependency list.
 
+> **Equations (2026-10-01):** LaTeX becomes native Word equations through pandoc (texmath), invoked as a subprocess by `src/equations/omml.py`; `pypandoc-binary` ships the executable and a `pandoc` on PATH is the fallback (pandoc is GPL-2 — `docs/STATUS_REPORT_2026-09-30.md` §7).
+>
+> **Also in use (2026-09-30):** local Ollama server with `qwen2.5vl:3b` for automatic alt text (`src/ai/providers/ollama.py`); Docker Compose for hosting (`docker-compose.yml`: API, Ollama, Cloudflare tunnel); GitHub Actions CI (`.github/workflows/tests.yml`). Licence caveats on PyMuPDF (AGPL), Surya weights and the 3B Qwen model: `docs/STATUS_REPORT_2026-09-30.md` §7.
+
 ## Philosophy
 
 Technology choices must prioritize:
@@ -30,7 +34,7 @@ Avoid unnecessary complexity.
 | Panel layouts | react-resizable-panels | `frontend/components/workspace/WorkspaceShell.tsx` |
 | PDF viewer | react-pdf (one page rendered at a time) | `frontend/components/PdfViewer.tsx` |
 | DOCX preview | mammoth | `frontend/components/DocxPreview.tsx` |
-| Markdown view | CodeMirror, read-only (Markdown is a projection, never edited) | `frontend/components/MarkdownEditor.tsx` |
+| Markdown view | CodeMirror. **Editable since 2026-09-28** (`373db67`): a saved edit drives the DOCX preview and downloads, and bypasses the object model until discarded (`docs/KNOWN_LIMITATIONS.md`). This replaces the earlier "read-only projection" rule. | `frontend/components/MarkdownEditPane.tsx`, `src/api/markdown_edits.py` |
 | Tests | Jest + Testing Library + jest-axe | `frontend/__tests__/` |
 | Typography | Inter (UI), JetBrains Mono (technical/evidence) | `frontend/app/layout.tsx` |
 

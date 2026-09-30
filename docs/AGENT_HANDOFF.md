@@ -34,7 +34,9 @@ Canonical model: `Document` (in `src/models/`). Contracts re-exported via
 
 ## 2. Ground rules (these override defaults — obey them)
 
-1. **NEVER push.** Commit locally only. The user pushes.
+> **Stale-status note (2026-09-30):** the Phase 2 ladder below (F0 → L3) is a **historical snapshot from August**. Since then the ladder ended at L5, the workspace/projection track (W-1, P3, P4a–c) shipped, and in September the PDF-only checklist milestone, editable Markdown and the VS Code-style workspace shipped. For current state read `docs/STATUS_REPORT_2026-09-30.md` and `docs/CURRENT_STATE.md`. The only branch is now `main`; the old `fe-0-001-persistence-and-cleanup` branch no longer exists.
+
+1. **Commit, then push.** The owner's standing rule (since 2026-08-11) is that "commit" means `git push` as well — the remote is the record of confirmed work. This replaces the earlier "NEVER push" rule, which applied to the August branch.
 2. **One roadmap unit = one local commit**, independently reversible. One commit =
    one architectural idea.
 3. **Mandatory preflight before implementing anything:** prove the item is *not
@@ -79,7 +81,7 @@ DOCX with minimal reviewer effort.
   (incl. §9 Transformation Library / Semantic Regions / Profiles, §10 Document Intent).
 - Product report: `docs/RAWRS_PRODUCT_REPORT.md`.
 
-### Completed units (branch `fe-0-001-persistence-and-cleanup`, NOT pushed)
+### Completed units (August snapshot; since merged to `main` and pushed)
 
 | Unit | Commit | What it added (all additive, zero-consumer, KPI-preserving) |
 |---|---|---|
@@ -185,7 +187,7 @@ Reusable RAWRS DOCX from prior session: `scratchpad/equiv_out/docx/`.
 - **Memory index:** `C:\Users\WVF-D\.claude\projects\C--RAWRS---WINVINAYA\memory\MEMORY.md`
   (one line per memory). Phase-2 roadmap detail:
   `memory/project_phase2_autonomous_remediation_roadmap.md`.
-- Git: branch `fe-0-001-persistence-and-cleanup`, main = `main`. Nothing pushed.
+- Git: only branch is `main` (HEAD `127bbd0` at 2026-09-28), pushed to `origin` (`winvinayainfosystemsindia/RAWRS---V1`). **CI is red** (5 failing tests in `tests/test_pipeline.py`) — see `docs/STATUS_REPORT_2026-09-30.md` §4.
 - This file (`docs/AGENT_HANDOFF.md`) is the human/agent-readable mirror of that state.
 
 **Do not auto-start L3.** Each roadmap unit begins only on explicit user assignment

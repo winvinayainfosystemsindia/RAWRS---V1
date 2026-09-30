@@ -4,7 +4,7 @@ You are contributing to the RAWRS project.
 
 RAWRS stands for:
 
-Remediation Automation Workflow & Review System
+Remediation & Accessibility Work Reduction System
 
 Before generating any code, always read:
 

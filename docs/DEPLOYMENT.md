@@ -1,7 +1,6 @@
-# Deploying RAWRS at zero cost
+# Deploying RAWRS
 
-**Frontend:** Vercel (Hobby) · **Backend:** Oracle Cloud Always Free · **Gate:** Cloudflare Access
-Everything below stays inside a permanently free tier. No card is charged; Oracle asks for one to verify identity.
+**Status 2026-09-30:** nothing is deployed. The earlier plan (Vercel + Oracle Always Free + Cloudflare) cannot be completed without a payment card, and Oracle's free allowance has since shrunk. Prices and limits below were fetched on 2026-09-30 — see `STATUS_REPORT_2026-09-30.md` §6–7 for sources and the questions the company must answer first.
 
 ---
 
@@ -11,19 +10,47 @@ Everything below stays inside a permanently free tier. No card is charged; Oracl
 |---|---|
 | `torch`, `transformers`, `docling`, `surya-ocr` — several GB | 250 MB unzipped function |
 | minutes per document with OCR/AI | 10–60 s per request |
-| `outputs/` — 612 MB of jobs, sidecars, images, DOCX | ephemeral `/tmp` |
+| `outputs/` — 682 MB of jobs, sidecars, images, DOCX | ephemeral `/tmp` |
 | one process holding in-memory job state | stateless per request |
 
-Not a tuning problem. The frontend is a perfect fit for Vercel; the API needs a real machine.
+The frontend fits Vercel; the API needs a real machine.
 
 ---
 
-## 1. Backend — Oracle Cloud Always Free
+## Choose a route
 
-Create the VM: cloud.oracle.com → **Compute → Instances → Create**. Shape **VM.Standard.A1.Flex**, **4 OCPU / 24 GB RAM**, image **Ubuntu 22.04**, boot volume 200 GB. Save the SSH key.
+| Route | Cost | Needs a card | Up when | Use for |
+|---|---|---|---|---|
+| **A. Your PC + Cloudflare quick tunnel** | $0 | No | PC is on | Demo, pilot |
+| **B. Paid VPS (Hetzner CX43, x86, 16 GB)** | €15.99/mo + ~€0.50 IPv4 | Yes (payment method) | 24×7 | Team use, after auth exists |
+| **C. Oracle Always Free** | $0 | **Yes** — identity verification | 24×7 | Only if the company supplies a card; allowance is now **2 OCPU / 12 GB** (was 4 / 24) |
+
+The machine needs ≥ 8 GB RAM to run at all (API ~4 GB + Ollama `qwen2.5vl:3b` ~3 GB, per earlier measurements — not re-measured). 16 GB is comfortable; the 7.7 GB development laptop runs out of memory on full-corpus runs.
+
+---
+
+## Route A — your PC, no card
+
+1. Start the backend with the frontend's origin allowed (comma-separated list):
+
+   ```powershell
+   $env:RAWRS_ALLOWED_ORIGINS = "https://<your-project>.vercel.app"
+   uvicorn src.api.main:app --port 8001
+   ```
+
+2. In a second terminal, publish it: `cloudflared tunnel --url http://localhost:8001`. It prints a random `https://….trycloudflare.com` URL that **changes every run**.
+3. Deploy `frontend/` to Vercel (Root Directory `frontend`) with `NEXT_PUBLIC_API_BASE_URL` = that URL. The variable is fixed at build time, so each new tunnel URL needs a redeploy.
+
+Limits: availability is the PC's; the tunnel URL is unstable; **no login** (see known gaps). Alternative: serve the frontend from the same PC and tunnel only that, which needs a small proxy change in the frontend (not built).
+
+---
+
+## Route B / C — a VM with Docker
+
+Both use the repository's `Dockerfile` and `docker-compose.yml` (API + Ollama + Cloudflare tunnel). The Dockerfile builds on x86_64 and aarch64; **the aarch64 build has never been run** (torch/docling/surya wheels are the risk). Prefer x86 (Route B) unless the VM is an Oracle Ampere one.
 
 ```bash
-ssh ubuntu@<vm-ip>
+ssh <user>@<vm-ip>
 sudo apt update && sudo apt install -y docker.io docker-compose-v2 git
 sudo usermod -aG docker $USER && exit          # re-login for the group
 
@@ -34,85 +61,50 @@ cd rawrs
 Create `.env` next to `docker-compose.yml` — **never commit it**:
 
 ```
-TUNNEL_TOKEN=<from step 2>
+TUNNEL_TOKEN=<from the Cloudflare step below>
 RAWRS_ALLOWED_ORIGINS=https://<your-project>.vercel.app
 ```
 
 ```bash
-docker compose up -d --build     # first ARM build: 20-40 min, mostly torch
+docker compose up -d --build     # first build is long, mostly torch
 docker compose logs -f api       # wait for "Application startup complete"
+docker compose exec ollama ollama pull qwen2.5vl:3b   # ~3 GB, kept in the ollama-models volume
 ```
 
-Pull the alt-text model once (≈3 GB; the `ollama-models` volume keeps it across rebuilds):
+Without the model RAWRS still exports; images are flagged for a human to write alt text. No firewall rule or open port is needed — the tunnel dials out.
 
-```bash
-docker compose exec ollama ollama pull qwen2.5vl:3b
-```
+Oracle only: create the instance under **Compute → Instances**, shape **VM.Standard.A1.Flex**, **at most 2 OCPU / 12 GB** (Always Free), Ubuntu 22.04, boot volume up to 200 GB (the free total). The allowance and card requirement are documented at <https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm>.
 
-| RAM on the VM | use |
-|---|---|
-| API + OCR | ~4 GB peak |
-| Ollama `qwen2.5vl:3b` | ~3 GB (CPU, ~2.5 min per image) |
-| 24 GB A1 | room for both, one document at a time |
+### Cloudflare Tunnel (free) and Access (free ≤ 50 users)
 
-Without the model RAWRS still exports; images are flagged for a human to write alt text.
+one.dash.cloudflare.com → **Networks → Tunnels → Create a tunnel** → *Cloudflared*; copy the token into `.env`. Add a public hostname pointing `api.<your-domain>` at `HTTP` → `api:8001`. A named tunnel needs a domain on Cloudflare; without one use Route A's quick tunnel.
 
-No firewall rule and no open port are needed — the tunnel dials out.
+Zero Trust → **Access → Applications → Add a self-hosted application** for `api.<domain>`, policy *Allow* → the reviewers' emails, identity provider Google or GitHub. **This is the only access control that exists — RAWRS itself has no login.**
 
----
+### Frontend — Vercel
 
-## 2. Exposure — Cloudflare Tunnel (free)
+vercel.com → **Add New → Project** → import the repo → Root Directory `frontend`; set `NEXT_PUBLIC_API_BASE_URL` = `https://api.<domain>`. Put the resulting domain into `RAWRS_ALLOWED_ORIGINS` and run `docker compose up -d` again.
 
-one.dash.cloudflare.com → **Networks → Tunnels → Create a tunnel** → *Cloudflared*. Copy the token into `.env`. Add a public hostname:
+> Vercel Hobby is for **non-commercial** use. If RAWRS becomes company work, use Vercel Pro ($20/seat/month) or Cloudflare Pages (free; commercial terms not re-checked).
 
-| field | value |
-|---|---|
-| Subdomain / domain | `api` · your domain (a free `*.trycloudflare.com` works for testing only) |
-| Service | `HTTP` → `api:8001` |
-
-HTTPS is issued automatically. `https://api.<domain>/api/health` should return OK.
-
----
-
-## 3. Login for the team — Cloudflare Access (free, ≤50 users)
-
-Zero Trust → **Access → Applications → Add a self-hosted application**, domain `api.<domain>`. Policy: *Allow* → **Emails** (list your reviewers) or **Email domain**. Identity provider: Google or GitHub, both free.
-
-Repeat for the Vercel domain to gate the UI as well. **This is the only access control that exists — RAWRS itself has no login (see Known gaps).**
-
----
-
-## 4. Frontend — Vercel
-
-vercel.com → **Add New → Project** → import the repo → set **Root Directory** to `frontend`. Add one environment variable:
-
-| name | value |
-|---|---|
-| `NEXT_PUBLIC_API_BASE_URL` | `https://api.<domain>` |
-
-Deploy. Then put the resulting domain into `RAWRS_ALLOWED_ORIGINS` on the VM and run `docker compose up -d` again.
-
-> Vercel's Hobby plan is for **non-commercial** use. If RAWRS becomes company work, move the frontend to Cloudflare Pages — also free, and commercial use is permitted.
-
----
-
-## 5. Updating
+### Updating
 
 ```bash
 cd rawrs && git pull && docker compose up -d --build
 ```
 
-`outputs/` (including saved Markdown edits in `outputs/edits/`) lives in the `rawrs-outputs` volume, so rebuilds never discard a reviewer's work. The frontend redeploys itself on push.
+`outputs/` (including saved Markdown edits in `outputs/edits/`) lives in the `rawrs-outputs` volume, so rebuilds never discard a reviewer's work.
 
 ---
 
-## Known gaps — deployment does not fix these
+## Known gaps — hosting does not fix these
 
 | gap | consequence | where |
 |---|---|---|
 | **No authentication in RAWRS** | any request reaching the API can edit any document; Cloudflare Access guards the perimeter only, and there is no per-user identity inside the app | `src/api/routes.py` |
-| **In-memory job state** | exactly one backend instance; `--workers 1` is deliberate, and a second worker would serve a different view of the same jobs | `src/api/jobs.py` |
-| **No concurrency control** | two reviewers editing one document overwrite each other — corrections are transactional per object, but there is no locking or presence | correction rail |
-| **First ARM build is the risk** | `torch`/`docling`/`surya` wheels on aarch64 are the one step likely to need attention | `Dockerfile` |
+| **In-memory job state** | exactly one backend instance; `--workers 1` is deliberate | `src/api/jobs.py` |
+| **No concurrency control** | two reviewers editing one document overwrite each other | correction rail |
+| **First ARM build is unproven** | `torch`/`docling`/`surya` wheels on aarch64 may need attention | `Dockerfile` |
+| **Licences** | PyMuPDF (AGPL), Surya weights and `qwen2.5vl:3b` have terms that may restrict networked or commercial use | `STATUS_REPORT_2026-09-30.md` §7 |
 
-Each is real product work, not a hosting setting.
+Each is real product work or a company decision, not a hosting setting.

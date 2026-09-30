@@ -27,7 +27,9 @@ A single index of every document that governs or describes RAWRS, what each one 
 
 | Document | What it's for |
 |---|---|
-| `CURRENT_STATE.md` | One-page answer to "what does RAWRS actually do right now." Test counts, dependency reality, what doesn't exist yet (frontend/API). |
+| `EQUATION_DESIGN.md` | Equation/STEM remediation: decisions, the checklist's Eq 1–7 rules, and §8 implementation notes (what differs from the design, what real data showed). Phase A built 2026-10-01. |
+| `STATUS_REPORT_2026-09-30.md` | **Newest.** Measured snapshot, done / open / planned, hosting cost estimates, and the questions the company must answer (licences, budget, auth). Reports follow the dated naming `STATUS_REPORT_<date>.md`; older ones are history. |
+| `CURRENT_STATE.md` | One-page answer to "what does RAWRS actually do right now." Newest dated update table is at the top; older sections below it are history. |
 | `PHASE_STATUS.md` | Per-phase (A, B, C, D.0–D.2, H, F.1–F.5, K, I.1) verdict — VERIFIED COMPLETE / PARTIALLY IMPLEMENTED / etc. — with file:line citations and test references. The detailed companion to `CURRENT_STATE.md`. |
 | `ARCHITECTURE_CURRENT.md` | Actual pipeline stage order, full current module/model inventory, the two tracked deviations from `ARCHITECTURE.md`. |
 
@@ -109,6 +111,17 @@ architecture", which is a different and still-valid use of the word.
 * **8 existing documents amended in place:** `PHASE1_SCOPE.md`, `RAWRS_PROJECT_CONTEXT.md`, `ARCHITECTURE.md`, `HEADING_RULES.md`, `VALIDATION_RULES.md`, `OCR_RULES.md`, `TECH_STACK.md`, `CLAUDE_INSTRUCTIONS.md`, plus `TASKS.md`.
 * **1 document left unchanged:** `PAGE_RULES.md` (verified already accurate).
 * **No production code was changed.** This was a documentation-only pass, per instruction.
+
+---
+
+## Additions since the Phase M-2 note below (2026-09-30)
+
+* `STATUS_REPORT_2026-09-30.md` — current status, hosting estimates, company questions.
+* `CHECKLIST_COMPLIANCE.md` — every remediation-checklist item, how RAWRS meets it, and its audit check (`src/validation/checklist_audit.py`).
+* `DEPLOYMENT.md` — rewritten: nothing is deployed; three routes with verified prices and limits.
+* `MASTER_IMPLEMENTATION_BACKLOG.md` — supersedes `TASKS.md` (retired, now in `archive/`). Its July figures (suite 1727 passed) are history; CI on 2026-09-28 shows 2537 backend passed / 5 failed.
+* `AGENT_HANDOFF.md` — its Phase 2 ladder is an August snapshot; its ground rules were corrected to "commit, then push".
+* The Phase 2 Engineering Blueprint and Remediation Gap Audit are described above as stored on the Desktop; that was **not re-checked** in this pass.
 
 ---
 
