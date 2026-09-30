@@ -21,7 +21,7 @@ import zipfile
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Dict, Iterator, List, Optional, Union
+from typing import Dict, Iterator, List, Optional, Sequence, Tuple, Union
 
 from docx import Document as open_docx
 from docx.oxml.ns import qn
@@ -238,7 +238,16 @@ def _words(text: str) -> List[str]:
 
 
 class _Audit:
-    def __init__(self, docx_path: Path, pdf_path: Optional[Path], expected_pages: Optional[int]):
+    def __init__(
+        self,
+        docx_path: Path,
+        pdf_path: Optional[Path],
+        expected_pages: Optional[int],
+        equation_objects: Optional[Sequence] = None,
+    ):
+        # The document's Equation objects when the caller has them; None for a
+        # bare .docx (CLI), where only the structure of the boxes can be read.
+        self.equation_objects = None if equation_objects is None else list(equation_objects)
         self.path = docx_path
         self.doc = open_docx(str(docx_path))
         self.pdf_path = pdf_path
@@ -321,6 +330,11 @@ class _Audit:
             if block.kind == "table":
                 docx_text += " " + " ".join(c.text for row in block.table.rows for c in row.cells)
         docx_text += " " + _notes_text(self.parts)
+        # A Word equation's characters are content like any other; they are
+        # not w:t text, so without this a maths page would "lose" its symbols.
+        docx_text += " " + " ".join(
+            t.text or "" for t in self.doc.element.body.iter(f"{{{_MATH}}}t")
+        )
         # Spelled-out initialisms ("U S") are the checklist's own change, not a loss.
         docx_text = re.sub(r"\b([A-Z]) (?=[A-Z]\b)", r"\1", docx_text)
         missing = sorted(pdf_words - set(_words(docx_text)))
@@ -527,11 +541,72 @@ class _Audit:
                  Status.FAIL if broken else Status.PASS, _examples(broken) or "none", len(broken))
 
     def equations(self):
-        math = sum(1 for _ in self.doc.element.body.iter(f"{{{_MATH}}}oMath"))
-        self.add("DR-EQ", "remediation_docx", "Rules to follow for Equation Box",
-                 "Equations use Word's equation tool, numbered outside the box",
-                 Status.MANUAL if math else Status.NOT_APPLICABLE,
-                 f"{math} equations - check against the PDF" if math else "no equations")
+        """Eq 1-7 (docs/EQUATION_DESIGN.md §1). The structural rules are read
+        off the DOCX itself; whether a converted equation matches the PDF was
+        proven when it was converted (round trip), so only a FLAGGED one, or a
+        DOCX audited with no model to ask, still needs a person."""
+        section = "Rules to follow for Equation Box"
+        requirement = "Equations use Word's equation tool and look like the PDF (Eq 6)"
+        boxes = list(self.doc.element.body.iter(f"{{{_MATH}}}oMath"))
+        objects = self.equation_objects
+        if not boxes and not objects:
+            self.add("DR-EQ", "remediation_docx", section, requirement,
+                     Status.NOT_APPLICABLE, "no equations")
+            return
+        flagged = [e for e in objects or [] if e.status.value == "flagged"]
+        if objects is None:
+            status, evidence = Status.MANUAL, f"{len(boxes)} equations - check against the PDF"
+        else:
+            counts = {s: sum(1 for e in objects if e.status.value == s) for s in ("converted", "flagged", "plain")}
+            evidence = (f"{len(boxes)} Word equations; {counts['converted']} converted (round trip verified), "
+                        f"{counts['flagged']} flagged, {counts['plain']} plain text")
+            if flagged:
+                status = Status.MANUAL
+                evidence += "; check against the PDF: " + "; ".join(
+                    f"{e.id} ({', '.join(e.flag_reasons) or 'flagged'})" for e in flagged[:5])
+            else:
+                status = Status.PASS
+        self.add("DR-EQ", "remediation_docx", section, requirement, status, evidence, len(flagged))
+        failing = [f"{rule}: {detail}" for rule, detail in self._equation_structure(boxes)]
+        self.add("DR-EQ-STRUCT", "remediation_docx", section,
+                 "Equation box rules: no extra spaces (Eq 1), one equation per box (Eq 2), functions from the "
+                 "equation tool (Eq 3), number outside (Eq 4), no connecting text (Eq 5), simple equations "
+                 "outside the box (Eq 7)",
+                 Status.FAIL if failing else Status.PASS, _examples(failing) or "none", len(failing))
+
+    def _equation_structure(self, boxes) -> List[Tuple[str, str]]:
+        """(rule, detail) for every Eq 1-5/7 breach in the equation boxes."""
+        from src.equations import latex as tex
+
+        def m(tag):
+            return f"{{{_MATH}}}{tag}"
+
+        def run_text(run):
+            return "".join(t.text or "" for t in run.iter(m("t")))
+
+        problems: List[Tuple[str, str]] = []
+        for box in boxes:
+            text = "".join(t.text or "" for t in box.iter(m("t")))
+            runs = list(box.iter(m("r")))
+            shown = text[:40]
+            if box.find(f".//{m('eqArr')}") is not None:
+                problems.append(("Eq 2", f"several equations in one box: {shown}"))
+            for run in runs:
+                word = run_text(run).strip()
+                if word in tex.FUNCTIONS and not any(a.tag == m("fName") for a in run.iterancestors()):
+                    problems.append(("Eq 3", f"'{word}' typed, not from the equation tool: {shown}"))
+            if re.search(r"\(\s*\d+(?:\.\d+)*\s*\)\s*$", text):
+                problems.append(("Eq 4", f"equation number inside the box: {shown}"))
+            edge = [runs[0], runs[-1]] if runs else []
+            if any(r.find(f".//{m('nor')}") is not None for r in edge):
+                problems.append(("Eq 5", f"connecting text inside the box: {shown}"))
+            if runs and (not run_text(runs[0]).strip() or not run_text(runs[-1]).strip() or "  " in text):
+                problems.append(("Eq 1", f"extra spaces in the equation: {shown!r}"))
+            if all(child.tag == m("r") for child in box) and text.strip() and (
+                tex.is_simple(text) or tex.is_non_maths(text)
+            ):
+                problems.append(("Eq 7", f"simple equation inside a box: {shown}"))
+        return problems
 
     def heading_styles(self):
         wrong = []
@@ -722,8 +797,13 @@ def audit_docx(
     docx_path: Union[str, Path],
     pdf_path: Optional[Union[str, Path]] = None,
     expected_pages: Optional[int] = None,
+    equations: Optional[Sequence] = None,
 ) -> ChecklistReport:
-    return _Audit(Path(docx_path), Path(pdf_path) if pdf_path else None, expected_pages).run()
+    """``equations`` is the Document's ``Equation`` list when the caller has it;
+    without it DR-EQ can only ask a person (docs/EQUATION_DESIGN.md §5)."""
+    return _Audit(
+        Path(docx_path), Path(pdf_path) if pdf_path else None, expected_pages, equations
+    ).run()
 
 
 def write_checklist_report(report: ChecklistReport, report_path: Union[str, Path]) -> Path:

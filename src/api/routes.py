@@ -80,6 +80,9 @@ from src.api.schemas import (
     PageOcrInfoOut,
     PageReadingOrderOut,
     PagesResponse,
+    EquationEditRequest,
+    EquationOut,
+    EquationsResponse,
     ParagraphEditRequest,
     ParagraphOut,
     ParagraphsResponse,
@@ -119,6 +122,7 @@ import src.accessibility.rules  # noqa: F401 - side effect: registers Phase 1 ru
 # UnknownAssetTypeError. Same list as architecture.invariants.check_correction_rail.
 import src.verification.artifacts  # noqa: F401,E402
 import src.verification.callouts  # noqa: F401,E402
+import src.verification.equations  # noqa: F401,E402
 import src.verification.figures  # noqa: F401,E402
 import src.verification.footnotes  # noqa: F401,E402
 import src.verification.frontmatter  # noqa: F401,E402
@@ -1080,6 +1084,84 @@ def edit_paragraph(job_id: str, paragraph_id: str, body: ParagraphEditRequest) -
 
     _persist(job_id, payload)
     return _paragraph_out(paragraph)
+
+
+def _equation_out(equation) -> EquationOut:
+    return EquationOut(
+        equation_id=equation.id,
+        page_number=equation.page_number,
+        display=equation.display,
+        latex=equation.latex,
+        latex_source=equation.latex_source,
+        number=equation.number,
+        label=equation.label,
+        status=equation.status.value,
+        flag_reasons=list(equation.flag_reasons),
+        description=equation.description,
+        text=equation.text,
+        before_text=equation.before_text,
+        after_text=equation.after_text,
+        source_line=equation.source_line,
+        paragraph_id=equation.paragraph_id,
+    )
+
+
+@router.get("/documents/{job_id}/equations", response_model=EquationsResponse)
+def get_equations(job_id: str) -> EquationsResponse:
+    """The document's equations in model order, with the status the
+    confident-vs-flag boundary gave each (docs/EQUATION_DESIGN.md)."""
+    document = _require_document(job_id)
+    equations = document.equations if document else []
+    return EquationsResponse(equations=[_equation_out(e) for e in equations if e.id])
+
+
+@router.patch("/documents/{job_id}/equations/{equation_id}", response_model=EquationOut)
+def edit_equation(job_id: str, equation_id: str, body: EquationEditRequest) -> EquationOut:
+    """Change an equation's LaTeX, number or description.
+
+    Each changed field is an ordinary correction performed by the rail
+    (src/verification/equations.py), all of one request in one transaction so
+    a single undo reverts the whole edit. Blank LaTeX is refused: an equation
+    that says nothing is a deletion, which is not what an edit means.
+    """
+    document = _require_document(job_id)
+    if document is None:
+        raise HTTPException(status_code=404, detail="No document for this job.")
+    equation = next((e for e in document.equations if e.id == equation_id), None)
+    if equation is None:
+        raise HTTPException(status_code=404, detail=f"No equation '{equation_id}' on this document.")
+    if body.latex is None and body.number is None and body.description is None:
+        raise HTTPException(status_code=422, detail="Nothing to change: give latex, number or description.")
+    if body.latex is not None and not body.latex.strip():
+        raise HTTPException(status_code=422, detail="Equation LaTeX must not be blank.")
+
+    from src.verification.equations import DESCRIPTION_EDIT, LATEX_EDIT, NUMBER_EDIT
+
+    requested = [
+        (LATEX_EDIT, equation.latex, None if body.latex is None else body.latex.strip(), "EQUATION_LATEX_EDITED_BY_REVIEWER"),
+        (NUMBER_EDIT, equation.number or "", None if body.number is None else body.number.strip(), "EQUATION_NUMBER_EDITED_BY_REVIEWER"),
+        (DESCRIPTION_EDIT, equation.description or "", None if body.description is None else body.description.strip(), "EQUATION_DESCRIPTION_EDITED_BY_REVIEWER"),
+    ]
+    with _lock:
+        transaction_id = str(uuid.uuid4())
+        for field, before, after, reason_code in requested:
+            if after is None or after == before:
+                continue
+            _record_reviewer_edit(
+                document,
+                object_type="equation",
+                object_id=equation.id,
+                field=field,
+                original_value=before,
+                proposed_value=after,
+                reason=f"Reviewer edited the equation's {field}.",
+                reason_code=reason_code,
+                transaction_id=transaction_id,
+            )
+        payload = _snapshot(document)
+
+    _persist(job_id, payload)
+    return _equation_out(equation)
 
 
 @router.get("/documents/{job_id}/lists", response_model=ListsResponse)
@@ -2181,7 +2263,10 @@ def get_checklist(job_id: str) -> dict:
     if docx_path is None or not Path(docx_path).is_file():
         raise HTTPException(status_code=404, detail="This document has no DOCX to audit.")
     document = job.result.document
-    report = audit_docx(docx_path, document.source_pdf_path, expected_pages=len(document.pages))
+    report = audit_docx(
+        docx_path, document.source_pdf_path, expected_pages=len(document.pages),
+        equations=document.equations,
+    )
     return report.to_dict()
 
 

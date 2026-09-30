@@ -614,7 +614,10 @@ def _write_checklist_report(document: Document, docx_path: Path, report_path: Pa
     validation report. An audit failure is logged, never fatal: the DOCX is
     already written and the audit only describes it."""
     try:
-        report = audit_docx(docx_path, document.source_pdf_path, expected_pages=len(document.pages))
+        report = audit_docx(
+            docx_path, document.source_pdf_path, expected_pages=len(document.pages),
+            equations=document.equations,
+        )
         write_checklist_report(report, report_path)
         logger.info(
             "Checklist audit: {} - failing {}", report.summary, report.failing() or "none"

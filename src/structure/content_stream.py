@@ -318,6 +318,11 @@ def build_content_stream(document: Any) -> ContentStream:
                 emit(getattr(table, "table_id", None), ContentKind.TABLE, page_number)
         for image_id in page_end_images:
             emit(image_id, ContentKind.IMAGE, page_number)
+        # Display equations (docs/EQUATION_DESIGN.md). Inline ones live inside
+        # their paragraph and have no node of their own.
+        for equation in getattr(document, "equations", []) or []:
+            if equation.display and equation.page_number == page_number:
+                emit(equation.id, ContentKind.EQUATION, page_number)
 
         for note in footnotes:
             if _is_endnote(note):

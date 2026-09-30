@@ -60,6 +60,7 @@ class ContentKind(str, Enum):
     IMAGE = "image"
     NOTE_DEFINITION = "note_definition"  # footnote/endnote body
     FRONT_MATTER = "front_matter"        # one FrontMatterItem (title/author/affiliation)
+    EQUATION = "equation"                # one display Equation (docs/EQUATION_DESIGN.md)
 
 
 class ContentNode(BaseModel):

@@ -128,6 +128,7 @@ from src.models.contracts import (
 from src.architecture.contract import GeneratedObject, Limitation, ProjectionContract
 from src.models.content_stream import ContentKind
 from src.models.inline_format import TextRun, format_runs
+from src.models.equation import Equation, EquationStatus
 from src.models.note_references import resolve_note_references
 from src.structure.content_stream import build_content_stream
 from src.structure.paragraph_assembly import (
@@ -399,6 +400,8 @@ def build_markdown(
         getattr(document, "import_provider", None) == "mathpix"
         or any(h.source == "mathpix" for h in document.headings)
         or any(p.source_line is not None for p in paragraphs)
+        # An equation records the .mmd line it came from, like a paragraph.
+        or any(e.source_line is not None for e in document.equations)
     )
 
     sections = [
@@ -652,6 +655,54 @@ def _substitute_markers(text: str, notes: List[Footnote]) -> str:
     return text
 
 
+def _substitute_markers_and_equations(
+    text: str, notes: List[Footnote], equations: List[Equation]
+) -> str:
+    """``_substitute_markers`` plus inline equations, in one pass.
+
+    Note references and equation anchors are both positions in the paragraph's
+    *original* text, so every replacement is collected first and applied in
+    descending position: no replacement's length change can move another.
+    A PLAIN equation is already its own text; an anchor that no longer lands
+    on its rendering (a reviewer rewrote the paragraph) is left alone rather
+    than spelled over the wrong words.
+    """
+    replacements = [
+        (reference.start, reference.start + reference.length, f"[^{reference.label}]")
+        for reference in resolve_note_references(text, notes)
+    ]
+    for equation in equations:
+        if equation.status is EquationStatus.PLAIN or equation.anchor_offset is None:
+            continue
+        start = equation.anchor_offset
+        end = start + (equation.anchor_length or 0)
+        if text[start:end] != equation.text:
+            continue
+        replacements.append((start, end, f"${equation.latex}$"))
+    for start, end, spelled in sorted(replacements, reverse=True):
+        text = text[:start] + spelled + text[end:]
+    return text
+
+
+def _render_display_equation(equation: Equation) -> List[str]:
+    """One display equation: its text beside it (Eq 5), an id anchor, and the
+    equation itself — LaTeX in ``$$``, or plain text for a PLAIN one (Eq 7).
+    The number is written ``\\tag{n}`` inside ``$$`` and ``(n)`` after plain
+    text; DOCX reads the number from the model, not from these lines."""
+    blocks: List[str] = []
+    if equation.before_text:
+        blocks.append(equation.before_text)
+    blocks.append(f"<!-- equation-id: {equation.id} -->")
+    if equation.status is EquationStatus.PLAIN:
+        blocks.append(f"{equation.text} ({equation.number})" if equation.number else equation.text)
+    else:
+        tag = f" \\tag{{{equation.number}}}" if equation.number else ""
+        blocks.append(f"$${equation.latex}{tag}$$")
+    if equation.after_text:
+        blocks.append(equation.after_text)
+    return blocks
+
+
 def _render_page(
     document: Document,
     page: Page,
@@ -874,6 +925,7 @@ def _render_page_body(
     if is_mathpix_import:
         return _render_page_semantic(
             content_headings, page_paragraphs, page_lists, page_tables, page_images, anchor_notes,
+            [e for e in document.equations if e.page_number == page.page_number],
         )
     if page_blocks:
         return _render_page_body_with_paragraphs(
@@ -981,6 +1033,7 @@ def _render_page_semantic(
     page_tables: List[Table],
     page_images: List[Image],
     anchor_notes: List[Footnote],
+    page_equations: Optional[List[Equation]] = None,
 ) -> List[str]:
     """FEATURE_020 — render a Mathpix-imported page as a projection of
     Document's own semantic objects, not a reconstruction from scanned
@@ -1036,14 +1089,30 @@ def _render_page_semantic(
         position = getattr(image, "source_line", None)
         items.append((position if position is not None else _UNPOSITIONED, offset + order, image))
 
+    offset += len(page_images)
+    equations = page_equations or []
+    inline_by_paragraph: Dict[str, List[Equation]] = {}
+    for equation in equations:
+        if equation.display:
+            position = equation.source_line if equation.source_line is not None else _UNPOSITIONED
+            items.append((position, offset + equation.document_order, equation))
+        elif equation.paragraph_id:
+            inline_by_paragraph.setdefault(equation.paragraph_id, []).append(equation)
+
     items.sort(key=lambda item: (item[0], item[1]))
 
     blocks: List[str] = []
     for _, _, obj in items:
         if isinstance(obj, Heading):
             blocks.append(_render_heading(obj))
+        elif isinstance(obj, Equation):
+            blocks.extend(_render_display_equation(obj))
         elif isinstance(obj, Paragraph):
-            blocks.append(_substitute_markers(obj.text, anchor_notes))
+            blocks.append(
+                _substitute_markers_and_equations(
+                    obj.text, anchor_notes, inline_by_paragraph.get(obj.id or "", [])
+                )
+            )
         elif isinstance(obj, ListBlock):
             blocks.extend(_render_lists([obj], anchor_notes))
         elif isinstance(obj, Table):

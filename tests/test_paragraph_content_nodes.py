@@ -117,6 +117,7 @@ class TestTheKindExists:
             "image",
             "note_definition",
             "front_matter",
+            "equation",  # appended by docs/EQUATION_DESIGN.md; nothing above moved
         ]
 
 

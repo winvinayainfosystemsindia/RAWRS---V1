@@ -201,6 +201,8 @@ Examples:
 | IMAGE_003 | ERROR | Duplicate image_id |
 | IMAGE_004 | INFO | Alt text pending human review |
 | IMAGE_005 | WARNING | Image successfully extracted but failed to embed into DOCX (CMYK JPEG or similar; added FEATURE_016E) |
+| EQUATION_001 | INFO | Equation flagged for review: outside the command allowlist, text inside the box, a number with no `\tag`, an unsupported `\ce`, or a conversion that did not survive the round trip (docs/EQUATION_DESIGN.md) |
+| EQUATION_002 / 003 / 004 | INFO | Reviewer edited an equation's LaTeX / number / description (correction-rail reason codes, not queue findings) |
 | OCR_001 | WARNING | Page OCR confidence is LOW (Surya fallback recovery) |
 | OCR_002 | WARNING | OCR-recovered text exceeds the unusable-character ratio threshold |
 | NOTE_001 | INFO | Footnote detected |

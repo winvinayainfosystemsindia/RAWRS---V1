@@ -349,6 +349,40 @@ class ParagraphEditRequest(BaseModel):
     text: str                       # the paragraph's whole new text
 
 
+# --- Equations (docs/EQUATION_DESIGN.md) -------------------------------------
+
+
+class EquationOut(BaseModel):
+    equation_id: str
+    page_number: int
+    display: bool
+    latex: str
+    latex_source: str
+    number: Optional[str] = None
+    label: Optional[str] = None
+    status: str                     # converted | flagged | plain
+    flag_reasons: List[str] = []
+    description: Optional[str] = None
+    text: str
+    before_text: str = ""
+    after_text: str = ""
+    source_line: Optional[int] = None
+    paragraph_id: Optional[str] = None
+
+
+class EquationsResponse(BaseModel):
+    equations: List[EquationOut]
+
+
+class EquationEditRequest(BaseModel):
+    """Every field optional; at least one must be given. An empty ``number``
+    or ``description`` clears it."""
+
+    latex: Optional[str] = None
+    number: Optional[str] = None
+    description: Optional[str] = None
+
+
 # --- Metadata / document accessibility properties (FEATURE_016F) -------------
 
 

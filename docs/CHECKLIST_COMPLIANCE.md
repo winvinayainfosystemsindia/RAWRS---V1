@@ -21,7 +21,7 @@ Statuses: **pass**, **fail**, **warn** (look at it), **manual** (needs a person 
 | 10 | Tables rebuilt, no merged cells | Spanning cells repeat their words; prose "tables" rejected | DR-10 |
 | 11 | Abbreviations for screen readers (US → U S, UNESCO kept) | Letter-by-letter initialisms spaced; pronounceable acronyms kept | DR-11 |
 | 12 | No sentence cut at a page end | First sentence of the next page moves up (past a trailing "Source:" line) | DR-12 |
-| Eq 1–7 | Equation rules | No equations in the corpus; any found are flagged | DR-EQ |
+| Eq 1–7 | Equation rules — see "Equations" below | Mathpix route: native Word equations; flagged when not provably right | DR-EQ, DR-EQ-STRUCT |
 | Headings | Levels in order; TNR black bold 16/14/12; H6 = page no.; `6.1 - INTRODUCTION` | Styles fixed; levels re-ranked without gaps; numbered headings hyphenated; title = H1 | DR-HD-FMT, DR-HD-ORDER, DR-HD-HYPHEN |
 | Punctuation | Comma, bracket, hyphen spacing | Applied to all text outside URLs; ligatures and mis-mapped "=" repaired | DR-PUNCT |
 | Final | Space before kg / units | Multi-letter units spaced | DR-UNITS |
@@ -45,6 +45,19 @@ Statuses: **pass**, **fail**, **warn** (look at it), **manual** (needs a person 
 | Title / Author / Subject | Reviewer value → front matter → PDF properties → first heading; author never invented | SUB-META |
 | No personal/tool info | python-docx author/comment cleared | SUB-META-PRIV |
 | Keyboard navigation, PDF export | Needs Word | SUB-KEYBOARD, SUB-PDF manual |
+
+## Equations (Mathpix route, 2026-10-01 — `docs/EQUATION_DESIGN.md`)
+
+| Rule | How | Audit |
+|---|---|---|
+| Eq 1 extra spaces | Spacing macros removed; one space kept before a unit | DR-EQ-STRUCT |
+| Eq 2 one equation per box | `align`/`gather` rows split; no `m:eqArr` | DR-EQ-STRUCT |
+| Eq 3 functions from the tool | `sin cos tan …` wrapped as `m:func` | DR-EQ-STRUCT |
+| Eq 4 number outside, right aligned, bookmarked, cross-referenced | tab + `(n)` after the box; `\ref`/`\eqref` become `REF` fields. A numbered environment with no `\tag` is flagged, never guessed | DR-EQ-STRUCT |
+| Eq 5 connecting text outside | leading/trailing `\text{}` becomes a paragraph; text in the middle is flagged | DR-EQ-STRUCT |
+| Eq 6 looks like the PDF | every converted equation is read back by pandoc and compared with its LaTeX; a mismatch is flagged. Word rendering still needs a person | DR-EQ |
+| Eq 7 simple equations outside the box | plain text | DR-EQ-STRUCT |
+| STEM sheet: not an image, inline, description, chemistry | native equations; inline stay in their sentence; reviewer-written description paragraph; `\ce` subset translated | DR-EQ |
 
 ## Scanned PDFs and images
 

@@ -1869,3 +1869,104 @@ def check_image_projection(document: Any, docx_path: Any, name: str = "") -> Pro
         }
     )
     return report
+
+
+# PI-14 · the DOCX projection holds every equation once and leaks no LaTeX
+#
+# docs/EQUATION_DESIGN.md. An equation is either a native Word equation
+# (``m:oMath``) or, when it could not be converted (FLAGGED), its text; it is
+# never dropped and never shown as raw LaTeX in the prose. A ``.docx`` keeps no
+# object ids, so the claim is stated by count and by text - the same way PI-11
+# recognises a table - while *resolution* (one Equation, one stream node) is by
+# ``Equation.id`` alone.
+
+_OMML_NS = "http://schemas.openxmlformats.org/officeDocument/2006/math"
+_LATEX_LEAK = re.compile(r"\\(?:frac|sqrt|sum|int|alpha|beta|mathrm|left|right|begin|end)\b|\$[^$\n]+\$")
+
+
+def _docx_equation_facts(docx_path: Any) -> tuple:
+    """(native equation count, paragraph texts outside any equation)."""
+    import xml.etree.ElementTree as ET
+    import zipfile
+
+    w = "{%s}" % _DOCX_W
+    with zipfile.ZipFile(str(docx_path)) as zf:
+        root = ET.fromstring(zf.read("word/document.xml"))
+    native = len(list(root.iter("{%s}oMath" % _OMML_NS)))
+    texts = [_norm("".join(t.text or "" for t in p.iter(w + "t"))) for p in root.iter(w + "p")]
+    return native, texts
+
+
+def check_equation_projection(document: Any, docx_path: Any, name: str = "") -> ProjectionReport:
+    """PI-14 · every Equation is rendered once and no LaTeX leaks into prose.
+
+    * completeness — every display ``Equation`` has exactly one ``EQUATION`` node
+    * resolution   — every ``EQUATION`` node names an ``Equation`` that exists
+    * rendering    — native equations plus text-rendered FLAGGED ones cover every
+      non-plain ``Equation``, and the package holds no more than the model does
+    * plain text   — every PLAIN display equation's text is in the prose
+    * no leak      — no raw LaTeX in the prose except a FLAGGED equation's own
+      text fallback
+    """
+    from src.models.content_stream import ContentKind
+    from src.structure.content_stream import build_content_stream
+
+    report = ProjectionReport(
+        document=name or str(getattr(document, "source_pdf_path", "") or "?")
+    )
+    equations = [e for e in (getattr(document, "equations", []) or []) if e.id]
+    nodes = [n for n in build_content_stream(document).nodes if n.kind is ContentKind.EQUATION]
+    report.counts["equations"] = len(equations)
+    if not equations and not nodes:
+        return report
+
+    known = {e.id for e in equations}
+    seen = Counter(n.object_id for n in nodes)
+    for equation in equations:
+        if equation.display and seen[equation.id] == 0:
+            report.violations.append(
+                Violation("PI-14", "lost_object", f"equation {equation.id!r} is not in the stream")
+            )
+        elif seen[equation.id] > 1:
+            report.violations.append(
+                Violation("PI-14", "duplicate", f"equation {equation.id!r} appears {seen[equation.id]} times")
+            )
+    for node in nodes:
+        if node.object_id not in known:
+            report.violations.append(
+                Violation("PI-14", "invented_object", f"stream equation {node.object_id!r} resolves to no Equation")
+            )
+
+    native, texts = _docx_equation_facts(docx_path)
+    prose = " ".join(texts)
+    non_plain = [e for e in equations if e.status.value != "plain"]
+
+    def fallback(equation: Any) -> str:
+        return _norm(equation.latex if equation.display else equation.text)
+
+    fallbacks = [fallback(e) for e in non_plain if e.status.value == "flagged" and fallback(e) and fallback(e) in prose]
+    if native + len(fallbacks) < len(non_plain):
+        report.violations.append(
+            Violation(
+                "PI-14",
+                "lost_object",
+                f"{len(non_plain)} equations need rendering but the package holds "
+                f"{native} native and {len(fallbacks)} text-rendered",
+            )
+        )
+    if native > len(non_plain):
+        report.violations.append(
+            Violation("PI-14", "invented_object", f"{native} native equations for {len(non_plain)} in the model")
+        )
+    for equation in equations:
+        if equation.display and equation.status.value == "plain" and _norm(equation.text) not in prose:
+            report.violations.append(
+                Violation("PI-14", "lost_object", f"plain equation {equation.id!r} text is not in the prose")
+            )
+    for text in texts:
+        if _LATEX_LEAK.search(text) and text not in fallbacks:
+            report.violations.append(
+                Violation("PI-14", "content_invention", f"LaTeX leaked into prose: {text[:60]!r}")
+            )
+    report.counts.update({"native_equations": native, "text_rendered": len(fallbacks)})
+    return report

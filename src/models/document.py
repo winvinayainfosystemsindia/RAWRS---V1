@@ -11,6 +11,7 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 
 from src.models.callout import Callout
+from src.models.equation import Equation
 from src.models.correction import CorrectionRecord
 from src.models.footnote import Footnote
 from src.models.front_matter import FrontMatter
@@ -122,6 +123,9 @@ class Document(BaseModel):
     # headings/lists/tables/images/callouts. Empty for the RAWRS-native
     # path — see src/models/paragraph.py's docstring.
     paragraphs: List[Paragraph] = Field(default_factory=list)
+    # docs/EQUATION_DESIGN.md — display and inline equations from the Mathpix
+    # path. Empty for any document with no maths.
+    equations: List[Equation] = Field(default_factory=list)
     # FEATURE_020 — bumped by exactly one line at every reviewer-driven
     # mutation site (engine.apply_correction()/revert_correction(), the
     # alt-text/page-label/reading-order review endpoints) — see

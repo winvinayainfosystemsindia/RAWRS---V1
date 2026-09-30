@@ -98,6 +98,7 @@ pydantic_core==2.46.4
 Pygments==2.20.0
 pylatexenc==2.10
 pymupdf==1.28.0
+pypandoc-binary==1.17
 pypdfium2==4.30.0
 pytest-cov==7.1.0
 pytest==9.1.1

@@ -34,3 +34,9 @@ uvicorn[standard]==0.49.0
 python-multipart==0.0.32
 # OCR backend for docling's rapidocr integration — see header note above.
 onnxruntime==1.30.0
+# Equation remediation (docs/EQUATION_DESIGN.md): pandoc's texmath converts LaTeX to
+# native Word equations. The binary wheel bundles the pandoc executable (GPL-2 - a
+# company licence question, docs/STATUS_REPORT_2026-09-30.md section 7); a pandoc on
+# PATH is used when the wheel is absent, and without either every equation is
+# flagged for a human rather than dropped.
+pypandoc-binary==1.17

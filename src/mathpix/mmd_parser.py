@@ -256,6 +256,30 @@ def _anchor_on_its_block(
     return (line, block_text, offset - shift)
 
 
+_MATH_SPAN_RE = re.compile(r"\$\$.+?\$\$|\$[^$\n]+?\$|\\\(.+?\\\)|\\\[.+?\\\]")
+
+
+def _maths_body(span: str) -> str:
+    """The content of a ``$..$`` / ``$$..$$`` / ``\\(..\\)`` / ``\\[..\\]`` span."""
+    width = 2 if span.startswith(("$$", "\\(", "\\[")) else 1
+    return span[width:-width].strip()
+
+
+def _is_exponent_in_maths(line: str, marker: "re.Match[str]") -> bool:
+    """True when ``marker`` is an exponent inside a maths span that holds more
+    than the marker itself.
+
+    ``${ }^{12}$`` and ``$^{12}$`` are the note-marker spellings and have the
+    marker as their whole content. ``x^{2}`` inside ``$x^{2}=4$`` is an
+    exponent: read as footnote 2, it made STEM prose "prove" a numbered list a
+    note apparatus (docs/EQUATION_DESIGN.md)."""
+    for span in _MATH_SPAN_RE.finditer(line):
+        if span.start() <= marker.start() and marker.end() <= span.end():
+            text = marker.group(0)
+            return span.group(0) != text and _maths_body(span.group(0)) != text
+    return False
+
+
 def parse_mmd(content: str) -> P2Document:
     """Parse Mathpix MMD content into a P2Document.
 
@@ -288,6 +312,8 @@ def parse_mmd(content: str) -> P2Document:
             continue
 
         for marker in _SUPERSCRIPT_MARKER_RE.finditer(stripped):
+            if _is_exponent_in_maths(stripped, marker):
+                continue
             # N-2: the marker's position in the line *as the block will store
             # it*. transform_inline_math() rewrites ``${ }^{12}$`` to ``[12]``,
             # so a raw offset would not survive; transforming the prefix gives
@@ -328,11 +354,34 @@ def parse_mmd(content: str) -> P2Document:
             _apply_heading(doc, cmd, text, i)
             continue
 
+        # ── Display maths: $$ ... $$ and \[ ... \] ──
+        # Before this, all three lines of a delimited equation became three
+        # PARAGRAPH blocks (docs/EQUATION_DESIGN.md F2).
+        display = _collect_display(lines, i, n)
+        if display is not None:
+            body, next_i = display
+            doc.blocks.append(
+                P2Block(
+                    block_type=P2BlockType.EQUATION,
+                    text=body,
+                    equation_env="display",
+                    source_line=i,
+                )
+            )
+            i = next_i
+            continue
+
         # ── \begin{env} environment ────────────────────────────────────
         begin_m = _BEGIN_RE.match(stripped)
         if begin_m:
             env = begin_m.group(1)
+            start_line = i
             env_lines, i = _collect_env(lines, i, n, env)
+            if env.rstrip("*") in _EQUATION_ENVS:
+                # Positioned at the environment's first line so it sorts
+                # between the paragraphs around it.
+                doc.blocks.append(_equation_block(env, env_lines, start_line))
+                continue
             block = _parse_env(env, env_lines, i)
             if block is not None:
                 doc.blocks.append(block)
@@ -434,6 +483,55 @@ def parse_mmd(content: str) -> P2Document:
     _prove_note_apparatus(doc, markers)
     _place_publisher_lines(doc)
     return doc
+
+
+#: Display-maths environments whose body is kept as an EQUATION block.
+#: Any other ``\begin`` still falls to ``_parse_env``.
+_EQUATION_ENVS = {"equation", "align", "gather"}
+
+
+def _equation_block(env: str, env_lines: List[str], source_line: int) -> P2Block:
+    r"""One EQUATION block from a collected ``\begin{env}...\end{env}``."""
+    inner = env_lines[1:-1] if len(env_lines) >= 2 else []
+    return P2Block(
+        block_type=P2BlockType.EQUATION,
+        text="\n".join(line.strip() for line in inner).strip(),
+        equation_env=env,
+        source_line=source_line,
+    )
+
+
+def _collect_display(lines: List[str], i: int, n: int) -> Optional[Tuple[str, int]]:
+    r"""Body and next line index of a ``$$`` / ``\[`` display block starting
+    at ``lines[i]``, or None when the line is not one.
+
+    A block is only taken when it is closed and nothing trails the closing
+    delimiter; anything else stays ordinary paragraph text, so no content is
+    dropped by guessing (``$`` is ambiguous with currency)."""
+    first = lines[i].strip()
+    for opener, closer in (("$$", "$$"), (r"\[", r"\]")):
+        if not first.startswith(opener):
+            continue
+        rest = first[len(opener):]
+        if closer in rest:
+            body, tail = rest.split(closer, 1)
+            return (body.strip(), i + 1) if body.strip() and not tail.strip() else None
+        parts = [rest.strip()] if rest.strip() else []
+        j = i + 1
+        while j < n:
+            current = lines[j].strip()
+            if closer in current:
+                head, tail = current.split(closer, 1)
+                if tail.strip():
+                    return None
+                if head.strip():
+                    parts.append(head.strip())
+                body = "\n".join(parts).strip()
+                return (body, j + 1) if body else None
+            parts.append(current)
+            j += 1
+        return None
+    return None
 
 
 # How far (in blocks) a printed label may sit from the figure or table it names.

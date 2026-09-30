@@ -29,6 +29,7 @@ from loguru import logger
 
 from src.frontmatter.front_matter_roles import build_title_heading
 from src.headings.page_markers import build_page_marker
+from src.equations.build import build_equations
 from src.mathpix.mmd_parser import parse_mmd
 from src.mathpix.page_alignment import PageAlignment, align_blocks_to_pages
 from src.mathpix.page_estimation import TextPositionPages, estimate_page
@@ -275,6 +276,17 @@ class MathpixImportProvider:
             if marker is not None:
                 document.headings.append(marker)
                 heading_order += 1
+
+        # ── 2c. Equations (docs/EQUATION_DESIGN.md) ──
+        # Display blocks become Equations; inline maths inside paragraphs is
+        # anchored and its paragraph text rewritten - before page text is
+        # built, so paragraphs and note anchors see the rewritten text.
+        document.equations.extend(
+            build_equations(
+                p2doc,
+                lambda line: _resolved_page(line, total_blocks, page_count, alignment),
+            )
+        )
 
         # ── 3. Page text (proportional distribution) ───────────────────
         _assign_page_text(document, p2doc, page_count, total_blocks, alignment)

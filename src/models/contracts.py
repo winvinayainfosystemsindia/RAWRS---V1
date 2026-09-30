@@ -12,6 +12,7 @@ src/models/ can change without changing every other module's imports.
 
 from src.models.bounding_box import BoundingBox
 from src.models.callout import Callout
+from src.models.equation import Equation, EquationStatus
 from src.models.correction import CorrectionRecord, CorrectionStatus
 from src.models.document import Document, ProcessingStatus
 from src.models.figure import AltTextStatus, Figure
@@ -61,6 +62,8 @@ __all__ = [
     "BenchmarkOutcome",
     "BoundingBox",
     "Callout",
+    "Equation",
+    "EquationStatus",
     "CorrectionRecord",
     "CorrectionStatus",
     "Document",

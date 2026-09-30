@@ -121,6 +121,7 @@ from src.docx.remediation_text import (
     remediate_heading,
     remediate_prose,
 )
+from src.docx.equation_render import EquationRender
 from src.markdown.markdown_builder import PAGE_BREAK_MARKER
 from src.models.content_stream import ContentKind
 from src.structure.content_stream import build_content_stream
@@ -260,6 +261,9 @@ class _NoteRegistries:
     def __init__(self, notes: List[Footnote]) -> None:
         self.footnotes = _FootnoteRegistry()
         self.endnotes = _FootnoteRegistry()
+        # Threaded to every body-text emitter because the registries already
+        # are; set by generate_docx() only when the document has equations.
+        self.equations: Optional[EquationRender] = None
         self._endnote_keys = {
             self.key_for(note) for note in notes if note.note_type == NoteType.ENDNOTE
         }
@@ -358,6 +362,7 @@ _TABLE_ID_COMMENT_PATTERN = re.compile(r"^<!-- table-id: (.+) -->$")
 # to perform; this pattern exists only so the comment itself is skipped
 # rather than rendered as literal body text.
 _LIST_ID_COMMENT_PATTERN = re.compile(r"^<!-- list-id: (.+) -->$")
+_EQUATION_ID_COMMENT_PATTERN = re.compile(r"^<!-- equation-id: (.+) -->$")
 
 # Semantic list detection (FEATURE_016C): lines starting with a bullet
 # character or a numbered/lettered prefix are rendered with Word's built-in
@@ -664,7 +669,7 @@ def _open_sentence(units: List[Tuple[str, object]]) -> Optional[List[_Segment]]:
 _NOT_PROSE_LINE = re.compile(r"^(#|!\[|\||<!--|\[\^|[-*•]\s|\d+[.)]\s)")
 # A page may end inside a list item, whose sentence runs on just like prose;
 # only headings, figures, tables, comments and note definitions end a thought.
-_CANNOT_RUN_ON = re.compile(r"^(#|!\[|\||<!--|\[\^)")
+_CANNOT_RUN_ON = re.compile(r"^(#|!\[|\||<!--|\[\^|\$\$)")
 # A figure or table label as OCR reads it - plain text at the top of the page
 # ("FIGURE 3.4 CYCLES OF RESEARCH QUESTION DEVELOPMENT"), not the sentence
 # that runs on from the page before.
@@ -695,6 +700,10 @@ def _complete_sentences_across_page_breaks(lines: List[str]) -> List[str]:
         while before >= 0 and (lines[before].startswith("![") or _CAPTION_LINE.match(lines[before])):
             before -= 1
         if before < 0 or _CANNOT_RUN_ON.match(lines[before]) or is_label(lines[before]):
+            continue
+        # A plain-text equation is an ordinary-looking line; the anchor just
+        # above it is the only thing that says it is not a sentence to finish.
+        if before >= 1 and lines[before - 1].startswith("<!-- equation-id:"):
             continue
         after = index + 1
         while after < len(lines) and (
@@ -893,6 +902,11 @@ def generate_docx(
         title_is_h1="title" in front_matter_kinds,
     )
     note_registries = _NoteRegistries(document.footnotes)
+    if document.equations:
+        note_registries.equations = EquationRender(
+            document, lambda paragraph, text: _add_formatted_run(paragraph, text, False, False)
+        )
+    equation_skip_index = -1
     pipe_table_rows: list = []
     pipe_table_header_count = 0
     pending_table_id: Optional[str] = None
@@ -1136,6 +1150,20 @@ def generate_docx(
         # Table-summary and table-id accessibility comments — handled
         # separately; never rendered as body text.
         if _TABLE_SUMMARY_COMMENT_PATTERN.match(line):
+            continue
+
+        # An equation is rendered from the Equation its id names (docs/
+        # EQUATION_DESIGN.md); the line after the anchor restates it and is
+        # dropped. An id the model does not know drops only the comment, so the
+        # restating line still shows as text rather than the equation vanishing.
+        if index == equation_skip_index:
+            continue
+        equation_id_match = _EQUATION_ID_COMMENT_PATTERN.match(line)
+        if equation_id_match:
+            renderer = note_registries.equations
+            if renderer is not None and renderer.display(docx_document, equation_id_match.group(1)):
+                equation_skip_index = index + 1
+            pending_caption_after_image = False
             continue
 
         list_id_match = _LIST_ID_COMMENT_PATTERN.match(line)
@@ -1690,10 +1718,22 @@ def _add_body_text_with_inline_format(
     ``text`` and emit each segment as a formatted run (016G). Footnote
     references within a formatted segment inherit the segment's bold/italic.
     """
+    equations = registries.equations
     for segment_text, is_bold, is_italic in _parse_inline_format(text):
-        _add_text_with_note_references(
-            paragraph, segment_text, registries, bold=is_bold, italic=is_italic
-        )
+        if equations is None:
+            _add_text_with_note_references(
+                paragraph, segment_text, registries, bold=is_bold, italic=is_italic
+            )
+            continue
+        for kind, payload in equations.split_inline(segment_text):
+            if kind == "text":
+                _add_text_with_note_references(
+                    paragraph, payload, registries, bold=is_bold, italic=is_italic
+                )
+            elif kind == "equation":
+                equations.add_inline(paragraph, payload)
+            else:
+                equations.add_reference(paragraph, payload)
 
 
 def _add_body_paragraph(

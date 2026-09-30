@@ -156,6 +156,7 @@ def validate_document(document: Document) -> List[ValidationIssue]:
     issues.extend(_check_failed_image_extraction(document))
     issues.extend(_check_duplicate_image_ids(document))
     issues.extend(_check_pending_alt_text_review(document))
+    issues.extend(_check_flagged_equations(document))
     issues.extend(_check_docx_embedding_failures(document))
     issues.extend(_check_footnotes_detected(document))
     issues.extend(_check_endnotes_detected(document))
@@ -958,6 +959,35 @@ def _check_failed_image_extraction(document: Document) -> List[ValidationIssue]:
                     suggested_action="Inspect the source PDF's image data on this page; extraction may need manual recovery.",
                 )
             )
+    return issues
+
+
+def _check_flagged_equations(document: Document) -> List[ValidationIssue]:
+    """EQUATION_001 — one INFO issue per equation RAWRS was not confident
+    converting (docs/EQUATION_DESIGN.md: the review queue for FLAGGED).
+
+    INFO, not a blocker: a flagged equation still ships the best conversion
+    available (or its text), and the reviewer clears it by correcting the
+    LaTeX, which re-derives its status. The checklist audit reports the same
+    equations as manual (DR-EQ).
+    """
+    issues: List[ValidationIssue] = []
+    for equation in getattr(document, "equations", []) or []:
+        if equation.status.value != "flagged":
+            continue
+        reasons = "; ".join(equation.flag_reasons) or "flagged"
+        issues.append(
+            ValidationIssue(
+                severity=Severity.INFO,
+                rule_id="EQUATION_001",
+                message=f"Equation '{equation.id}' needs review: {reasons}. LaTeX: {equation.latex[:80]}",
+                page_number=equation.page_number,
+                suggested_action=(
+                    "Compare the equation with the PDF and correct its LaTeX, number or "
+                    "description; a corrected equation is converted again."
+                ),
+            )
+        )
     return issues
 
 

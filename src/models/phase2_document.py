@@ -25,6 +25,9 @@ class P2BlockType(str, Enum):
     PAGE_MARKER = "page_marker"
     SEPARATOR = "separator"
     PUBLISHER_LINE = "publisher_line"
+    # A display equation: ``text`` holds the raw LaTeX body, ``equation_env``
+    # the environment/delimiter it came in (docs/EQUATION_DESIGN.md F1-F3).
+    EQUATION = "equation"
 
 
 class P2ListStyle(str, Enum):
@@ -105,6 +108,7 @@ class P2Block:
     list_style: Optional[P2ListStyle] = None
     list_number: Optional[int] = None
     source_line: int = 0
+    equation_env: Optional[str] = None
 
 
 @dataclass
