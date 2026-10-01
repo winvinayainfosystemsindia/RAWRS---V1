@@ -15,6 +15,7 @@ export const RULE_CATEGORY_LABELS: Record<string, string> = {
   TABLE: "Table",
   LIST: "List",
   CALLOUT: "Callout",
+  EQUATION: "Equation",
 };
 
 // PAGE_003 (reading-order anomalies) is split out from the generic
@@ -59,6 +60,7 @@ export const CATEGORY_ORDER = [
   "Table",
   "List",
   "Callout",
+  "Equation",
   "Footnote/Endnote",
   "OCR",
 ];

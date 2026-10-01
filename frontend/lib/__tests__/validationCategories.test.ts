@@ -1,4 +1,4 @@
-import { isActionable } from "@/lib/validationCategories";
+import { categoryOf, isActionable } from "@/lib/validationCategories";
 
 // Queue Signal Improvement — the actionability invariant.
 //
@@ -32,6 +32,11 @@ const ACTIONABLE_RULES: Array<[string, string]> = [
   ["TABLE_002", "Add a prose summary in the Tables workspace."],
   ["TABLE_004", "Fill in the empty header cell."],
   ["DOC_004", "Confirm the surrounding text still reads correctly."],
+  // EQUATION_001 — one INFO issue per equation the converter was not
+  // confident about (src/validation/validator.py _check_flagged_equations).
+  // Carries a suggested_action, so it is a real remediation task in the
+  // queue: correct the LaTeX/number/description in the Equations panel.
+  ["EQUATION_001", "Compare the equation with the PDF and correct its LaTeX, number or description."],
 ];
 
 // Cross-source verification rules — every one has suggested_action=null.
@@ -73,6 +78,15 @@ describe("isActionable", () => {
     for (const rule_id of VERIFY_RULES) {
       expect(isActionable(mk(rule_id, null))).toBe(false);
     }
+  });
+
+  it("labels EQUATION_001 under an Equation category, not a raw prefix", () => {
+    // EQUATION_001 fired on real documents before this mapping existed and
+    // rendered with the raw prefix "EQUATION" as its category; the queue's
+    // category dropdown derived from categoryOf silently showed it
+    // unlabeled and sorted last. Lock the human label and its place in the
+    // canonical display order.
+    expect(categoryOf("EQUATION_001")).toBe("Equation");
   });
 
   it("holds the corpus invariant: actionable <=> not a _VERIFY_ rule", () => {
