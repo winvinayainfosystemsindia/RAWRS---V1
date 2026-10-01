@@ -24,6 +24,18 @@ export default function SiteLayout({ children }: { children: React.ReactNode }) 
             >
               New Document
             </Link>
+            <Link
+              href="/documents"
+              className="rounded text-sm text-text-secondary transition-colors hover:text-text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              Documents
+            </Link>
+            <Link
+              href="/settings"
+              className="rounded text-sm text-text-secondary transition-colors hover:text-text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              Settings
+            </Link>
             <ThemeToggle />
           </nav>
         </div>
