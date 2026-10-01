@@ -4,6 +4,8 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, ApiError, type JobSummary } from "@/lib/api";
 import { JobStatusBadge } from "@/components/Badge";
+import { DropZone } from "@/components/DropZone";
+import { BatchUpload } from "@/components/BatchUpload";
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
@@ -14,55 +16,6 @@ function formatBytes(n: number): string {
 }
 
 const RECENT_POLL_INTERVAL_MS = 3000;
-
-// ─── Generic file drop zone ───────────────────────────────────────────────────
-
-interface DropZoneProps {
-  accept: string;
-  multiple?: boolean;
-  disabled?: boolean;
-  onFiles: (files: File[]) => void;
-  children: React.ReactNode;
-  className?: string;
-}
-
-function DropZone({ accept, multiple, disabled, onFiles, children, className = "" }: DropZoneProps) {
-  const [dragging, setDragging] = useState(false);
-  const inputId = useId();
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const pick = useCallback(
-    (files: FileList | null) => {
-      if (!files || files.length === 0) return;
-      onFiles(Array.from(files));
-    },
-    [onFiles]
-  );
-
-  return (
-    <label
-      htmlFor={inputId}
-      onDragOver={(e) => { e.preventDefault(); if (!disabled) setDragging(true); }}
-      onDragLeave={() => setDragging(false)}
-      onDrop={(e) => { e.preventDefault(); setDragging(false); if (!disabled) pick(e.dataTransfer.files); }}
-      className={`flex cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed p-5 text-center transition-colors focus-within:ring-2 focus-within:ring-accent ${
-        dragging ? "border-accent bg-accent/10" : "border-border bg-surface-canvas hover:border-border-strong hover:bg-hover-row"
-      } ${disabled ? "pointer-events-none opacity-50" : ""} ${className}`}
-    >
-      {children}
-      <input
-        ref={inputRef}
-        id={inputId}
-        type="file"
-        accept={accept}
-        multiple={multiple}
-        className="sr-only"
-        disabled={disabled}
-        onChange={(e) => pick(e.target.files)}
-      />
-    </label>
-  );
-}
 
 // ─── Stage 1: Mathpix Package ─────────────────────────────────────────────────
 
@@ -487,6 +440,18 @@ export default function UploadPage() {
         {uploadError && (
           <p role="alert" className="mt-3 text-sm text-danger">{uploadError}</p>
         )}
+      </section>
+
+      {/* Batch upload — a frontend queue; the backend takes one file per
+          request, so files are uploaded strictly one at a time. */}
+      <section aria-labelledby="batch-upload-outer-heading">
+        <h2
+          id="batch-upload-outer-heading"
+          className="mb-3 text-xs font-semibold uppercase tracking-wider text-text-secondary"
+        >
+          Batch Upload
+        </h2>
+        <BatchUpload />
       </section>
 
       {/* Recent documents */}

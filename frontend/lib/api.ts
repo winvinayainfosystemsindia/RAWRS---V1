@@ -381,7 +381,8 @@ export const api = {
     file: File,
     mmdFile?: File,
     imageFiles?: File[],
-    enableOcr = true
+    enableOcr = true,
+    signal?: AbortSignal
   ): Promise<UploadResponse> {
     const formData = new FormData();
     formData.append("file", file);
@@ -394,6 +395,7 @@ export const api = {
     return request<UploadResponse>(`/api/documents?enable_ocr=${enableOcr}`, {
       method: "POST",
       body: formData,
+      signal,
     });
   },
 
