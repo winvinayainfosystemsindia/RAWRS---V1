@@ -2,9 +2,9 @@
 
 Next.js/React/TypeScript/Tailwind review platform for the RAWRS accessibility remediation pipeline. Talks to the FastAPI backend in `../src/api/` at the URL in `NEXT_PUBLIC_API_BASE_URL` (`.env.local` sets `http://127.0.0.1:8001` for local development; the value is fixed at build time, so a hosted build needs the hosted API URL — see `../docs/DEPLOYMENT.md`).
 
-**Equations:** the backend exposes `GET/PATCH /api/documents/{id}/equations` and raises `EQUATION_001` in the validation queue; there is **no equations panel in the frontend yet**.
+**Equations:** the backend exposes `GET/PATCH /api/documents/{id}/equations` and raises `EQUATION_001` in the validation queue; the **Equations workspace** (flagged-only filter, LaTeX/number/description editing, correction history with undo) reviews them.
 
-**Upload:** a PDF is required; a Mathpix MMD export is optional. **Workspace:** VS Code-style, full-width, with PDF, editable Markdown and live DOCX preview side by side. Tests: `npx jest --ci` (14 suites / 38 tests in CI on 2026-09-28), `npx tsc --noEmit`, `npm run build`.
+**Upload:** a PDF is required; a Mathpix MMD export is optional; **batch upload** queues many PDFs one at a time. **Dashboard:** `/documents` lists every processed document with counts, search and filters. **Workspace:** VS Code-style, full-width, with PDF, editable Markdown and live DOCX preview side by side; the **Export Center** composes readiness, the checklist audit and downloads. **Settings:** `/settings` shows theme, backend URL, AI status and version. Tests: `npx jest --ci` (15 suites / 45 tests in CI on 2026-10-01), `npx tsc --noEmit`, `npm run build`.
 
 ## Getting started
 
@@ -25,7 +25,7 @@ uvicorn src.api.main:app --reload
 
 ## Structure
 
-- `app/` — Next.js App Router pages (`page.tsx` = upload page, `documents/[id]/` = per-document workspace)
+- `app/` — Next.js App Router pages (`page.tsx` = upload page, `documents/page.tsx` = documents dashboard, `documents/[id]/` = per-document workspace, `settings/page.tsx` = settings)
 - `components/` — review panels, grids, detail panels for every reviewable object type (headings, images, tables, lists, callouts, page labels, corrections)
 - `components/workspace/` — the `WorkspaceShell` layout: PDF/Markdown/DOCX center-pane switcher, `SemanticNavTree`, `ContextInspectorRail`, `BottomPanel`
 - `lib/api.ts` — typed client for the backend's REST API
