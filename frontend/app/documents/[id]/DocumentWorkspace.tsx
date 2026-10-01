@@ -28,7 +28,7 @@ import { usePdfViewport } from "@/lib/store/PdfViewportContext";
 import { useElapsedSeconds } from "@/lib/store/useElapsedSeconds";
 import { PipelineView } from "@/components/PipelineView";
 import { ResultsDashboard } from "@/components/ResultsDashboard";
-import { OutputWorkspace } from "@/components/OutputWorkspace";
+import { OutputWorkspace, DownloadControls } from "@/components/OutputWorkspace";
 import { MarkdownEditPane } from "@/components/MarkdownEditPane";
 import { DocxPreview } from "@/components/DocxPreview";
 import { WorkspaceShell } from "@/components/workspace/WorkspaceShell";
@@ -268,7 +268,7 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
     },
     { id: "page-labels", label: "Page Labels", count: pageLabels.length, urgentCount: labelConflicts },
     { id: "corrections", label: "Corrections", count: corrections.length, urgentCount: pendingCorrections },
-    { id: "readiness", label: "Accessibility Readiness" },
+    { id: "export-center", label: "Export Center" },
   ];
 
   function renderSpecialView() {
@@ -402,10 +402,9 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
             onCorrectionClick={handleCorrectionJump}
           />
         );
-      case "readiness":
+      case "export-center":
         return (
           <div className="space-y-6">
-            <ChecklistAuditPanel jobId={jobId} />
             <ReadinessPanel
               accessibilityReport={state.accessibilityReport}
               onSelectCategory={handleSelectCategory}
@@ -418,6 +417,16 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
                 focusQueue(ANY_OBJECT_TYPE);
               }}
             />
+            <ChecklistAuditPanel jobId={jobId} />
+            <section aria-labelledby="export-center-downloads-heading" className="rounded-xl border border-border bg-surface-panel p-5">
+              <h2
+                id="export-center-downloads-heading"
+                className="text-xs font-semibold uppercase tracking-wider text-text-secondary"
+              >
+                Downloads
+              </h2>
+              <DownloadControls job={job!} />
+            </section>
           </div>
         );
       default:

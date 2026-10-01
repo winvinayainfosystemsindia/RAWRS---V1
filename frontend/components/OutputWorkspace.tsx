@@ -163,7 +163,9 @@ interface DownloadControlsProps {
   job: JobSummary;
 }
 
-function DownloadControls({ job }: DownloadControlsProps) {
+// Exported for the Export Center (DocumentWorkspace's composed readiness +
+// checklist + downloads view) — one download-row implementation, never two.
+export function DownloadControls({ job }: DownloadControlsProps) {
   const buttons: {
     label: string;
     href?: string;
