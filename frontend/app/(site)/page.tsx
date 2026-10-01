@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { api, ApiError, type JobSummary } from "@/lib/api";
-import { JobStatusBadge } from "@/components/Badge";
+import { api, ApiError } from "@/lib/api";
 import { DropZone } from "@/components/DropZone";
 import { BatchUpload } from "@/components/BatchUpload";
 
@@ -14,8 +14,6 @@ function formatBytes(n: number): string {
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
-
-const RECENT_POLL_INTERVAL_MS = 3000;
 
 // ─── Stage 1: Mathpix Package ─────────────────────────────────────────────────
 
@@ -289,46 +287,6 @@ function ReadinessRow({ label, ready }: { label: string; ready: boolean }) {
   );
 }
 
-// ─── Recent documents ─────────────────────────────────────────────────────────
-
-// Live extracted-object counts for a job still processing — these fields
-// (heading/image/footnote counts) update as the poll below re-fetches the
-// list, before the job reaches a terminal status.
-function ExtractedCounts({ job }: { job: JobSummary }) {
-  const parts: string[] = [];
-  if (job.heading_count !== null) parts.push(`${job.heading_count} headings`);
-  if (job.image_count !== null) parts.push(`${job.image_count} images`);
-  if (job.footnote_count !== null) parts.push(`${job.footnote_count} notes`);
-  if (parts.length === 0) return null;
-  return <span className="text-text-secondary/70">{parts.join(" · ")}</span>;
-}
-
-function RecentDocuments({ jobs }: { jobs: JobSummary[] | null }) {
-  if (jobs === null) return <p className="text-sm text-text-secondary">Loading…</p>;
-  if (jobs.length === 0) return <p className="text-sm text-text-secondary">No documents have been processed yet.</p>;
-  return (
-    <ul className="divide-y divide-border rounded-lg border border-border bg-surface-panel">
-      {jobs.map((job) => (
-        <li key={job.job_id}>
-          <a
-            href={`/documents/${job.job_id}`}
-            className="flex items-center justify-between gap-4 p-4 hover:bg-hover-row focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
-            title={`${job.filename} — uploaded ${new Date(job.created_at).toLocaleString()}`}
-          >
-            <span className="min-w-0 flex-1 truncate text-sm font-medium text-text-primary">{job.filename}</span>
-            <span className="flex shrink-0 items-center gap-3 text-xs text-text-secondary">
-              {(job.status === "queued" || job.status === "processing") && <ExtractedCounts job={job} />}
-              {job.page_count !== null && <span>{job.page_count} pages</span>}
-              {job.duration_seconds !== null && <span>{job.duration_seconds.toFixed(1)}s</span>}
-              <JobStatusBadge status={job.status} />
-            </span>
-          </a>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function UploadPage() {
@@ -337,35 +295,6 @@ export default function UploadPage() {
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const [recent, setRecent] = useState<JobSummary[] | null>(null);
-
-  // Poll the recent-documents list while any job is still queued/processing,
-  // so heading/image/footnote counts and status update live without a
-  // manual refresh — same polling pattern as DocumentWorkspace.
-  useEffect(() => {
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout>;
-
-    async function poll() {
-      try {
-        const jobs = await api.listDocuments();
-        if (cancelled) return;
-        setRecent(jobs);
-        const anyActive = jobs.some((j) => j.status === "queued" || j.status === "processing");
-        if (anyActive) {
-          timer = setTimeout(poll, RECENT_POLL_INTERVAL_MS);
-        }
-      } catch {
-        if (!cancelled) setRecent((prev) => prev ?? []);
-      }
-    }
-
-    poll();
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, []);
 
   const mathpixReady = mathpix.markdownFile !== null;
   const pdfReady = pdfFile !== null;
@@ -454,12 +383,19 @@ export default function UploadPage() {
         <BatchUpload />
       </section>
 
-      {/* Recent documents */}
-      <section aria-labelledby="recent-heading">
-        <h2 id="recent-heading" className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-3">
-          Recent Documents
+      {/* The recent list moved to the /documents dashboard — the upload page
+          is about starting work, the dashboard is about finding it again. */}
+      <section aria-labelledby="all-documents-heading">
+        <h2 id="all-documents-heading" className="sr-only">
+          All documents
         </h2>
-        <RecentDocuments jobs={recent} />
+        <Link
+          href="/documents"
+          className="flex items-center justify-between rounded-lg border border-border bg-surface-panel px-4 py-3 text-sm font-medium text-accent hover:bg-hover-row focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          All documents
+          <span aria-hidden="true">&rarr;</span>
+        </Link>
       </section>
     </div>
   );

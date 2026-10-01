@@ -1,30 +1,19 @@
 import { render } from "@testing-library/react";
 import { axe } from "jest-axe";
-import { api } from "@/lib/api";
+import UploadPage from "@/app/(site)/page";
 
+// Landing / Upload page accessibility. Since the documents dashboard
+// (plan item 6) took over the recent-documents list, this page renders
+// synchronously — no listDocuments poll to wait for — so axe runs straight
+// after render. next/navigation is mocked at the module boundary because
+// the Run button's handler uses useRouter.
 jest.mock("next/navigation", () => ({
   useRouter: () => ({ push: jest.fn() }),
 }));
 
-import UploadPage from "@/app/(site)/page";
-
-// Landing / Upload (Phase F-2.1 minimum scope). next/navigation is mocked
-// at the module boundary; the API module is imported for real and only
-// its network-calling method is stubbed via jest.spyOn (a path-alias
-// jest.mock("@/lib/api", ...) failed to resolve reliably under next/jest's
-// module mapping — spying on the real, already-resolvable import sidesteps
-// that instead of fighting it) so the test exercises the real component's
-// rendering and accessibility tree without a live backend or router.
 describe("Landing / Upload page accessibility", () => {
   it("has no automatically detectable accessibility violations", async () => {
-    jest.spyOn(api, "listDocuments").mockResolvedValue([]);
-
-    const { container, findByText } = render(<UploadPage />);
-
-    // Wait for the initial recent-documents poll to resolve so the
-    // "Loading…" text isn't still present when axe runs.
-    await findByText(/no documents have been processed yet/i);
-
+    const { container } = render(<UploadPage />);
     expect(await axe(container)).toHaveNoViolations();
   });
 });
