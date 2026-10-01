@@ -159,6 +159,18 @@ export function IconCorrections(props: IconProps) {
   );
 }
 
+export function IconEquation(props: IconProps) {
+  return (
+    <Stroke {...props}>
+      <line x1="5" y1="7" x2="9" y2="12" />
+      <line x1="9" y1="7" x2="5" y2="12" />
+      <line x1="12.5" y1="9.5" x2="16.5" y2="9.5" />
+      <line x1="14.5" y1="7.5" x2="14.5" y2="11.5" />
+      <line x1="6" y1="16" x2="18" y2="16" />
+    </Stroke>
+  );
+}
+
 export function IconReadiness(props: IconProps) {
   return (
     <Stroke {...props}>

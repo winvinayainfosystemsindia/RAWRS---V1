@@ -48,7 +48,7 @@ function DocumentPoller({ jobId, reloadNonce }: { jobId: string; reloadNonce: nu
 
     async function loadResults(summary: Awaited<ReturnType<typeof api.getDocument>>) {
       const errors: string[] = [];
-      const [validation, images, tables, footnotes, headings, lists, callouts, metadata, pages, readingOrder, pageLabels, corrections] =
+      const [validation, images, tables, footnotes, headings, lists, callouts, equations, metadata, pages, readingOrder, pageLabels, corrections] =
         await Promise.all([
           tryLoad("validation", errors, () => api.getValidation(jobId), { issues: [], error_count: 0, warning_count: 0, info_count: 0 }),
           tryLoad("images", errors, () => api.getImages(jobId), { images: [] }),
@@ -57,6 +57,7 @@ function DocumentPoller({ jobId, reloadNonce }: { jobId: string; reloadNonce: nu
           tryLoad("headings", errors, () => api.getHeadings(jobId), { headings: [] }),
           tryLoad("lists", errors, () => api.getLists(jobId), { lists: [] }),
           tryLoad("callouts", errors, () => api.getCallouts(jobId), { callouts: [] }),
+          tryLoad("equations", errors, () => api.getEquations(jobId), { equations: [] }),
           tryLoad("metadata", errors, () => api.getMetadata(jobId), null),
           tryLoad("OCR pages", errors, () => api.getPages(jobId), { pages: [] }),
           tryLoad("reading order", errors, () => api.getReadingOrder(jobId), { pages: [] }),
@@ -79,6 +80,7 @@ function DocumentPoller({ jobId, reloadNonce }: { jobId: string; reloadNonce: nu
           footnotes: footnotes.footnotes,
           lists: lists.lists,
           callouts: callouts.callouts,
+          equations: equations.equations,
           corrections: corrections.corrections,
           pageLabels: pageLabels.pages,
           pageLabelSections: pageLabels.sections,

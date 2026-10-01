@@ -310,6 +310,41 @@ export interface CalloutsResponse {
   callouts: CalloutItem[];
 }
 
+// --- Equations (src/equations/, docs/EQUATION_DESIGN.md) --------------------
+
+export type EquationStatus = "converted" | "flagged" | "plain";
+
+export interface EquationItem {
+  equation_id: string;
+  page_number: number;
+  display: boolean;
+  latex: string;
+  latex_source: string;
+  number: string | null;
+  label: string | null;
+  status: EquationStatus;
+  flag_reasons: string[];
+  description: string | null;
+  /** Unicode plain-text reading of the equation (screen-reader facing). */
+  text: string;
+  before_text: string;
+  after_text: string;
+  source_line: number | null;
+  paragraph_id: string | null;
+}
+
+export interface EquationsResponse {
+  equations: EquationItem[];
+}
+
+/** Every field optional; at least one must be given. An empty number or
+ *  description clears it; blank LaTeX is refused by the backend. */
+export interface EquationEditRequest {
+  latex?: string | null;
+  number?: string | null;
+  description?: string | null;
+}
+
 export interface UploadResponse {
   job_id: string;
   filename: string;
@@ -393,6 +428,22 @@ export const api = {
 
   getCallouts(jobId: string): Promise<CalloutsResponse> {
     return request<CalloutsResponse>(`/api/documents/${jobId}/callouts`);
+  },
+
+  getEquations(jobId: string): Promise<EquationsResponse> {
+    return request<EquationsResponse>(`/api/documents/${jobId}/equations`);
+  },
+
+  /** Change an equation's LaTeX, number or description. All changed fields
+   *  go to the backend as one transaction, so a single undo reverts the
+   *  whole edit; the response is the re-derived equation (status may move
+   *  between converted/flagged). */
+  editEquation(jobId: string, equationId: string, body: EquationEditRequest): Promise<EquationItem> {
+    return request<EquationItem>(`/api/documents/${jobId}/equations/${equationId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
   },
 
   sourcePdfUrl(jobId: string): string {

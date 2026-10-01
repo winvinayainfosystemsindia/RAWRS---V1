@@ -6,6 +6,7 @@ import type {
   AiStatus,
   CalloutItem,
   CorrectionItem,
+  EquationItem,
   FootnoteItem,
   HeadingItem,
   ImageItem,
@@ -41,6 +42,7 @@ export interface DocumentEntities {
   footnotesById: Record<string, FootnoteItem>;
   listsById: Record<string, ListItem>;
   calloutsById: Record<string, CalloutItem>;
+  equationsById: Record<string, EquationItem>;
   correctionsById: Record<string, CorrectionItem>;
   pageLabelsByPage: Record<number, PageLabel>;
   pageLabelSections: PageLabelSection[];
@@ -71,6 +73,7 @@ const initialState: DocumentEntities = {
   footnotesById: {},
   listsById: {},
   calloutsById: {},
+  equationsById: {},
   correctionsById: {},
   pageLabelsByPage: {},
   pageLabelSections: [],
@@ -97,6 +100,7 @@ export type DocumentAction =
         footnotes: FootnoteItem[];
         lists: ListItem[];
         callouts: CalloutItem[];
+        equations: EquationItem[];
         corrections: CorrectionItem[];
         pageLabels: PageLabel[];
         pageLabelSections: PageLabelSection[];
@@ -117,6 +121,8 @@ export type DocumentAction =
   | { type: "REPLACE_IMAGES"; images: ImageItem[] }
   | { type: "UPDATE_FOOTNOTE"; footnote: FootnoteItem }
   | { type: "REPLACE_FOOTNOTES"; footnotes: FootnoteItem[] }
+  | { type: "UPDATE_EQUATION"; equation: EquationItem }
+  | { type: "REPLACE_EQUATIONS"; equations: EquationItem[] }
   | { type: "UPDATE_CORRECTION"; correction: CorrectionItem }
   | { type: "REPLACE_CORRECTIONS"; corrections: CorrectionItem[] }
   | { type: "UPDATE_METADATA"; metadata: MetadataItem }
@@ -151,6 +157,7 @@ function reducer(state: DocumentEntities, action: DocumentAction): DocumentEntit
         footnotesById: keyBy(action.payload.footnotes, footnoteKey),
         listsById: keyBy(action.payload.lists, listKey),
         calloutsById: keyBy(action.payload.callouts, calloutKey),
+        equationsById: keyBy(action.payload.equations, (e) => e.equation_id),
         correctionsById: keyBy(action.payload.corrections, (c) => c.correction_id),
         pageLabelsByPage: keyBy(action.payload.pageLabels, (p) => p.page_number),
         pageLabelSections: action.payload.pageLabelSections,
@@ -194,6 +201,13 @@ function reducer(state: DocumentEntities, action: DocumentAction): DocumentEntit
       };
     case "REPLACE_FOOTNOTES":
       return { ...state, footnotesById: keyBy(action.footnotes, footnoteKey) };
+    case "UPDATE_EQUATION":
+      return {
+        ...state,
+        equationsById: { ...state.equationsById, [action.equation.equation_id]: action.equation },
+      };
+    case "REPLACE_EQUATIONS":
+      return { ...state, equationsById: keyBy(action.equations, (e) => e.equation_id) };
     case "UPDATE_CORRECTION":
       return {
         ...state,
@@ -272,6 +286,7 @@ export const selectImages = (s: DocumentEntities): ImageItem[] => Object.values(
 export const selectFootnotes = (s: DocumentEntities): FootnoteItem[] => Object.values(s.footnotesById);
 export const selectLists = (s: DocumentEntities): ListItem[] => Object.values(s.listsById);
 export const selectCallouts = (s: DocumentEntities): CalloutItem[] => Object.values(s.calloutsById);
+export const selectEquations = (s: DocumentEntities): EquationItem[] => Object.values(s.equationsById);
 export const selectCorrections = (s: DocumentEntities): CorrectionItem[] => Object.values(s.correctionsById);
 export const selectPageLabels = (s: DocumentEntities): PageLabel[] => Object.values(s.pageLabelsByPage);
 export const selectReadingOrder = (s: DocumentEntities): PageReadingOrder[] =>

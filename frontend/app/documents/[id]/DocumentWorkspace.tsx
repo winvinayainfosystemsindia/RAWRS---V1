@@ -13,6 +13,7 @@ import {
   selectFootnotes,
   selectLists,
   selectCallouts,
+  selectEquations,
   selectCorrections,
   selectPageLabels,
   selectReadingOrder,
@@ -44,6 +45,7 @@ import { HeadingGrid } from "@/components/HeadingGrid";
 import { FootnoteTable } from "@/components/FootnoteTable";
 import { ListPanel } from "@/components/ListPanel";
 import { CalloutPanel } from "@/components/CalloutPanel";
+import { EquationsPanel } from "@/components/EquationsPanel";
 import { MetadataPanel } from "@/components/MetadataPanel";
 import { OcrPageTable } from "@/components/OcrPageTable";
 import { ReadingOrderPanel } from "@/components/ReadingOrderPanel";
@@ -197,11 +199,13 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
   const footnotes = selectFootnotes(state);
   const lists = selectLists(state);
   const callouts = selectCallouts(state);
+  const equations = selectEquations(state);
   const corrections = selectCorrections(state);
   const pageLabels = selectPageLabels(state);
   const readingOrder = selectReadingOrder(state);
 
   const pendingCorrections = corrections.filter(isPending).length;
+  const flaggedEquations = equations.filter((e) => e.status === "flagged").length;
   const unreviewedReadingOrder = readingOrder.filter(
     (p) => p.reading_order_status === "unreviewed"
   ).length;
@@ -253,6 +257,7 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
     { id: "footnotes", label: "Footnotes", count: footnotes.length },
     { id: "lists", label: "Lists", count: lists.length },
     { id: "callouts", label: "Callouts", count: callouts.length },
+    { id: "equations", label: "Equations", count: equations.length, urgentCount: flaggedEquations },
     { id: "metadata", label: "Metadata" },
     { id: "ocr", label: "OCR Pages" },
     {
@@ -355,6 +360,8 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
         return <ListPanel lists={lists} jobId={jobId} />;
       case "callouts":
         return <CalloutPanel callouts={callouts} jobId={jobId} />;
+      case "equations":
+        return <EquationsPanel equations={equations} jobId={jobId} />;
       case "metadata":
         return state.metadata ? (
           <MetadataPanel
