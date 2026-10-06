@@ -17,7 +17,7 @@ A single index of every document that governs or describes RAWRS, what each one 
 7. **Scope/constraint docs** (`PHASE1_SCOPE.md`, `RAWRS_PROJECT_CONTEXT.md`, `TECH_STACK.md`, `CLAUDE_INSTRUCTIONS.md`) — what's in/out of scope and which technologies are approved. High authority on *scope decisions* (these are stakeholder-level agreements, not casually overridden by a benchmark or a convenient implementation shortcut), but their *status claims* ("X is not supported") must match `PHASE_STATUS.md` — fixed where they didn't, in this audit.
 8. **`ARCHITECTURE.md`** — the canonical/target architecture. Authoritative on *intent*; `ARCHITECTURE_CURRENT.md` is authoritative on *fact* where the two differ.
 9. **Root-level planning/audit documents** (`BENCHMARK_GAP_ANALYSIS.md`, `BENCHMARK_RECONCILIATION_AND_PHASE1_PLAN.md`) — historical record of a specific past audit. Not maintained going forward; their durable conclusions have been folded into `DECISIONS_LOG.md` and `KNOWN_LIMITATIONS.md`. Keep them for the reasoning trail, but don't treat them as current.
-10. **`TASKS.md`** — lowest precedence. A coarse module checklist only; defers to `PHASE_STATUS.md` for anything beyond "does this file exist."
+10. **`TASKS.md`** — lowest precedence. A coarse module checklist only; defers to `PHASE_STATUS.md` for anything beyond "does this file exist." (Retired by `MASTER_IMPLEMENTATION_BACKLOG.md`, item P0-7 — the physical file now lives in `docs/archive/`; do not recreate it at the top level.)
 
 ---
 
@@ -29,7 +29,7 @@ A single index of every document that governs or describes RAWRS, what each one 
 |---|---|
 | `EQUATION_DESIGN.md` | Equation/STEM remediation: decisions, the checklist's Eq 1–7 rules, and §8 implementation notes (what differs from the design, what real data showed). Phase A built 2026-10-01. |
 | `STATUS_REPORT_2026-09-30.md` | **Newest.** Measured snapshot, done / open / planned, hosting cost estimates, and the questions the company must answer (licences, budget, auth). Reports follow the dated naming `STATUS_REPORT_<date>.md`; older ones are history. |
-| `CURRENT_STATE.md` | One-page answer to "what does RAWRS actually do right now." Newest dated update table is at the top; older sections below it are history. |
+| `CURRENT_STATE.md` | One-page answer to "what does RAWRS actually do right now." Newest dated update table is at the top; older sections below it are history. **(Removed from the working tree 2026-10-05, uncommitted deletion — pending user decision to restore or permanently retire; `PHASE_STATUS.md` and `STATUS_REPORT_2026-09-30.md` currently cover the same ground.)** |
 | `PHASE_STATUS.md` | Per-phase (A, B, C, D.0–D.2, H, F.1–F.5, K, I.1) verdict — VERIFIED COMPLETE / PARTIALLY IMPLEMENTED / etc. — with file:line citations and test references. The detailed companion to `CURRENT_STATE.md`. |
 | `ARCHITECTURE_CURRENT.md` | Actual pipeline stage order, full current module/model inventory, the two tracked deviations from `ARCHITECTURE.md`. |
 
@@ -82,6 +82,21 @@ The Phase 2 Engineering Blueprint (`RAWRS_Phase2_Engineering_Blueprint.md`) and 
 |---|---|
 | `research/phase1/benchmark_gap_analysis.md` | A point-in-time audit comparing RAWRS output against a 4-PDF benchmark set. Durable conclusions folded into `DECISIONS_LOG.md`/`KNOWN_LIMITATIONS.md`. Kept for its reasoning detail; don't treat its "current state" framing as current. |
 | `research/phase1/benchmark_reconciliation_and_phase1_plan.md` | The plan that resolved the nine conflicts (C1–C9) found in the gap analysis, including the source-of-truth precedence rule this very map extends. Same status as above. |
+
+### Orientation docs at the repository root (added 2026-10-05)
+
+| Document | What it's for |
+|---|---|
+| `techstack.md` (root) | Tech-lead orientation: every model and library RAWRS runs on, why it was chosen, version pins, licence caveats. Complements, does not replace, `TECH_STACK.md` (which remains the ratified scope doc for what stack choices are approved). |
+| `HOW_IT_WORKS.md` (root) | End-to-end flow of a document through RAWRS, how and why each technical aspect works the way it does, hardware impact, and measured baselines. |
+| `PRODUCT.md` (root) | Product register: who the users are, product purpose, design principles. UI/design-level, not pipeline-level. |
+
+---
+
+## Addendum (2026-10-05)
+
+* Root-level `techstack.md` and `HOW_IT_WORKS.md` created as new-orientation deliverables; see the new "Orientation docs" table above.
+* Root `README.md` corrected: frontend test count is **45 Jest tests / 15 suites** (verified live 2026-10-05), not the previously cited 38; the `CURRENT_STATE.md` table row replaced with a removal note.
 
 ---
 

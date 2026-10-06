@@ -108,7 +108,6 @@ result = run_pipeline(
 
 | File | Purpose |
 |------|---------|
-| `docs/CURRENT_STATE.md` | One-page summary of what RAWRS actually does today |
 | `docs/PHASE_STATUS.md` | Per-feature implementation status with test citations |
 | `docs/ARCHITECTURE_CURRENT.md` | Actual module inventory and pipeline order |
 | `docs/DECISIONS_LOG.md` | Why things are the way they are — all architecture decisions |
@@ -119,6 +118,8 @@ result = run_pipeline(
 | `docs/EQUATION_DESIGN.md` | How equations and `\ce` chemistry are remediated, and what real data showed |
 | `docs/CHECKLIST_COMPLIANCE.md` | Every remediation-checklist item, how RAWRS meets it, and the audit check |
 | `docs/DEPLOYMENT.md` | Hosting routes and what each one costs |
+
+(Note: `docs/CURRENT_STATE.md` was removed from the working tree on 2026-10-05 pending replacement — `PHASE_STATUS.md` and `docs/STATUS_REPORT_2026-09-30.md` cover the same ground. The root-level `techstack.md` and `HOW_IT_WORKS.md` are the new orientation docs.)
 
 The `docs/` folder also carries dated product audits (`RAWRS_PRODUCT_AUDIT_*.md`, `M1_*`, `P4C4_*`, `N2_*`, `N3_*`, `RAWRS_REMEDIATION_AUDIT_*.md`) that measure the benchmark corpus against the human-remediated targets and record what was deliberately *not* built at each step. Consult the latest one before implementing changes.
 
@@ -148,7 +149,7 @@ pytest -q
 
 Equation tests are `tests/test_equation_*.py`. Most need `pandoc` (PATH or `pypandoc-binary`) and skip without it; `test_equation_groundtruth.py` also needs the arXiv samples under `data/cache/equation_samples/` (git-ignored, list in `SOURCES.txt`) and skips without them.
 
-**CI status (2026-09-28, run 36454387742):** backend 2537 passed / **5 failed**, frontend 38 Jest tests passed. The 5 failures are all in `tests/test_pipeline.py`; three trace to a stale assertion that predates automatic alt text, two are not yet diagnosed. See `docs/STATUS_REPORT_2026-09-30.md` §4. The full suite takes tens of minutes and needs several GB of RAM — run it in batches.
+**CI status (2026-09-28, run 36454387742):** backend 2537 passed / **5 failed**, frontend 45 Jest tests passed (15 suites; verified live locally 2026-10-05). The 5 failures are all in `tests/test_pipeline.py`; three trace to a stale assertion that predates automatic alt text, two are not yet diagnosed. See `docs/STATUS_REPORT_2026-09-30.md` §4. The full suite takes tens of minutes and needs several GB of RAM — run it in batches.
 
 ---
 
