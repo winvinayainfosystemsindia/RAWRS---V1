@@ -166,7 +166,7 @@ Gotchas that have bitten people:
 
 ### Outputs layout (per job, under `outputs/`)
 
-`documents/{id}.json` (canonical model, incl. per-page `extraction_method` / `routing_decision` / `ocr_confidence` provenance) · `markdown/` · `docx/` · `reports/` · `jobs/` · `alt_text_dataset/`.
+`documents/{id}.json` (canonical model, incl. per-page `extraction_method` / `routing_decision` / `ocr_confidence` provenance) · `markdown/` · `docx/` · `reports/` · `jobs/` · `alt_text_dataset/` · `cache/ocr/` (OCR result cache) · `learning/{id}/` (downloaded and finished DOCX, plus their comparison; `docs/LEARNING_LOOP.md`).
 
 ---
 
@@ -220,6 +220,7 @@ Candidate replacements researched (GLM-OCR: MIT; PaddleOCR-VL-1.6 / Granite-Docl
 | Equations? | `docs/EQUATION_DESIGN.md` |
 | Done/open/planned + cost estimates? | `docs/STATUS_REPORT_2026-09-30.md` |
 | Checklists compliance? | `docs/CHECKLIST_COMPLIANCE.md` |
+| Learning from remediators, OCR cache? | `docs/LEARNING_LOOP.md` |
 | Latest product audits | `docs/RAWRS_REMEDIATION_AUDIT_2026-08-16.md`, `docs/RAWRS_POST_P4C_AUDIT_2026-08-15.md` |
 | OCR/Mathpix research (2 reports) | `docs/OCR_MATHPIX_REPLACEMENT_RESEARCH.md`, `docs/RAWRS_PDF_ONLY_RECONSTRUCTION_RESEARCH.md` |
 

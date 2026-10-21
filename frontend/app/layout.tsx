@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import { ThemeProvider, NO_FLASH_THEME_SCRIPT } from "@/lib/theme/ThemeProvider";
+import { BackendStatusNotice } from "@/components/BackendStatusNotice";
 import "./globals.css";
 
 const inter = Inter({ variable: "--font-inter", subsets: ["latin"] });
@@ -26,6 +27,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           >
             Skip to main content
           </a>
+          {/* Shown on every page only while the processing server is unreachable. */}
+          <BackendStatusNotice />
           {/* Site pages add their header/footer in app/(site)/layout.tsx; the
               document workspace fills the window with its own chrome. */}
           {children}

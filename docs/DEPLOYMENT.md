@@ -1,5 +1,7 @@
 # Deploying RAWRS
 
+**Status 2026-10-21:** the **frontend** is live on Vercel Hobby at **https://rawrs-v1.vercel.app** (the previous Vercel project had been deleted, so the URL returned `DEPLOYMENT_NOT_FOUND`; it was recreated). The **backend** is not hosted. It runs on the owner's laptop on request (see *Hosted frontend + laptop server* below), and while it is off the site shows an "offline — request access from the project owner" notice (`frontend/components/BackendStatusNotice.tsx`).
+
 **Status 2026-09-30:** nothing is deployed. The earlier plan (Vercel + Oracle Always Free + Cloudflare) cannot be completed without a payment card, and Oracle's free allowance has since shrunk. Prices and limits below were fetched on 2026-09-30 — see `STATUS_REPORT_2026-09-30.md` §6–7 for sources and the questions the company must answer first.
 
 ---
@@ -26,6 +28,54 @@ The frontend fits Vercel; the API needs a real machine.
 | **C. Oracle Always Free** | $0 | **Yes** — identity verification | 24×7 | Only if the company supplies a card; allowance is now **2 OCPU / 12 GB** (was 4 / 24) |
 
 The machine needs ≥ 8 GB RAM to run at all (API ~4 GB + Ollama `qwen2.5vl:3b` ~3 GB, per earlier measurements — not re-measured). 16 GB is comfortable; the 7.7 GB development laptop runs out of memory on full-corpus runs.
+
+---
+
+## Hosted frontend + laptop server (current setup)
+
+The Vercel build is made with `NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8001`, so the hosted site talks to **the server on the computer viewing it**.
+
+| Who opens the site | What happens |
+|---|---|
+| The owner, with the server running on their laptop | Full RAWRS: upload, review, export, insights |
+| Anyone else, or the owner with the server stopped | The interface loads; a notice at the top states the processing service is offline and that access must be requested from the project owner |
+
+To make the hosted site live on your laptop:
+
+```powershell
+$env:RAWRS_ALLOWED_ORIGINS = "https://rawrs-v1.vercel.app"   # CORS: allow the hosted site
+uvicorn src.api.main:app --port 8001
+```
+
+Then open https://rawrs-v1.vercel.app on the same laptop. Chrome may ask to allow the site to access devices on the local network; allow it, because that is the browser letting the hosted page reach `127.0.0.1`. Without the `RAWRS_ALLOWED_ORIGINS` line the browser blocks every request and the offline notice stays up even though the server is running.
+
+To show RAWRS to someone on another computer, use Route A below: a tunnel, plus a redeploy with the tunnel URL.
+
+Redeploy after frontend changes: `cd frontend; vercel --prod`. The project is not connected to GitHub, so a push does not deploy.
+
+---
+
+## Hosted frontend + laptop server (current setup)
+
+The Vercel build is made with `NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8001`, so the hosted site talks to **the server on the computer viewing it**.
+
+| Who opens the site | What happens |
+|---|---|
+| The owner, with the server running on their laptop | Full RAWRS: upload, review, export, insights |
+| Anyone else, or the owner with the server stopped | The interface loads; a notice at the top states the processing service is offline and that access must be requested from the project owner |
+
+To make the hosted site live on your laptop:
+
+```powershell
+$env:RAWRS_ALLOWED_ORIGINS = "https://rawrs-v1.vercel.app"   # CORS: allow the hosted site
+uvicorn src.api.main:app --port 8001
+```
+
+Then open https://rawrs-v1.vercel.app on the same laptop. Chrome may ask to allow the site to access devices on the local network; allow it, because that is the browser letting the hosted page reach `127.0.0.1`. Without the `RAWRS_ALLOWED_ORIGINS` line the browser blocks every request and the offline notice stays up even though the server is running.
+
+To show RAWRS to someone on another computer, use Route A below: a tunnel, plus a redeploy with the tunnel URL.
+
+Redeploy after frontend changes: `cd frontend; vercel --prod`. The project is not connected to GitHub, so a push does not deploy.
 
 ---
 

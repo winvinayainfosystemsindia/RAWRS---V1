@@ -52,6 +52,7 @@ import { ReadingOrderPanel } from "@/components/ReadingOrderPanel";
 import { PageLabelManagerPanel } from "@/components/PageLabelManagerPanel";
 import { CorrectionsPanel } from "@/components/CorrectionsPanel";
 import { ChecklistAuditPanel } from "@/components/ChecklistAuditPanel";
+import { FinalDocxPanel } from "@/components/FinalDocxPanel";
 import { ReadinessPanel } from "@/components/ReadinessPanel";
 
 // Naive positional line diff for the "flash changed lines" signal after a
@@ -427,6 +428,7 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
               </h2>
               <DownloadControls job={job!} />
             </section>
+            <FinalDocxPanel jobId={jobId} />
           </div>
         );
       default:

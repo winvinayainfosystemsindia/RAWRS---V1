@@ -31,6 +31,12 @@ export default function SiteLayout({ children }: { children: React.ReactNode }) 
               Documents
             </Link>
             <Link
+              href="/insights"
+              className="rounded text-sm text-text-secondary transition-colors hover:text-text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              Insights
+            </Link>
+            <Link
               href="/settings"
               className="rounded text-sm text-text-secondary transition-colors hover:text-text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >

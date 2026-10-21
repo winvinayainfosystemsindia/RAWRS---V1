@@ -26,6 +26,14 @@ import pytest
 # against the deterministic stub unless a test unsets this itself.
 os.environ.setdefault("RAWRS_AI_STUB", "1")
 
+# Real OCR runs fill outputs/cache/ocr (src/ocr/cache.py). A test that mocks the
+# engine on a benchmark PDF must see its mock, never a page a real run cached,
+# so the suite runs uncached unless a test opts in with its own directory.
+os.environ.setdefault("RAWRS_OCR_CACHE", "off")
+# Every download snapshots the DOCX into outputs/learning; tests that download
+# must not leave copies in the real output tree (tests opt in with tmp_path).
+os.environ.setdefault("RAWRS_LEARNING_SNAPSHOT", "off")
+
 BENCHMARK_DIR = Path(__file__).resolve().parents[1] / "samples" / "benchmark" / "pdfs"
 MANIFEST_PATH = Path(__file__).resolve().parents[1] / "samples" / "benchmark" / "manifest.json"
 

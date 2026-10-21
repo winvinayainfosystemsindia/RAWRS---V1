@@ -28,7 +28,7 @@ black-box call.
 from dataclasses import dataclass, field
 from pathlib import Path
 from time import perf_counter
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from loguru import logger
 
@@ -40,6 +40,7 @@ from src.models.contracts import (
     RoutingDecision,
     SanitizationEvent,
 )
+from src.ocr import cache as ocr_cache
 from src.ocr.docling_config import build_converter
 from src.ocr.extractor import normalize_whitespace
 from src.utils.text_sanitization import sanitize_xml_text
@@ -136,13 +137,18 @@ def run_docling_ocr(document: Document, metrics: Optional[OCRTimingMetrics] = No
         "Running Docling OCR for '{}': {} page(s) pending", pdf_path, len(pending_pages)
     )
 
-    try:
-        converter = build_converter()
-    except Exception as exc:
-        raise DoclingOCRError(f"Failed to initialize Docling for '{pdf_path}': {exc}") from exc
+    # A page cached from an earlier run of the same PDF needs no engine at all;
+    # a document whose every page is cached never loads Docling's models.
+    cached = {page.page_number: _cached_page(pdf_path, page.page_number) for page in pending_pages}
+    converter = None
+    if any(entry is None for entry in cached.values()):
+        try:
+            converter = build_converter()
+        except Exception as exc:
+            raise DoclingOCRError(f"Failed to initialize Docling for '{pdf_path}': {exc}") from exc
 
     for page in pending_pages:
-        events = _run_single_page(converter, pdf_path, page, metrics)
+        events = _run_single_page(converter, pdf_path, page, metrics, cached=cached[page.page_number])
         document.sanitization_events.extend(events)
 
     logger.info(
@@ -169,19 +175,61 @@ def ocr_page_texts(pdf_path: Path) -> List[str]:
 
         with fitz.open(str(pdf_path)) as pdf:
             page_count = pdf.page_count
-        converter = build_converter()
+        cached = {n: _cached_page(pdf_path, n) for n in range(1, page_count + 1)}
+        converter = build_converter() if any(e is None for e in cached.values()) else None
     except Exception as exc:
         logger.warning("OCR page texts unavailable for '{}': {}", pdf_path, exc)
         return []
     texts: List[str] = []
     for page_number in range(1, page_count + 1):
         try:
-            result = converter.convert(pdf_path, page_range=(page_number, page_number))
-            texts.append(result.document.export_to_text())
+            texts.append(_convert_page(converter, pdf_path, page_number, cached[page_number]).text)
         except Exception as exc:
             logger.warning("OCR of page {} failed: {}", page_number, exc)
             texts.append("")
     return texts
+
+
+# (label, raw text, raw Docling level) of one title/section-header item; the
+# level is read only for section headers, exactly as the heading code uses it.
+HeaderItem = Tuple[str, str, Optional[object]]
+
+
+@dataclass(frozen=True)
+class _DoclingPage:
+    """Docling's raw output for one page - all RAWRS reads from a conversion,
+    and therefore all the OCR cache needs to keep (src/ocr/cache.py)."""
+
+    text: str
+    # None when the structure could not be read: the page keeps its text and
+    # loses its headings, exactly as before the cache existed.
+    header_items: Optional[List[HeaderItem]]
+    from_cache: bool = False
+
+
+def _cached_page(pdf_path: Path, page_number: int) -> Optional[_DoclingPage]:
+    entry = ocr_cache.lookup("docling", pdf_path, page_number)
+    if entry is None or "header_items" not in entry:
+        return None
+    items = entry["header_items"]
+    return _DoclingPage(
+        text=entry["text"],
+        header_items=None if items is None else [(i[0], i[1], i[2]) for i in items],
+        from_cache=True,
+    )
+
+
+def _convert_page(
+    converter, pdf_path: Path, page_number: int, cached: Optional[_DoclingPage] = None
+) -> _DoclingPage:
+    """One page through Docling, or its cached result. Raises what the
+    conversion raises; a failure is never cached."""
+    if cached is not None:
+        return cached
+    result = converter.convert(pdf_path, page_range=(page_number, page_number))
+    page = _DoclingPage(result.document.export_to_text(), _header_items(result.document))
+    ocr_cache.store("docling", pdf_path, page_number, {"text": page.text, "header_items": page.header_items})
+    return page
 
 
 # Docling numbers section headers from 1; the document title sits above them.
@@ -198,18 +246,41 @@ def _layout_heading_levels(docling_document, cleaned_text: str) -> Dict[str, int
     be placed. Any failure reading the structure costs the page its headings,
     never its text.
     """
+    return _heading_levels_from_items(_header_items(docling_document), cleaned_text)
+
+
+def _header_items(docling_document) -> Optional[List[HeaderItem]]:
+    """The title/section-header items of a Docling document, raw - the part of
+    a conversion the cache keeps so heading levels are recomputed, never stored.
+    None when the structure cannot be read."""
     try:
-        lines = {line.strip() for line in cleaned_text.splitlines() if line.strip()}
-        levels: Dict[str, int] = {}
+        items: List[HeaderItem] = []
         for item, _ in docling_document.iterate_items():
             label = getattr(getattr(item, "label", None), "value", None)
             if label not in ("title", "section_header"):
                 continue
-            text, _ = sanitize_xml_text(normalize_whitespace(getattr(item, "text", "") or ""))
+            # Raw: converted to int only where the original code did, after the
+            # line match, so an odd level on an unplaced header changes nothing.
+            level = getattr(item, "level", 1) if label == "section_header" else None
+            items.append((label, getattr(item, "text", "") or "", level))
+        return items
+    except Exception as exc:  # structure is a bonus on top of the text
+        logger.warning("Could not read Docling layout headings: {}", exc)
+        return None
+
+
+def _heading_levels_from_items(items: Optional[List[HeaderItem]], cleaned_text: str) -> Dict[str, int]:
+    if items is None:
+        return {}
+    try:
+        lines = {line.strip() for line in cleaned_text.splitlines() if line.strip()}
+        levels: Dict[str, int] = {}
+        for label, raw_text, raw_level in items:
+            text, _ = sanitize_xml_text(normalize_whitespace(raw_text))
             text = text.strip()
             if text not in lines:
                 continue
-            level = 1 if label == "title" else min(int(getattr(item, "level", 1) or 1) + 1, _MAX_OCR_HEADING_LEVEL)
+            level = 1 if label == "title" else min(int(raw_level or 1) + 1, _MAX_OCR_HEADING_LEVEL)
             levels.setdefault(text, level)
         return levels
     except Exception as exc:  # structure is a bonus on top of the text
@@ -218,7 +289,11 @@ def _layout_heading_levels(docling_document, cleaned_text: str) -> Dict[str, int
 
 
 def _run_single_page(
-    converter, pdf_path: Path, page: Page, metrics: OCRTimingMetrics
+    converter,
+    pdf_path: Path,
+    page: Page,
+    metrics: OCRTimingMetrics,
+    cached: Optional[_DoclingPage] = None,
 ) -> List[SanitizationEvent]:
     """Convert one page via Docling and update it in place.
 
@@ -238,8 +313,8 @@ def _run_single_page(
     start = perf_counter()
 
     try:
-        result = converter.convert(pdf_path, page_range=(page_number, page_number))
-        text = result.document.export_to_text()
+        converted = _convert_page(converter, pdf_path, page_number, cached)
+        text = converted.text
     except Exception as exc:
         duration = perf_counter() - start
         metrics.record(page_number, duration)
@@ -261,13 +336,14 @@ def _run_single_page(
         page.raw_text = text
         cleaned, removed = sanitize_xml_text(normalize_whitespace(text))
         page.cleaned_text = cleaned
-        page.ocr_heading_levels = _layout_heading_levels(result.document, cleaned)
+        page.ocr_heading_levels = _heading_levels_from_items(converted.header_items, cleaned)
         page.ocr_confidence = OCRConfidence.MEDIUM
         logger.info(
-            "Page {} → Docling OCR in {:.2f}s ({} chars recovered)",
+            "Page {} → Docling OCR in {:.2f}s ({} chars recovered{})",
             page_number,
             duration,
             len(stripped),
+            ", cached" if converted.from_cache else "",
         )
         if removed:
             return [

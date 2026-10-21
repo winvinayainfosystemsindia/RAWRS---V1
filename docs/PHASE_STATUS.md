@@ -1153,3 +1153,18 @@ pre-existing; all previously invisible.
 
 **Retro-verified:** run against the pre-P2 renderer's own Markdown it reports exactly 20
 `lost_object` violations — the precise set the P2 investigation identified.
+
+---
+
+## Phase LL — Learning loop, OCR cache, hosted frontend (2026-10-21) · **IMPLEMENTED**
+
+Details: `docs/LEARNING_LOOP.md`. **No change to pipeline output.**
+
+| Item | Evidence |
+|---|---|
+| OCR result cache (`src/ocr/cache.py`) | Real Docling page 98.1 s → 0.26 s, 0/17 fields differ; 8 tests |
+| Proposal verdicts + reviewer edits → per-rule advice (`src/learning/decisions.py`) | Wilson 95% intervals, advice only; 19 tests |
+| Finished-in-Word DOCX diff + checklist delta (`src/learning/docx_diff.py`, `learning_routes.py`, `store.py`, `insights.py`) | 0.23 s on a real 161-unit export; 15 diff + 9 store/insights + 8 API tests |
+| `/insights` page, Export Center *Finished in Word* panel | 5 frontend tests incl. axe |
+| Offline notice on the hosted frontend (`BackendStatusNotice.tsx`) | 3 frontend tests incl. axe |
+| Persistence census test 17 → 18 (the equation endpoint, `a88f871`) | `tests/test_jobs_persistence.py` |

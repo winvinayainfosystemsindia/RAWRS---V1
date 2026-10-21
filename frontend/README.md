@@ -25,7 +25,7 @@ uvicorn src.api.main:app --reload
 
 ## Structure
 
-- `app/` — Next.js App Router pages (`page.tsx` = upload page, `documents/page.tsx` = documents dashboard, `documents/[id]/` = per-document workspace, `settings/page.tsx` = settings)
+- `app/` — Next.js App Router pages (`page.tsx` = upload page, `documents/page.tsx` = documents dashboard, `documents/[id]/` = per-document workspace, `settings/page.tsx` = settings, `insights/page.tsx` = what RAWRS learned from remediators, see `docs/LEARNING_LOOP.md`)
 - `components/` — review panels, grids, detail panels for every reviewable object type (headings, images, tables, lists, callouts, page labels, corrections)
 - `components/workspace/` — the `WorkspaceShell` layout: PDF/Markdown/DOCX center-pane switcher, `SemanticNavTree`, `ContextInspectorRail`, `BottomPanel`
 - `lib/api.ts` — typed client for the backend's REST API

@@ -28,6 +28,7 @@ The flow of a document through RAWRS, then every technical aspect explained with
 | **Per-page routing** (`src/ocr/router.py`) | Each page classified `DIRECT_TEXT` or `OCR_REQUIRED`: OCR if usable text < 20 chars or >10% control/replacement chars. | A single PDF can mix born-digital and scanned pages, so classification must be per-page. Native extraction is faster *and* more reliable than OCR when real text exists — OCR is used only where it must be. |
 | **Docling + RapidOCR as primary OCR** | Pages needing OCR run through Docling 2.87 with `force_full_page_ocr=True`; RapidOCR (PP-OCRv6, ONNX) does recognition on CPU. | Local-first, no cloud, CPU-capable, Apache-licensed. The force flag exists because Docling's *default* layout-driven OCR returned **zero text on real benchmark pages with genuine prose** — measured, not assumed. |
 | **Surya-2 fallback** | Runs only on pages Docling left **empty**; on this CPU box it auto-selects llama.cpp and spawns the upstream `llama-server` with `surya-2.gguf`. Its text is marked LOW confidence. | A vision-language model reads what classical OCR cannot — but costs ~6 min/page on CPU, so it's gated to run only when the primary failed. Confidence drops one rung because it only ever sees the hardest pages. |
+| **OCR result cache** (`src/ocr/cache.py`) | Raw engine output per page, keyed by PDF hash + page + engine versions + engine source. Re-processing a scanned page drops from ~98 s to 0.26 s. | Reruns of the same PDF (re-upload, settings change) paid full OCR again. Caching the *raw* output keeps every downstream step live, so output is identical. See [docs/LEARNING_LOOP.md](docs/LEARNING_LOOP.md). |
 | **Confidence + provenance per page** | Each page stores `extraction_method`, `routing_decision`, `ocr_confidence` (HIGH native / MEDIUM Docling / LOW Surya), printed page label. | A trust gradient lets downstream logic (reviewer attention, escalation) treat pages differently — and auditability is a core principle: every result must be traceable to its origin. |
 
 ### Understanding the document
@@ -166,4 +167,5 @@ Full list: [techstack.md §10](techstack.md).
 | What's actually built, phase by phase | `docs/PHASE_STATUS.md` |
 | The reasoning behind every decision above | `docs/DECISIONS_LOG.md`, `docs/ADR_2026-07-19.md`, `docs/ADR_2026-08-03.md` |
 | What's deliberately not built | `docs/KNOWN_LIMITATIONS.md` |
+| How RAWRS learns from remediators (decisions, workspace edits, finished-in-Word diffs) | `docs/LEARNING_LOOP.md` |
 | The OCR research | `docs/OCR_MATHPIX_REPLACEMENT_RESEARCH.md`, `docs/RAWRS_PDF_ONLY_RECONSTRUCTION_RESEARCH.md` |

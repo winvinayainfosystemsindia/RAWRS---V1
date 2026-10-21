@@ -2280,6 +2280,11 @@ def download_docx(job_id: str) -> FileResponse:
     # The path the export helper returns, not the pipeline's own file: after a
     # reviewer saves hand edits, that is the edited deliverable.
     path = _ensure_current_export(job, "docx") or job.result.docx_path
+    # The copy a finished DOCX is later compared against (docs/LEARNING_LOOP.md):
+    # what the remediator actually took into Word. Never raises.
+    from src.learning.store import snapshot_export
+
+    snapshot_export(DEFAULT_OUTPUT_ROOT, job_id, path)
     return _download(path, job.filename, ".docx")
 
 

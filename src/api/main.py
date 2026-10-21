@@ -26,6 +26,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from src.api.learning_routes import router as learning_router
 from src.api.routes import router
 
 
@@ -87,6 +88,7 @@ app.add_middleware(
 )
 
 app.include_router(router)
+app.include_router(learning_router)
 
 
 @app.get("/api/health")

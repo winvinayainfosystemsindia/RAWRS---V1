@@ -85,6 +85,10 @@ npm run dev
 
 **Open the frontend at `http://localhost:3000`, not `http://127.0.0.1:3000`.** Next.js's dev server blocks cross-origin dev requests (including its own hot-reload WebSocket) for any host other than the exact one it printed. Using `127.0.0.1` or a LAN IP silently breaks hot reload and can cause the browser to fall back to rapid full-page reloads, wiping in-progress form state (e.g. a file just selected in the upload form). See `frontend/next.config.ts`'s `allowedDevOrigins` and `docs/DECISIONS_LOG.md` Part 24.
 
+### Hosted frontend
+
+The frontend is published at **https://rawrs-v1.vercel.app**. Documents are processed only by a server the project owner runs on their own laptop, on request. While that server is not running, every page shows an official notice explaining that the processing service is offline and that access must be requested from the project owner. The interface can still be browsed. To use the hosted frontend with your own laptop's server, see `docs/DEPLOYMENT.md` → *Hosted frontend + laptop server*.
+
 The pipeline can also be called directly:
 
 ```python
@@ -117,7 +121,8 @@ result = run_pipeline(
 | `docs/STATUS_REPORT_2026-09-30.md` | Done / open / planned, hosting estimates, questions for the company |
 | `docs/EQUATION_DESIGN.md` | How equations and `\ce` chemistry are remediated, and what real data showed |
 | `docs/CHECKLIST_COMPLIANCE.md` | Every remediation-checklist item, how RAWRS meets it, and the audit check |
-| `docs/DEPLOYMENT.md` | Hosting routes and what each one costs |
+| `docs/DEPLOYMENT.md` | Hosting routes and what each one costs; how the hosted frontend reaches a server on the owner's laptop |
+| `docs/LEARNING_LOOP.md` | How RAWRS learns from remediators (proposal verdicts, workspace edits, finished-in-Word DOCX diffs) and the OCR result cache |
 
 (Note: `docs/CURRENT_STATE.md` was removed from the working tree on 2026-10-05 pending replacement — `PHASE_STATUS.md` and `docs/STATUS_REPORT_2026-09-30.md` cover the same ground. The root-level `techstack.md` and `HOW_IT_WORKS.md` are the new orientation docs.)
 

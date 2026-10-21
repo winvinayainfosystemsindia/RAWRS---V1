@@ -47,6 +47,7 @@ from src.models.contracts import (
     RoutingDecision,
     SanitizationEvent,
 )
+from src.ocr import cache as ocr_cache
 from src.ocr.docling_engine import OCRTimingMetrics
 from src.ocr.extractor import normalize_whitespace
 from src.ocr.surya_config import build_recognition_predictor, render_page_to_image
@@ -121,13 +122,21 @@ def run_surya_ocr(document: Document, metrics: Optional[OCRTimingMetrics] = None
         len(candidate_pages),
     )
 
-    try:
-        predictor = build_recognition_predictor()
-    except Exception as exc:
-        raise SuryaOCRError(f"Failed to initialize Surya for '{pdf_path}': {exc}") from exc
+    # Pages cached from an earlier run of the same PDF (src/ocr/cache.py) need
+    # no predictor; if every page is cached, Surya's models never load.
+    cached = {
+        page.page_number: ocr_cache.lookup("surya", pdf_path, page.page_number)
+        for page in candidate_pages
+    }
+    predictor = None
+    if any(entry is None for entry in cached.values()):
+        try:
+            predictor = build_recognition_predictor()
+        except Exception as exc:
+            raise SuryaOCRError(f"Failed to initialize Surya for '{pdf_path}': {exc}") from exc
 
     for page in candidate_pages:
-        events = _run_single_page(predictor, pdf_path, page, metrics)
+        events = _run_single_page(predictor, pdf_path, page, metrics, cached=cached[page.page_number])
         document.sanitization_events.extend(events)
 
     logger.info(
@@ -141,7 +150,11 @@ def run_surya_ocr(document: Document, metrics: Optional[OCRTimingMetrics] = None
 
 
 def _run_single_page(
-    predictor, pdf_path: Path, page: Page, metrics: OCRTimingMetrics
+    predictor,
+    pdf_path: Path,
+    page: Page,
+    metrics: OCRTimingMetrics,
+    cached: Optional[dict] = None,
 ) -> List[SanitizationEvent]:
     """Convert one page via Surya and update it in place.
 
@@ -160,9 +173,13 @@ def _run_single_page(
     start = perf_counter()
 
     try:
-        image = render_page_to_image(pdf_path, page_number)
-        [result] = predictor([image], full_page=True)
-        text = page_result_to_text(result)
+        if cached is not None:
+            text = cached["text"]
+        else:
+            image = render_page_to_image(pdf_path, page_number)
+            [result] = predictor([image], full_page=True)
+            text = page_result_to_text(result)
+            ocr_cache.store("surya", pdf_path, page_number, {"text": text})
     except Exception as exc:
         duration = perf_counter() - start
         metrics.record(page_number, duration)
@@ -186,10 +203,11 @@ def _run_single_page(
         page.cleaned_text = cleaned
         page.ocr_confidence = OCRConfidence.LOW
         logger.info(
-            "Page {} → Surya OCR in {:.2f}s ({} chars recovered)",
+            "Page {} → Surya OCR in {:.2f}s ({} chars recovered{})",
             page_number,
             duration,
             len(stripped),
+            ", cached" if cached is not None else "",
         )
         if removed:
             return [

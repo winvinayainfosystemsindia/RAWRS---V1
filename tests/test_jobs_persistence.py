@@ -519,11 +519,12 @@ class TestAllMutationSitesWired:
 
         The count is a census, so a new reviewer mutation endpoint raises
         it deliberately: 16 since W-2b added the paragraph text edit, 17 since
-        the corrections bulk-action endpoint (b3900dc).
+        the corrections bulk-action endpoint (b3900dc), 18 since the equation
+        review endpoint (a88f871).
         """
         source = Path("src/api/routes.py").read_text(encoding="utf-8")
-        assert source.count("_persist(job_id, payload)") == 17
-        assert source.count("payload = _snapshot(document)") == 17
+        assert source.count("_persist(job_id, payload)") == 18
+        assert source.count("payload = _snapshot(document)") == 18
 
     def test_snapshot_precedes_persist_in_every_case(self):
         """Serialize inside the lock, write after it (invariant 2)."""

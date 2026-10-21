@@ -351,6 +351,99 @@ export interface UploadResponse {
   status: JobStatus;
 }
 
+// --- Learning loop (docs/LEARNING_LOOP.md) -----------------------------------
+
+/** One thing a remediator changed in Word after downloading RAWRS's DOCX. */
+export interface DocxEdit {
+  category: string;
+  object_type: string;
+  before: string;
+  after: string;
+  field?: string;
+  similarity?: number;
+  word_changes?: { op: string; from: string; to: string }[];
+  position_before: number | null;
+  position_after: number | null;
+}
+
+export interface ChecklistChange {
+  item_id: string;
+  requirement: string;
+  before: ChecklistStatus;
+  after: ChecklistStatus;
+  evidence: string;
+}
+
+export interface FinalDocxReview {
+  job_id: string;
+  filename: string;
+  final_filename: string;
+  reviewed_at: string;
+  /** "downloaded_copy": compared with the DOCX the remediator actually
+   *  downloaded; "current_export": no download was recorded, so with the
+   *  export as it stands now. */
+  baseline: "downloaded_copy" | "current_export";
+  diff: {
+    summary: {
+      units_exported: number;
+      units_final: number;
+      units_kept: number;
+      kept_share: number | null;
+      edits: number;
+      by_category: Record<string, number>;
+    };
+    edits: DocxEdit[];
+  };
+  checklist: {
+    exported: { passed: boolean; summary: Record<ChecklistStatus, number> };
+    final: { passed: boolean; summary: Record<ChecklistStatus, number> };
+    fixed_by_remediator: ChecklistChange[];
+    regressed_by_remediator: ChecklistChange[];
+  } | null;
+}
+
+export interface LearningRule {
+  object_type: string;
+  reason_code: string;
+  counts: Record<string, number>;
+  documents: number;
+  decided: number;
+  precision: number | null;
+  precision_low: number;
+  precision_high: number;
+  edit_share: number | null;
+  auto_applied: number;
+  auto_undo_rate: number | null;
+  median_decision_seconds: number | null;
+  recommendation: string;
+  rationale: string;
+}
+
+export interface LearningInsights {
+  generated_at: string;
+  decisions: {
+    rules: LearningRule[];
+    human_edits: {
+      object_type: string;
+      reason_code: string;
+      count: number;
+      documents: number;
+      top_changes: { from: string; to: string; count: number }[];
+    }[];
+    totals: { documents: number; proposals: number; human_edits: number };
+  };
+  after_export: {
+    documents: number;
+    mean_kept_share: number | null;
+    categories: { category: string; object_type: string; count: number; documents: number; phrase: string }[];
+    word_substitutions: { from: string; to: string; count: number; documents: number }[];
+    checklist_fixed_by_remediators: { item_id: string; requirement: string; documents: number }[];
+    checklist_regressed_by_remediators: { item_id: string; requirement: string; documents: number }[];
+  };
+  priorities: { source: string; weight: number; message: string; recommendation?: string }[];
+  reviewed_documents: { job_id: string; filename: string; reviewed_at: string | null; kept_share: number | null; edits: number }[];
+}
+
 class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -376,6 +469,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   baseUrl: API_BASE_URL,
+
+  /** True when the processing server answers GET /api/health in time. The
+   *  hosted frontend is public, but the server runs on the owner's computer
+   *  and is often off; this lets the UI say so instead of failing quietly. */
+  async isBackendReachable(timeoutMs = 5000): Promise<boolean> {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/health`, { signal: AbortSignal.timeout(timeoutMs) });
+      return response.ok;
+    } catch {
+      return false;
+    }
+  },
 
   async uploadDocument(
     file: File,
@@ -414,6 +519,37 @@ export const api = {
   /** The two remediation checklists, ticked against the current DOCX export. */
   getChecklist(jobId: string): Promise<ChecklistReport> {
     return request<ChecklistReport>(`/api/documents/${jobId}/checklist`);
+  },
+
+  /** Upload the DOCX a remediator finished in Word; the response says what
+   *  they changed relative to RAWRS's export, and how the checklist moved. */
+  uploadFinalDocx(jobId: string, file: File): Promise<FinalDocxReview> {
+    const formData = new FormData();
+    formData.append("file", file);
+    return request<FinalDocxReview>(`/api/documents/${jobId}/final-docx`, { method: "POST", body: formData });
+  },
+
+  /** The stored comparison, or null when none has been uploaded. */
+  async getFinalDocxReview(jobId: string): Promise<FinalDocxReview | null> {
+    try {
+      return await request<FinalDocxReview>(`/api/documents/${jobId}/final-docx`);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) return null;
+      throw err;
+    }
+  },
+
+  async deleteFinalDocxReview(jobId: string): Promise<void> {
+    const response = await fetch(`${API_BASE_URL}/api/documents/${jobId}/final-docx`, { method: "DELETE" });
+    if (!response.ok && response.status !== 404) throw new ApiError(response.status, response.statusText);
+  },
+
+  getLearningInsights(): Promise<LearningInsights> {
+    return request<LearningInsights>("/api/learning/insights");
+  },
+
+  learningDatasetUrl(): string {
+    return `${API_BASE_URL}/api/learning/dataset`;
   },
 
   getImages(jobId: string): Promise<ImagesResponse> {
