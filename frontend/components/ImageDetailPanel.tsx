@@ -91,7 +91,7 @@ export function ImageDetailPanel({ image, jobId, aiStatus, onClose, onActionComp
         <div className="flex items-center justify-center rounded-md bg-surface-panel overflow-hidden max-h-64">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={image.url.startsWith("http") ? image.url : `${api.baseUrl}${image.url}`}
+            src={api.fileUrl(image.url)}
             alt={figure?.alt_text ?? `Image from page ${image.page_number}`}
             className="max-h-64 max-w-full object-contain"
           />

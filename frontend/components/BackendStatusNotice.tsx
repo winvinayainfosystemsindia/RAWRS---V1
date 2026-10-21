@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import Link from "next/link";
+import { api, DEMO_JOB_ID } from "@/lib/api";
 
 // The frontend is hosted publicly, but documents are processed by a server
 // the project owner runs on their own computer, on request. When that server
@@ -52,7 +53,12 @@ export function BackendStatusNotice() {
             To view RAWRS in operation, please contact the project owner and request access. Once your request has been
             approved, the owner will start the server and confirm when the service is available.
           </p>
-          <p className="text-xs text-text-secondary">You may continue to browse the interface in the meantime.</p>
+          <p className="text-sm text-text-primary">
+            In the meantime, you can explore a document RAWRS has already processed, in a read-only preview:{" "}
+            <Link href={`/documents/${DEMO_JOB_ID}`} className="font-semibold text-accent underline">
+              View sample document
+            </Link>
+          </p>
         </div>
         <button
           type="button"

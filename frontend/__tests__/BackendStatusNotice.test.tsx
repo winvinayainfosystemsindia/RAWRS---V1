@@ -19,6 +19,7 @@ test("explains that the server is offline and how to request access", async () =
     await screen.findByRole("heading", { name: "The RAWRS processing service is currently offline" })
   ).toBeInTheDocument();
   expect(screen.getByText(/contact the project owner and request access/)).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "View sample document" })).toHaveAttribute("href", "/documents/demo");
   expect(await axe(container)).toHaveNoViolations();
 });
 

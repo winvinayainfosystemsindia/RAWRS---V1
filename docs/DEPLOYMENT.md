@@ -38,7 +38,8 @@ The Vercel build is made with `NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8001`, 
 | Who opens the site | What happens |
 |---|---|
 | The owner, with the server running on their laptop | Full RAWRS: upload, review, export, insights |
-| Anyone else, or the owner with the server stopped | The interface loads; a notice at the top states the processing service is offline and that access must be requested from the project owner |
+| Anyone else, or the owner with the server stopped | The interface loads; a notice at the top states the processing service is offline and that access must be requested from the project owner, and links to the sample document |
+| Anyone, at `/documents/demo` | The full review workspace for one sample (the Brinkman benchmark paper: tables, figures, endnotes), read-only, served from `frontend/public/demo/` with no server |
 
 To make the hosted site live on your laptop:
 
@@ -53,29 +54,7 @@ To show RAWRS to someone on another computer, use Route A below: a tunnel, plus 
 
 Redeploy after frontend changes: `cd frontend; vercel --prod`. The project is not connected to GitHub, so a push does not deploy.
 
----
-
-## Hosted frontend + laptop server (current setup)
-
-The Vercel build is made with `NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8001`, so the hosted site talks to **the server on the computer viewing it**.
-
-| Who opens the site | What happens |
-|---|---|
-| The owner, with the server running on their laptop | Full RAWRS: upload, review, export, insights |
-| Anyone else, or the owner with the server stopped | The interface loads; a notice at the top states the processing service is offline and that access must be requested from the project owner |
-
-To make the hosted site live on your laptop:
-
-```powershell
-$env:RAWRS_ALLOWED_ORIGINS = "https://rawrs-v1.vercel.app"   # CORS: allow the hosted site
-uvicorn src.api.main:app --port 8001
-```
-
-Then open https://rawrs-v1.vercel.app on the same laptop. Chrome may ask to allow the site to access devices on the local network; allow it, because that is the browser letting the hosted page reach `127.0.0.1`. Without the `RAWRS_ALLOWED_ORIGINS` line the browser blocks every request and the offline notice stays up even though the server is running.
-
-To show RAWRS to someone on another computer, use Route A below: a tunnel, plus a redeploy with the tunnel URL.
-
-Redeploy after frontend changes: `cd frontend; vercel --prod`. The project is not connected to GitHub, so a push does not deploy.
+**Sample document.** `frontend/public/demo/` holds the API responses for the sample job, captured from a real RAWRS run with the job id rewritten to `demo`. `lib/api.ts` (`demoFile`, `fileUrl`) serves the `demo` job from these files and refuses every edit. To refresh it after a pipeline change, run RAWRS on the PDF (in a Codespace if the laptop runs short of memory), save each `GET /api/documents/{id}/…` response as `<endpoint>.json`, the source PDF, downloads and image files under the same names, then replace the id with `demo`.
 
 ---
 

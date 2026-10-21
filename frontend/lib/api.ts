@@ -452,8 +452,24 @@ class ApiError extends Error {
   }
 }
 
+// Demo mode: one sample document whose API responses were captured once and
+// ship as static files under public/demo, so the hosted workspace can be
+// explored while the processing server is off. It is read-only.
+export const DEMO_JOB_ID = "demo";
+export const DEMO_READ_ONLY_MESSAGE = "This is a read-only sample document. Changes cannot be saved in the preview.";
+const DEMO_DOWNLOADS = { markdown: "document.md", docx: "document.docx", report: "report.json" } as const;
+
+/** The static file that stands in for a demo-document API path, or null. */
+export function demoFile(path: string): string | null {
+  const match = path.match(/^\/api\/documents\/demo(\/[^?]*)?(\?.*)?$/);
+  if (!match) return null;
+  return `/demo${match[1] ?? "/index"}.json`;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, init);
+  const demo = demoFile(path);
+  if (demo && (init?.method ?? "GET") !== "GET") throw new ApiError(403, DEMO_READ_ONLY_MESSAGE);
+  const response = await fetch(demo ?? `${API_BASE_URL}${path}`, init);
   if (!response.ok) {
     let detail = response.statusText;
     try {
@@ -540,6 +556,7 @@ export const api = {
   },
 
   async deleteFinalDocxReview(jobId: string): Promise<void> {
+    if (jobId === DEMO_JOB_ID) throw new ApiError(403, DEMO_READ_ONLY_MESSAGE);
     const response = await fetch(`${API_BASE_URL}/api/documents/${jobId}/final-docx`, { method: "DELETE" });
     if (!response.ok && response.status !== 404) throw new ApiError(response.status, response.statusText);
   },
@@ -585,6 +602,7 @@ export const api = {
   },
 
   sourcePdfUrl(jobId: string): string {
+    if (jobId === DEMO_JOB_ID) return "/demo/source.pdf";
     return `${API_BASE_URL}/api/documents/${jobId}/source-pdf`;
   },
 
@@ -612,6 +630,7 @@ export const api = {
 
   /** The DOCX a Markdown draft would produce, without saving it. */
   async previewDocx(jobId: string, content: string, signal?: AbortSignal): Promise<ArrayBuffer> {
+    if (jobId === DEMO_JOB_ID) throw new ApiError(403, DEMO_READ_ONLY_MESSAGE);
     const response = await fetch(`${API_BASE_URL}/api/documents/${jobId}/docx-preview`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -622,11 +641,20 @@ export const api = {
     return response.arrayBuffer();
   },
 
+  /** Absolute URL for a file path the API returned, such as an image's `url`. */
+  fileUrl(url: string): string {
+    if (url.startsWith("http")) return url;
+    const demoImage = url.match(/^\/api\/documents\/demo\/images\/([^/]+)\/file$/);
+    return demoImage ? `/demo/images/${demoImage[1]}` : `${API_BASE_URL}${url}`;
+  },
+
   imageUrl(jobId: string, imageId: string): string {
+    if (jobId === DEMO_JOB_ID) return `/demo/images/${imageId}`;
     return `${API_BASE_URL}/api/documents/${jobId}/images/${imageId}/file`;
   },
 
   downloadUrl(jobId: string, kind: "markdown" | "docx" | "report"): string {
+    if (jobId === DEMO_JOB_ID) return `/demo/download/${DEMO_DOWNLOADS[kind]}`;
     return `${API_BASE_URL}/api/documents/${jobId}/download/${kind}`;
   },
 
@@ -687,6 +715,7 @@ export const api = {
   },
 
   async deleteTable(jobId: string, tableId: string): Promise<void> {
+    if (jobId === DEMO_JOB_ID) throw new ApiError(403, DEMO_READ_ONLY_MESSAGE);
     const response = await fetch(
       `${API_BASE_URL}/api/documents/${jobId}/tables/${tableId}`,
       { method: "DELETE" }

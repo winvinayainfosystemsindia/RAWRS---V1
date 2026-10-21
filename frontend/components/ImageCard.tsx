@@ -4,10 +4,6 @@ import { useState } from "react";
 import { api, type AiStatus, type ImageItem, type ReviewAction } from "@/lib/api";
 import { AiUnavailableBadge, AltTextStatusBadge } from "./Badge";
 
-function resolveImageUrl(url: string, baseUrl: string): string {
-  return url.startsWith("http") ? url : `${baseUrl}${url}`;
-}
-
 interface Props {
   image: ImageItem;
   jobId: string;
@@ -99,7 +95,7 @@ export function ImageCard({
           {image.url ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={resolveImageUrl(image.url, api.baseUrl)}
+              src={api.fileUrl(image.url)}
               alt={image.figure?.alt_text ?? `Image extracted from page ${image.page_number}`}
               className="max-h-full max-w-full object-contain"
             />

@@ -91,7 +91,7 @@ The repo includes a Codespaces setup (`.devcontainer/`, 4 cores / 16 GB) that in
 
 ### Hosted frontend
 
-The frontend is published at **https://rawrs-v1.vercel.app**. Documents are processed only by a server the project owner runs on their own laptop, on request. While that server is not running, every page shows an official notice explaining that the processing service is offline and that access must be requested from the project owner. The interface can still be browsed. To use the hosted frontend with your own laptop's server, see `docs/DEPLOYMENT.md` → *Hosted frontend + laptop server*.
+The frontend is published at **https://rawrs-v1.vercel.app**. Documents are processed only by a server the project owner runs on their own laptop, on request. While that server is not running, every page shows an official notice explaining that the processing service is offline and that access must be requested from the project owner. The notice links to a read-only sample, https://rawrs-v1.vercel.app/documents/demo: the full review workspace for one benchmark paper with tables, figures and endnotes, served from static files in `frontend/public/demo/`, so it works without the server. To use the hosted frontend with your own laptop's server, see `docs/DEPLOYMENT.md` → *Hosted frontend + laptop server*.
 
 The pipeline can also be called directly:
 
