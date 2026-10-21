@@ -6,9 +6,9 @@
 
 Institute of Education, London, UK
 
-![](outputs/images/032b0bccd958477fbd75887a0ab4fd7f/page1_img2_205b090c535f470698a28a7a12688698.png)
+![](outputs/images/62b5a707ec99455ba71367438281eb15/page1_img2_d21687758d7541b5979ee2146043c58a.png)
 
-![](outputs/images/032b0bccd958477fbd75887a0ab4fd7f/page1_img1_7d5754aa62d74bd8ba7fc5913d00fdf7.jpeg)
+![](outputs/images/62b5a707ec99455ba71367438281eb15/page1_img1_499a40f5c01b463080052a481f2a0733.jpeg)
 
 Article
 
@@ -136,7 +136,7 @@ Low-LCE belief score
 
 16
 
-![Figure 1. State-wise differences in LCE pedagogy and belief scores.: description pending human review](outputs/images/032b0bccd958477fbd75887a0ab4fd7f/page6_img1_729502fb074b4d7e9443728d2dc257c1.jpeg)
+![Two bar charts showing how many teachers in Bihar, Maharashtra and Kerala scored low, medium or high. LCE pedagogy scores: Bihar 12 low, 7 medium, 1 high; Maharashtra 8 low, 9 medium, 3 high; Kerala 0 low, 4 medium, 16 high. LCE belief scores: Bihar 9 low, 9 medium, 2 high; Maharashtra 5 low, 13 medium, 2 high; Kerala 0 low, 2 medium, 18 high. Most Kerala teachers scored high on both, while most Bihar and Maharashtra teachers scored low to medium.](outputs/images/62b5a707ec99455ba71367438281eb15/page6_img1_1b2776c1b42e4d949ab88c7946743a15.jpeg)
 
 *Figure 1. State-wise differences in LCE pedagogy and belief scores.*
 
@@ -332,7 +332,7 @@ Ten trainers spoke about teachers’ low motivation and commitment to their job 
 
 The research found ﬁve major factors that inﬂuence teachers’ beliefs. Two of these also shape the relationship between beliefs and practice: in some cases even when teachers did have more learner-centred beliefs, they failed to be translated into learner-centred practice when these mediating factors did not support this shift. These ﬁve factors are shown in Figure 2 and discussed brieﬂy below.
 
-![Figure 2. Factors shaping teachers’ beliefs.: description pending human review](outputs/images/032b0bccd958477fbd75887a0ab4fd7f/page12_img1_0ed32e110ad944228f36940cdbfbd81c.jpeg)
+![Diagram of four factors shaping teachers' beliefs, each linked by arrows to a central oval, Teacher beliefs, which has a two-way link to Teaching Practice. 1. Socio-cultural context: religious worldviews and ideologies (e.g. caste); societal norms and expectations. 2. Personal experiences: formal (schooling, training) and informal. 3. Educational context: school environment; systemic issues. 4. Teacher as professional: identity, knowledge, skills. The factors are also linked to one another, and educational context and teacher as professional connect directly to Teaching Practice.](outputs/images/62b5a707ec99455ba71367438281eb15/page12_img1_9db99403d3b84d8ebb6db67b6a288c31.jpeg)
 
 *Figure 2. Factors shaping teachers’ beliefs.*
 

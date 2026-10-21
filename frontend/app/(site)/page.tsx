@@ -3,7 +3,7 @@
 import { useCallback, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, DEMO_JOB_ID } from "@/lib/api";
 import { DropZone } from "@/components/DropZone";
 import { BatchUpload } from "@/components/BatchUpload";
 
@@ -329,6 +329,13 @@ export default function UploadPage() {
           Turns a PDF - born-digital or scanned - into an accessible, checklist-compliant
           DOCX and Markdown. A Mathpix package is optional.
         </p>
+        <Link
+          href={`/documents/${DEMO_JOB_ID}`}
+          className="mt-4 inline-flex items-center gap-2 rounded-lg border border-accent px-4 py-2 text-sm font-semibold text-accent hover:bg-hover-row focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          Explore a sample document
+          <span className="font-normal text-text-secondary">— read-only, no upload needed</span>
+        </Link>
       </section>
 
       {/* Upload form */}

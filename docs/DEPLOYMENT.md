@@ -54,7 +54,7 @@ To show RAWRS to someone on another computer, use Route A below: a tunnel, plus 
 
 Redeploy after frontend changes: `cd frontend; vercel --prod`. The project is not connected to GitHub, so a push does not deploy.
 
-**Sample document.** `frontend/public/demo/` holds the API responses for the sample job, captured from a real RAWRS run with the job id rewritten to `demo`. `lib/api.ts` (`demoFile`, `fileUrl`) serves the `demo` job from these files and refuses every edit. To refresh it after a pipeline change, run RAWRS on the PDF (in a Codespace if the laptop runs short of memory), save each `GET /api/documents/{id}/…` response as `<endpoint>.json`, the source PDF, downloads and image files under the same names, then replace the id with `demo`.
+**Sample document.** `frontend/public/demo/` holds the API responses for the sample job, captured from a real RAWRS run with the job id rewritten to `demo`. `lib/api.ts` (`demoFile`, `fileUrl`) serves the `demo` job from these files and refuses every edit. To refresh it after a pipeline change, run RAWRS on the PDF (in a Codespace if the laptop runs short of memory, with Ollama `qwen2.5vl:3b`), generate alt text for the two figures, check each draft against the figure and approve it (edited where the draft is wrong, as a reviewer would; the 2026-10-21 Figure 1 draft misread the chart), then save each `GET /api/documents/{id}/…` response as `<endpoint>.json`, the source PDF, downloads and image files under the same names, then replace the id with `demo`.
 
 ---
 

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { api, DEMO_JOB_ID } from "@/lib/api";
 
 // The frontend is hosted publicly, but documents are processed by a server
@@ -13,6 +14,7 @@ type Status = "checking" | "online" | "offline";
 
 export function BackendStatusNotice() {
   const [status, setStatus] = useState<Status>("checking");
+  const pathname = usePathname();
 
   const check = useCallback(() => {
     setStatus("checking");
@@ -29,7 +31,8 @@ export function BackendStatusNotice() {
     };
   }, []);
 
-  if (status === "online") return null;
+  // The sample document needs no server, so the notice would only take space there.
+  if (status === "online" || pathname === `/documents/${DEMO_JOB_ID}`) return null;
   if (status === "checking") {
     return (
       <p role="status" className="sr-only">

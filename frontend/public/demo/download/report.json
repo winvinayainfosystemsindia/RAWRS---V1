@@ -1,15 +1,15 @@
 {
   "source_pdf_path": "outputs/uploads/demo.pdf",
-  "generated_at": "2026-10-21T16:51:48.319826+00:00",
+  "generated_at": "2026-10-21T17:43:09.570711+00:00",
   "summary": {
     "error": 0,
     "warning": 34,
-    "info": 9,
-    "total": 43
+    "info": 7,
+    "total": 41
   },
   "issues": [
     {
-      "issue_id": "3eb29115-e3e0-46ba-8150-e69e2ce20469",
+      "issue_id": "9bc4a512-d2aa-4524-afb1-290827b8d4a6",
       "severity": "warning",
       "rule_id": "HEADING_001",
       "message": "Heading hierarchy jump detected: H1 ('Abstract') is directly followed by H3 ('Keywords').",
@@ -19,7 +19,7 @@
       "reviewed_at": null
     },
     {
-      "issue_id": "0b8fa5b4-ad89-4171-8ca7-662bcb5c7f0f",
+      "issue_id": "2caeeb20-d3e8-40ca-b9df-bb94aa556c93",
       "severity": "info",
       "rule_id": "META_001",
       "message": "No document language set. WCAG 3.1.1 requires the language to be programmatically determinable so screen readers use the correct voice.",
@@ -29,7 +29,7 @@
       "reviewed_at": null
     },
     {
-      "issue_id": "6d343444-42ef-441f-9825-3173b8d0b6cb",
+      "issue_id": "deeaa1cb-2b60-4fc7-9b7e-2d857910a8d0",
       "severity": "info",
       "rule_id": "META_002",
       "message": "No document title set. WCAG 2.4.2 requires documents to have a descriptive title so screen readers can identify the document when opened.",
@@ -39,7 +39,7 @@
       "reviewed_at": null
     },
     {
-      "issue_id": "ac56d3a9-d8e5-494a-be80-173298bf79f5",
+      "issue_id": "47dc60d9-bc13-47ea-b7e1-47bff46e748a",
       "severity": "warning",
       "rule_id": "PAGE_003",
       "message": "Reading order anomaly on page 1: 1 backward vertical jump(s).",
@@ -49,7 +49,7 @@
       "reviewed_at": null
     },
     {
-      "issue_id": "911f3fcf-87a3-4c05-a364-a676ff42f0ef",
+      "issue_id": "f6d3b344-9535-41b2-889d-97f24262306c",
       "severity": "warning",
       "rule_id": "PAGE_003",
       "message": "Reading order anomaly on page 2: 1 backward vertical jump(s).",
@@ -59,7 +59,7 @@
       "reviewed_at": null
     },
     {
-      "issue_id": "d756f4e4-27c3-42b5-a1aa-58d8d738bd36",
+      "issue_id": "d224a6a4-c4b2-4900-b76c-7352dfc9a531",
       "severity": "warning",
       "rule_id": "PAGE_003",
       "message": "Reading order anomaly on page 3: 1 backward vertical jump(s).",
@@ -69,7 +69,7 @@
       "reviewed_at": null
     },
     {
-      "issue_id": "d541b3f9-cf4f-44b9-b710-5b9c989e89dd",
+      "issue_id": "dd8b4f53-2eb0-4de7-9b0f-3dc0c8f2e10d",
       "severity": "warning",
       "rule_id": "PAGE_003",
       "message": "Reading order anomaly on page 4: 1 backward vertical jump(s).",
@@ -79,7 +79,7 @@
       "reviewed_at": null
     },
     {
-      "issue_id": "b0942ea7-f288-425b-98b9-4e0abc7edbcc",
+      "issue_id": "9c738f29-1440-4a09-8ab1-c1601f11b444",
       "severity": "warning",
       "rule_id": "PAGE_003",
       "message": "Reading order anomaly on page 5: 1 backward vertical jump(s).",
@@ -89,7 +89,7 @@
       "reviewed_at": null
     },
     {
-      "issue_id": "9e4d47ff-11ff-4028-8664-780e657b6ea7",
+      "issue_id": "c538d132-0f2b-4e13-8a4c-0126f2847b7b",
       "severity": "warning",
       "rule_id": "PAGE_003",
       "message": "Reading order anomaly on page 6: 2 backward vertical jump(s).",
@@ -99,7 +99,7 @@
       "reviewed_at": null
     },
     {
-      "issue_id": "03a5945b-3c89-4111-ac77-c2e3b2c1e9b5",
+      "issue_id": "b4fdaeb4-87cd-4f87-8641-503bb925e1f1",
       "severity": "warning",
       "rule_id": "PAGE_003",
       "message": "Reading order anomaly on page 7: 4 backward vertical jump(s).",
@@ -109,7 +109,7 @@
       "reviewed_at": null
     },
     {
-      "issue_id": "986927dd-bf5f-4a3d-a719-f970e7adb4ee",
+      "issue_id": "d5f6efd6-14dc-49dd-a8fb-42331035dff7",
       "severity": "warning",
       "rule_id": "PAGE_003",
       "message": "Reading order anomaly on page 8: 1 backward vertical jump(s).",
@@ -119,7 +119,7 @@
       "reviewed_at": null
     },
     {
-      "issue_id": "7c957f7c-02f7-4a3f-8b32-2d9f3e05f657",
+      "issue_id": "6cdec422-8852-48b3-ae94-3279c55e6878",
       "severity": "warning",
       "rule_id": "PAGE_003",
       "message": "Reading order anomaly on page 9: 8 backward vertical jump(s).",
@@ -129,7 +129,7 @@
       "reviewed_at": null
     },
     {
-      "issue_id": "8d8581bf-806a-496f-810e-04f9905e6ced",
+      "issue_id": "0c26496a-e719-4126-9268-a3422eb0a0e3",
       "severity": "warning",
       "rule_id": "PAGE_003",
       "message": "Reading order anomaly on page 10: 1 backward vertical jump(s).",
@@ -139,7 +139,7 @@
       "reviewed_at": null
     },
     {
-      "issue_id": "240bd180-afbe-4c7d-9b08-f3c78d128904",
+      "issue_id": "5d3edc0e-d367-48ab-8cf5-5970def18540",
       "severity": "warning",
       "rule_id": "PAGE_003",
       "message": "Reading order anomaly on page 11: 5 backward vertical jump(s).",
@@ -149,7 +149,7 @@
       "reviewed_at": null
     },
     {
-      "issue_id": "8d71e8ab-4f3f-453e-857f-cf8e47df576e",
+      "issue_id": "62831865-9ac8-4460-83d8-ee4548dc68cf",
       "severity": "warning",
       "rule_id": "PAGE_003",
       "message": "Reading order anomaly on page 12: 1 backward vertical jump(s).",
@@ -159,7 +159,7 @@
       "reviewed_at": null
     },
     {
-      "issue_id": "7203b979-1266-4241-b6e8-ef182091f84e",
+      "issue_id": "999fc13b-eebf-46a8-b695-61eb0d52f30a",
       "severity": "warning",
       "rule_id": "PAGE_003",
       "message": "Reading order anomaly on page 13: 1 backward vertical jump(s).",
@@ -169,7 +169,7 @@
       "reviewed_at": null
     },
     {
-      "issue_id": "640ec261-94d8-4cf9-8879-f8920da86650",
+      "issue_id": "917e85d4-f02e-4b00-8102-5589dc58ad2e",
       "severity": "warning",
       "rule_id": "PAGE_003",
       "message": "Reading order anomaly on page 14: 1 backward vertical jump(s).",
@@ -179,7 +179,7 @@
       "reviewed_at": null
     },
     {
-      "issue_id": "4fd464c9-73e8-4c4c-8019-5633ddc5b43c",
+      "issue_id": "f9e1ea8c-7b76-4cdd-a13b-d9468f9ffd16",
       "severity": "warning",
       "rule_id": "PAGE_003",
       "message": "Reading order anomaly on page 15: 4 backward vertical jump(s).",
@@ -189,7 +189,7 @@
       "reviewed_at": null
     },
     {
-      "issue_id": "df242789-0931-46ec-9ad5-8c40921e1f8e",
+      "issue_id": "ac75e100-f3ec-439d-89f1-d4fb6e78a66f",
       "severity": "warning",
       "rule_id": "PAGE_003",
       "message": "Reading order anomaly on page 16: 1 backward vertical jump(s).",
@@ -199,7 +199,7 @@
       "reviewed_at": null
     },
     {
-      "issue_id": "fa79a1fd-c756-463c-9efc-d791aca6ce7a",
+      "issue_id": "59989333-2683-4feb-9ed6-88e728ffc826",
       "severity": "warning",
       "rule_id": "PAGE_003",
       "message": "Reading order anomaly on page 17: 1 backward vertical jump(s).",
@@ -209,7 +209,7 @@
       "reviewed_at": null
     },
     {
-      "issue_id": "6f0597fd-3c28-4795-82c9-49692a79bc0e",
+      "issue_id": "dd664a7b-0470-4013-8721-c25fdbd61411",
       "severity": "warning",
       "rule_id": "PAGE_003",
       "message": "Reading order anomaly on page 18: 1 backward vertical jump(s).",
@@ -219,7 +219,7 @@
       "reviewed_at": null
     },
     {
-      "issue_id": "0ded461c-506f-4136-b15f-4bcc7c32b071",
+      "issue_id": "c5650e50-81dd-46fd-9d77-e97f089f9a8f",
       "severity": "warning",
       "rule_id": "DOC_004",
       "message": "Removed 1 XML-invalid character(s) (U+0002) from page_text on page 6 before export.",
@@ -229,7 +229,7 @@
       "reviewed_at": null
     },
     {
-      "issue_id": "ed7a497d-1b2c-4c5c-8811-480c99b7e86d",
+      "issue_id": "1f5d8766-056e-4f23-b0c3-fc9e78b6258f",
       "severity": "warning",
       "rule_id": "DOC_004",
       "message": "Removed 1 XML-invalid character(s) (U+0002) from page_text on page 7 before export.",
@@ -239,7 +239,7 @@
       "reviewed_at": null
     },
     {
-      "issue_id": "307b6889-2bfa-4456-a3ef-6be41a37e492",
+      "issue_id": "dcbc4922-68ab-4abd-b9bf-6346f6b9aa07",
       "severity": "warning",
       "rule_id": "DOC_004",
       "message": "Removed 1 XML-invalid character(s) (U+0002) from text_block on page 6 before export.",
@@ -249,7 +249,7 @@
       "reviewed_at": null
     },
     {
-      "issue_id": "0d87dce2-45f8-4628-a452-3fd549216809",
+      "issue_id": "44cb6350-687c-465c-927d-8ff3088887f5",
       "severity": "warning",
       "rule_id": "DOC_004",
       "message": "Removed 1 XML-invalid character(s) (U+0002) from text_block on page 7 before export.",
@@ -259,27 +259,7 @@
       "reviewed_at": null
     },
     {
-      "issue_id": "ad01a84b-3e38-4eef-bb71-9b9ea4a7e16e",
-      "severity": "info",
-      "rule_id": "IMAGE_004",
-      "message": "Image '729502fb074b4d7e9443728d2dc257c1' alt text is a placeholder pending human review.",
-      "page_number": 6,
-      "suggested_action": "Review and, if needed, replace the placeholder alt text before publishing this document.",
-      "status": "open",
-      "reviewed_at": null
-    },
-    {
-      "issue_id": "2568d91c-3993-4430-975a-1555f74fe9c9",
-      "severity": "info",
-      "rule_id": "IMAGE_004",
-      "message": "Image '0ed32e110ad944228f36940cdbfbd81c' alt text is a placeholder pending human review.",
-      "page_number": 12,
-      "suggested_action": "Review and, if needed, replace the placeholder alt text before publishing this document.",
-      "status": "open",
-      "reviewed_at": null
-    },
-    {
-      "issue_id": "23b23289-1c54-465e-b2bd-52824a043e5d",
+      "issue_id": "e56e2011-60ff-48fa-881a-9f43fdb5d4a4",
       "severity": "info",
       "rule_id": "NOTE_002",
       "message": "Endnote detected: marker '1' on page 2.",
@@ -289,7 +269,7 @@
       "reviewed_at": null
     },
     {
-      "issue_id": "fe63afa1-c26d-4018-94df-8c9746a89479",
+      "issue_id": "4f8ababf-c234-491f-89b8-885882ed5de1",
       "severity": "info",
       "rule_id": "NOTE_002",
       "message": "Endnote detected: marker '2' on page 3.",
@@ -299,7 +279,7 @@
       "reviewed_at": null
     },
     {
-      "issue_id": "e3e4cb6f-b78a-4079-9b89-207d54f1a3b9",
+      "issue_id": "235968c2-1bd7-4e4b-ac98-4d2be4cedbaa",
       "severity": "info",
       "rule_id": "NOTE_002",
       "message": "Endnote detected: marker '3' on page 7.",
@@ -309,7 +289,7 @@
       "reviewed_at": null
     },
     {
-      "issue_id": "07d3a124-cb92-486b-8ca8-2d697d6e0596",
+      "issue_id": "79e611da-519e-48c1-8f8f-41184283527c",
       "severity": "warning",
       "rule_id": "TABLE_001",
       "message": "Table 'table-p9-0' on page 9 has no caption. Blind users cannot know what this table is about without a caption.",
@@ -319,7 +299,7 @@
       "reviewed_at": null
     },
     {
-      "issue_id": "ab8027fa-0f7c-4e62-b67f-69265ebf9ea4",
+      "issue_id": "4921573c-a404-47d6-b6c5-90ae78b43d1b",
       "severity": "warning",
       "rule_id": "TABLE_002",
       "message": "Table 'table-p9-0' on page 9 has no accessibility summary (WCAG H73). Screen readers cannot describe complex table structure without it.",
@@ -329,7 +309,7 @@
       "reviewed_at": null
     },
     {
-      "issue_id": "e92f1c35-4520-4504-9aa1-ddf0b9baca10",
+      "issue_id": "5d335bd1-7781-4086-b584-f86bafea4c95",
       "severity": "warning",
       "rule_id": "TABLE_004",
       "message": "Table 'table-p9-0' on page 9 has an empty header cell at row 0, col 3. Screen readers will announce nothing for this column/row.",
@@ -339,7 +319,7 @@
       "reviewed_at": null
     },
     {
-      "issue_id": "e5eab4a2-e8ba-44c8-9070-fdc95e85de73",
+      "issue_id": "ed4147f8-7ee5-40c3-9466-5019eea78d2f",
       "severity": "warning",
       "rule_id": "TABLE_004",
       "message": "Table 'table-p9-0' on page 9 has an empty header cell at row 0, col 5. Screen readers will announce nothing for this column/row.",
@@ -349,7 +329,7 @@
       "reviewed_at": null
     },
     {
-      "issue_id": "9e0e1d09-1411-4055-8dec-8efa10ab2fa7",
+      "issue_id": "f976fa3a-0356-4d89-926b-a312cd09b128",
       "severity": "warning",
       "rule_id": "TABLE_004",
       "message": "Table 'table-p9-0' on page 9 has an empty header cell at row 0, col 6. Screen readers will announce nothing for this column/row.",
@@ -359,7 +339,7 @@
       "reviewed_at": null
     },
     {
-      "issue_id": "62a2f73b-b09a-4c16-acbe-180ce7346590",
+      "issue_id": "aa5ae515-d6ee-4104-af3d-3cd8a65db6dc",
       "severity": "warning",
       "rule_id": "TABLE_004",
       "message": "Table 'table-p9-0' on page 9 has an empty header cell at row 0, col 7. Screen readers will announce nothing for this column/row.",
@@ -369,7 +349,7 @@
       "reviewed_at": null
     },
     {
-      "issue_id": "4b411f2d-cf21-454b-958d-5027958e0589",
+      "issue_id": "a47cb4c1-9274-49be-acd8-70e94776ad73",
       "severity": "warning",
       "rule_id": "TABLE_004",
       "message": "Table 'table-p9-0' on page 9 has an empty header cell at row 0, col 8. Screen readers will announce nothing for this column/row.",
@@ -379,7 +359,7 @@
       "reviewed_at": null
     },
     {
-      "issue_id": "f06bb792-acb7-405a-8210-c230526576c6",
+      "issue_id": "9b03dfc5-e545-4fa0-a4d9-13edf21a79c7",
       "severity": "warning",
       "rule_id": "TABLE_001",
       "message": "Table 'table-p11-0' on page 11 has no caption. Blind users cannot know what this table is about without a caption.",
@@ -389,7 +369,7 @@
       "reviewed_at": null
     },
     {
-      "issue_id": "1eccd472-2237-4931-b9c7-b84c69f42ed4",
+      "issue_id": "44e83afc-cd8a-45b5-a91c-4fdfaf753485",
       "severity": "warning",
       "rule_id": "TABLE_002",
       "message": "Table 'table-p11-0' on page 11 has no accessibility summary (WCAG H73). Screen readers cannot describe complex table structure without it.",
@@ -399,7 +379,7 @@
       "reviewed_at": null
     },
     {
-      "issue_id": "8b6fb47e-44ef-4999-995b-83062917b507",
+      "issue_id": "b9de425c-b3e8-4dee-88b2-84918dbf09c9",
       "severity": "warning",
       "rule_id": "TABLE_004",
       "message": "Table 'table-p11-0' on page 11 has an empty header cell at row 0, col 6. Screen readers will announce nothing for this column/row.",
@@ -409,7 +389,7 @@
       "reviewed_at": null
     },
     {
-      "issue_id": "f9926a1f-b7ca-4c2f-af4b-d3bf45550d48",
+      "issue_id": "413af28e-7dd5-4fec-bdd1-4e49575d026f",
       "severity": "warning",
       "rule_id": "TABLE_004",
       "message": "Table 'table-p11-0' on page 11 has an empty header cell at row 0, col 7. Screen readers will announce nothing for this column/row.",
@@ -419,7 +399,7 @@
       "reviewed_at": null
     },
     {
-      "issue_id": "66d8070b-848f-47e6-b06b-e725ec0bb085",
+      "issue_id": "3a0dcae6-6aac-40f7-8483-0f71f0711b5d",
       "severity": "info",
       "rule_id": "FOOTNOTE_VERIFY_004",
       "message": "Page 17 has a line that reads as endnote 13's body ('__National_Report_on_Inclusive_Classroom.pdf (accessed 13 Ma'), but no marker in the text referenced it \u2014 the note is not being preserved as a note.",
@@ -429,7 +409,7 @@
       "reviewed_at": null
     },
     {
-      "issue_id": "411e232d-446e-424d-9d88-e551faca95d7",
+      "issue_id": "04f10e6b-af2b-47af-a7f4-5fe5345b5d90",
       "severity": "info",
       "rule_id": "FOOTNOTE_VERIFY_004",
       "message": "Page 17 has a line that reads as endnote 12's body ('pdf (accessed 25 July 2013). Government of India. (2009) The'), but no marker in the text referenced it \u2014 the note is not being preserved as a note.",

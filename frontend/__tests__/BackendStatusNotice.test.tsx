@@ -3,7 +3,21 @@ import { axe } from "jest-axe";
 import { BackendStatusNotice } from "@/components/BackendStatusNotice";
 import { api } from "@/lib/api";
 
-afterEach(() => jest.restoreAllMocks());
+let mockPathname = "/";
+jest.mock("next/navigation", () => ({ usePathname: () => mockPathname }));
+
+afterEach(() => {
+  jest.restoreAllMocks();
+  mockPathname = "/";
+});
+
+test("stays out of the way on the sample document, which needs no server", async () => {
+  mockPathname = "/documents/demo";
+  const probe = jest.spyOn(api, "isBackendReachable").mockResolvedValue(false);
+  const { container } = render(<BackendStatusNotice />);
+  await waitFor(() => expect(probe).toHaveBeenCalled());
+  expect(container).toBeEmptyDOMElement();
+});
 
 test("says nothing while the processing server is reachable", async () => {
   jest.spyOn(api, "isBackendReachable").mockResolvedValue(true);
