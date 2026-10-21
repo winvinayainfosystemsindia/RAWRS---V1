@@ -85,6 +85,10 @@ npm run dev
 
 **Open the frontend at `http://localhost:3000`, not `http://127.0.0.1:3000`.** Next.js's dev server blocks cross-origin dev requests (including its own hot-reload WebSocket) for any host other than the exact one it printed. Using `127.0.0.1` or a LAN IP silently breaks hot reload and can cause the browser to fall back to rapid full-page reloads, wiping in-progress form state (e.g. a file just selected in the upload form). See `frontend/next.config.ts`'s `allowedDevOrigins` and `docs/DECISIONS_LOG.md` Part 24.
 
+### GitHub Codespaces
+
+The repo includes a Codespaces setup (`.devcontainer/`, 4 cores / 16 GB) that installs the same toolchain CI uses, plus Claude Code. Open it with **Code → Codespaces → Create codespace on main**, or `gh codespace create -R winvinayainfosystemsindia/RAWRS---V1 -m standardLinux32gb`. Ports 8001 (API) and 3000 (frontend) are forwarded. The benchmark PDFs are gitignored (copyrighted), so tests that need them fail there exactly as in CI. A personal GitHub account's free Codespaces allowance covers about 30 hours a month on this machine size. Stop the codespace when you're done.
+
 ### Hosted frontend
 
 The frontend is published at **https://rawrs-v1.vercel.app**. Documents are processed only by a server the project owner runs on their own laptop, on request. While that server is not running, every page shows an official notice explaining that the processing service is offline and that access must be requested from the project owner. The interface can still be browsed. To use the hosted frontend with your own laptop's server, see `docs/DEPLOYMENT.md` → *Hosted frontend + laptop server*.
