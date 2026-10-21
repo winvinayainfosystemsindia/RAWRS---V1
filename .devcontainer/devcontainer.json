@@ -2,7 +2,7 @@
   // RAWRS in GitHub Codespaces: the same toolchain the Tests workflow uses
   // (.github/workflows/tests.yml), on a machine with room for the backend.
   "name": "RAWRS",
-  "image": "mcr.microsoft.com/devcontainers/python:1-3.11-bookworm",
+  "build": { "dockerfile": "Dockerfile" },
   "features": {
     "ghcr.io/devcontainers/features/node:1": { "version": "24" },
     "ghcr.io/devcontainers/features/github-cli:1": {},
