@@ -119,6 +119,7 @@ from src.models.contracts import (
     TextBlock,
     ValidationIssue,
 )
+from src.ocr.quality import garbled_lines
 from src.ocr.router import _MAX_UNUSABLE_CHAR_RATIO, _unusable_char_ratio
 
 
@@ -151,6 +152,7 @@ def validate_document(document: Document) -> List[ValidationIssue]:
     issues.extend(_check_page_labels(document))
     issues.extend(_check_low_ocr_confidence(document))
     issues.extend(_check_ocr_artifacts(document))
+    issues.extend(_check_garbled_ocr_text(document))
     issues.extend(_check_xml_invalid_characters(document))
     issues.extend(_check_missing_image_files(document))
     issues.extend(_check_failed_image_extraction(document))
@@ -880,6 +882,50 @@ def _check_ocr_artifacts(document: Document) -> List[ValidationIssue]:
                 suggested_action=(
                     "Inspect this page's source image quality and the OCR engine's output; "
                     "the recovered text appears garbled rather than genuine prose."
+                ),
+            )
+        )
+    return issues
+
+
+def _check_garbled_ocr_text(document: Document) -> List[ValidationIssue]:
+    """Warning-level: OCR pages whose text still carries the garble
+    signature (src/ocr/quality.py) - recognizer fragments such as "In nde o
+    o ad ie ef" that OCR_002's character test cannot see, because every
+    character is a legal letter.
+
+    Read from the page text as it will be exported, so a region the
+    correction rail repaired (src/verification/ocr_text.py) is no longer
+    reported, and one whose second reading was rejected or never obtained
+    is. One issue per page, naming how many lines and why they were not
+    repaired. Scoped to OCR pages, like OCR_002.
+    """
+    issues: List[ValidationIssue] = []
+    for page in document.pages:
+        if page.extraction_method not in (ExtractionMethod.DOCLING, ExtractionMethod.SURYA):
+            continue
+        lines = garbled_lines(page.cleaned_text or page.raw_text)
+        if not lines:
+            continue
+        reasons = sorted({r.reason for r in page.ocr_rereads if r.reason and not r.accepted})
+        if reasons:
+            why = f" A second reading was rejected: {'; '.join(reasons)}."
+        elif any(r.reading is None for r in page.ocr_rereads):
+            why = " No second reading was available (OCR re-reading needs Ollama with glm-ocr:q8_0)."
+        else:
+            why = ""
+        issues.append(
+            ValidationIssue(
+                severity=Severity.WARNING,
+                rule_id="OCR_004",
+                message=(
+                    f"Page {page.page_number} has {len(lines)} line(s) of OCR text that look garbled, "
+                    f"e.g. {lines[0][:80]!r}.{why}"
+                ),
+                page_number=page.page_number,
+                suggested_action=(
+                    "Compare these lines with the PDF page and retype the garbled words; "
+                    "emphasized (bold/italic) runs are the usual cause."
                 ),
             )
         )

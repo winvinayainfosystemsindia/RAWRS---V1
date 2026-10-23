@@ -36,6 +36,7 @@ from src.models.contracts import (
     Document,
     ExtractionMethod,
     OCRConfidence,
+    OCRReread,
     Page,
     RoutingDecision,
     SanitizationEvent,
@@ -43,6 +44,7 @@ from src.models.contracts import (
 from src.ocr import cache as ocr_cache
 from src.ocr.docling_config import build_converter
 from src.ocr.extractor import normalize_whitespace
+from src.ocr.quality import is_garbled
 from src.utils.text_sanitization import sanitize_xml_text
 
 
@@ -193,6 +195,8 @@ def ocr_page_texts(pdf_path: Path) -> List[str]:
 # (label, raw text, raw Docling level) of one title/section-header item; the
 # level is read only for section headers, exactly as the heading code uses it.
 HeaderItem = Tuple[str, str, Optional[object]]
+# (raw text, [x0, y0, x1, y1] in PDF points, top-left origin) of one item.
+TextItem = Tuple[str, List[float]]
 
 
 @dataclass(frozen=True)
@@ -204,17 +208,22 @@ class _DoclingPage:
     # None when the structure could not be read: the page keeps its text and
     # loses its headings, exactly as before the cache existed.
     header_items: Optional[List[HeaderItem]]
+    # Every text-bearing item with where it sits; the garble check runs over
+    # these so a garbled paragraph can be cropped and read again.
+    text_items: Optional[List[TextItem]] = None
     from_cache: bool = False
 
 
 def _cached_page(pdf_path: Path, page_number: int) -> Optional[_DoclingPage]:
     entry = ocr_cache.lookup("docling", pdf_path, page_number)
-    if entry is None or "header_items" not in entry:
+    if entry is None or "header_items" not in entry or "text_items" not in entry:
         return None
     items = entry["header_items"]
+    text_items = entry["text_items"]
     return _DoclingPage(
         text=entry["text"],
         header_items=None if items is None else [(i[0], i[1], i[2]) for i in items],
+        text_items=None if text_items is None else [(i[0], list(i[1])) for i in text_items],
         from_cache=True,
     )
 
@@ -227,9 +236,52 @@ def _convert_page(
     if cached is not None:
         return cached
     result = converter.convert(pdf_path, page_range=(page_number, page_number))
-    page = _DoclingPage(result.document.export_to_text(), _header_items(result.document))
-    ocr_cache.store("docling", pdf_path, page_number, {"text": page.text, "header_items": page.header_items})
+    page = _DoclingPage(
+        result.document.export_to_text(),
+        _header_items(result.document),
+        _text_items(result.document),
+    )
+    ocr_cache.store(
+        "docling",
+        pdf_path,
+        page_number,
+        {"text": page.text, "header_items": page.header_items, "text_items": page.text_items},
+    )
     return page
+
+
+def _text_items(docling_document) -> Optional[List[TextItem]]:
+    """Every item with text and a position, raw - None when the structure
+    cannot be read, which costs the page its re-reading, never its text."""
+    try:
+        items: List[TextItem] = []
+        for item, _ in docling_document.iterate_items():
+            text = getattr(item, "text", "") or ""
+            provenance = getattr(item, "prov", None) or []
+            if not text.strip() or not provenance:
+                continue
+            prov = provenance[0]
+            height = docling_document.pages[prov.page_no].size.height
+            box = prov.bbox.to_top_left_origin(page_height=height)
+            items.append((text, [box.l, box.t, box.r, box.b]))
+        return items
+    except Exception as exc:  # positions are a bonus on top of the text
+        logger.warning("Could not read Docling item positions: {}", exc)
+        return None
+
+
+def _garbled_regions(text_items: Optional[List[TextItem]], cleaned_text: str) -> List[OCRReread]:
+    """The items whose recognition looks garbled (src/ocr/quality.py), as
+    re-reading candidates. Only an item found verbatim in the page text is
+    kept - its reading replaces exactly that text, so anything else could
+    never be placed."""
+    regions: List[OCRReread] = []
+    for raw_text, bbox in text_items or []:
+        text, _ = sanitize_xml_text(raw_text)
+        text = text.strip()
+        if text and text in cleaned_text and is_garbled(text):
+            regions.append(OCRReread(original=text, bbox=bbox))
+    return regions
 
 
 # Docling numbers section headers from 1; the document title sits above them.
@@ -337,6 +389,13 @@ def _run_single_page(
         cleaned, removed = sanitize_xml_text(normalize_whitespace(text))
         page.cleaned_text = cleaned
         page.ocr_heading_levels = _heading_levels_from_items(converted.header_items, cleaned)
+        # Headings are matched to page lines by their text, so a heading line
+        # is never a re-reading candidate: changing it would orphan the match.
+        page.ocr_rereads = [
+            region
+            for region in _garbled_regions(converted.text_items, cleaned)
+            if region.original not in page.ocr_heading_levels
+        ]
         page.ocr_confidence = OCRConfidence.MEDIUM
         logger.info(
             "Page {} → Docling OCR in {:.2f}s ({} chars recovered{})",

@@ -70,6 +70,7 @@ from src.models.contracts import Document, ProcessingStatus, Severity, Validatio
 from src.ocr.docling_engine import OCRTimingMetrics, run_docling_ocr
 from src.ocr.extractor import extract_text
 from src.ocr.router import route_pages
+from src.ocr.reread import reread_garbled_regions
 from src.ocr.surya_engine import run_surya_ocr
 from src.parser.pdf_parser import parse_pdf
 from src.structure.structure_detector import detect_structure
@@ -231,6 +232,9 @@ def run_pipeline(
                 document = run_docling_ocr(document, metrics=ocr_metrics)
                 surya_metrics = OCRTimingMetrics()
                 document = run_surya_ocr(document, metrics=surya_metrics)
+                # Garbled Docling regions get a second reading (evidence only;
+                # accepted readings are applied by the correction rail below).
+                document = reread_garbled_regions(document)
         document.processing_status = ProcessingStatus.OCR_COMPLETE
         logger.info(
             "Stage 2/8 (Extract Text) complete [{}]",
@@ -398,6 +402,7 @@ def run_pipeline(
         import src.verification.footnotes  # noqa: F401 - registers FootnoteVerifier
         import src.verification.headings  # noqa: F401 - registers HeadingVerifier
         import src.verification.lists  # noqa: F401 - registers ListVerifier
+        import src.verification.ocr_text  # noqa: F401 - registers OcrTextVerifier
         import src.verification.tables  # noqa: F401 - registers TableVerifier
 
         findings = engine.run_inspection(document, output_root=output_root)
