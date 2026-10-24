@@ -16,11 +16,11 @@ Heading's own docstring): the body text already lives in Page.cleaned_text
 (Mathpix path) or Document.blocks (RAWRS-native path); duplicating it here
 would risk the exact double-render bug class
 src/mathpix/ingestor.py::_assign_page_text() was written to avoid for
-headings and list items. Markdown/DOCX rendering (box/blockquote styling
-around the heading's subsequent content, up to the next heading) is a
-deliberately separate, later piece of work — this model and its verifier
-prove the evidence-fusion framework generalizes beyond tables; rendering
-does not block that.
+headings and list items. A box found on a scanned page
+(src/ocr/scan_structure.py) also carries its real extent (page and line
+range); those boxes are rendered - fenced in the markdown, a one-cell table
+in the DOCX. A heading-anchored callout from a Mathpix import has no extent
+yet, so its rendering is still the separate piece of work it was.
 """
 
 from __future__ import annotations
@@ -56,6 +56,14 @@ class Callout(SemanticObject):
     document_order: int = Field(..., ge=0)
     # FEATURE_020 — see Heading.source_line's docstring (src/models/heading.py).
     source_line: Optional[int] = None
+    # A box found on a scanned page (src/ocr/scan_structure.py) has a real
+    # extent, not "up to the next heading": the page it sits on and the
+    # first/last line it covers, counted over the page text's non-blank lines
+    # from 0. Counted rather than quoted so a re-read that corrects a line's
+    # words (src/verification/ocr_text.py) cannot detach it from its box.
+    page_number: Optional[int] = Field(default=None, ge=1)
+    first_line: Optional[int] = Field(default=None, ge=0)
+    last_line: Optional[int] = Field(default=None, ge=0)
 
     @model_validator(mode="after")
     def _backfill_semantic_object_id(self) -> "Callout":

@@ -198,12 +198,13 @@ Candidate replacements researched (GLM-OCR: MIT; PaddleOCR-VL-1.6 / Granite-Docl
 
 1. ~~5 failing backend tests~~ — **fixed 2026-10-24**: the last 3 were an IMAGE_004 assertion that predated automatic alt text (decorative images are no longer pending review); CI green on `feat/ocr-reread`.
 2. **OCR quality on emphasized runs** — **mostly closed 2026-10-24**: garbled regions are detected (17/17, 0 false of 368) and re-read by GLM-OCR (4–20 s/region); O'Leary 4-gram recall 94.8% → 98.5%. Heading lines and Surya pages are flagged (OCR_004), not repaired (`docs/OCR_QUALITY.md`).
-3. **PDF-only path has a thin verification safety net** — the OCR-text verifier (GLM reading as second source) runs without Mathpix; the figure/table/heading/list/footnote/callout verifiers still gate on `import_provider`.
-4. **Equations panel** is built and tested (Mathpix route) but **not yet validated against real docs in the UI**, and the PDF-only route has no equations at all.
-5. **Batch upload cancel** has known limits.
-6. **Nothing is deployed** — Docker packaging exists, hosting is undecided (`docs/DEPLOYMENT.md`).
-7. **bug_003 (open):** H1 detection assumes page 1's first line is the title; a kicker line like "Article" can steal the H1 slot.
-8. **Footnote detection** only sees Unicode superscript glyphs, not styled smaller-font digits (root cause: span-level data discarded in the text model; design done, not implemented — `feature_005`).
+3. **Scanned-page structure** — **closed 2026-10-24**: printed page numbers, chapter number, H1/H2/H3 by printed size, boxes and figure crops on Docling pages; Bryman heading levels 17/44 → 43/44, images 112 → 3, boxes 0 → 20 (`docs/SCAN_STRUCTURE.md`).
+4. **PDF-only path has a thin verification safety net** — the OCR-text verifier (GLM reading as second source) runs without Mathpix; the figure/table/heading/list/footnote/callout verifiers still gate on `import_provider`.
+5. **Equations panel** is built and tested (Mathpix route) but **not yet validated against real docs in the UI**, and the PDF-only route has no equations at all.
+6. **Batch upload cancel** has known limits.
+7. **Nothing is deployed** — Docker packaging exists, hosting is undecided (`docs/DEPLOYMENT.md`).
+8. ~~bug_003~~ — **closed (L3.2)**: position only ranks a line that evidence already makes a heading, so a kicker like "Article" no longer takes the H1; a title with no typographic support now gets no H1 (`docs/KNOWN_LIMITATIONS.md`).
+9. **Footnote detection** only sees Unicode superscript glyphs, not styled smaller-font digits (root cause: span-level data discarded in the text model; design done, not implemented — `feature_005`).
 
 ---
 

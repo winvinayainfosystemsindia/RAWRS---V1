@@ -125,6 +125,8 @@ from src.models.contracts import (
     Table,
     TextBlock,
 )
+from src.models.callout import Callout
+from src.utils.page_lines import layout_line_indices, page_text_lines
 from src.architecture.contract import GeneratedObject, Limitation, ProjectionContract
 from src.models.content_stream import ContentKind
 from src.models.inline_format import TextRun, format_runs
@@ -141,6 +143,11 @@ from src.structure.paragraph_assembly import (
 # this module's markdown output can match the exact same token rather than
 # duplicating it as an independent magic string.
 PAGE_BREAK_MARKER = "<!-- pagebreak -->"
+# A box found on a scanned page (Callout with a line range, src/ocr/
+# scan_structure.py) is fenced by these, so the DOCX generator can set its
+# lines inside a one-cell table. Invisible in any markdown viewer.
+BOX_START_MARKER = "<!-- box-start: {} -->"
+BOX_END_MARKER = "<!-- box-end -->"
 
 # What this projection cannot do, declared in advance (ADR-020 PI-1/PI-2/PI-6,
 # enforced by src/architecture/invariants.py AI-7 and read by
@@ -809,7 +816,8 @@ def _render_page(
         # order the traversal places these same images in
         # (src/structure/content_stream.py). Sorting here is what keeps the
         # two projections from disagreeing about a page they both render.
-        if not page_blocks:
+        # A scanned page with a layout places its figures in the body.
+        if not page_blocks and not page.ocr_layout:
             blocks.extend(
                 _render_images(
                     sorted(
@@ -933,7 +941,8 @@ def _render_page_body(
             page_paragraphs, page_images, stream_nodes,
         )
     return _render_page_body_line_by_line(
-        page, content_headings, anchor_notes, body_notes, has_endnotes, page_images, front_matter
+        page, content_headings, anchor_notes, body_notes, has_endnotes, page_images, front_matter,
+        boxes=[c for c in document.callouts if c.page_number == page.page_number and c.first_line is not None],
     )
 
 
@@ -945,6 +954,7 @@ def _render_page_body_line_by_line(
     has_endnotes: bool,
     page_images: List[Image],
     front_matter: Optional[FrontMatter],
+    boxes: Optional[List[Callout]] = None,
 ) -> List[str]:
     """Render a page's text, re-inserting detected headings at their
     original position by scanning the same text Heading Detection used,
@@ -993,24 +1003,36 @@ def _render_page_body_line_by_line(
     suppressed_body_lines.update(_front_matter_source_texts(front_matter))
 
     blocks: List[str] = []
+    # A scanned page with a layout: its figures sit where the layout's
+    # reading order put them, its boxes are fenced. Neither exists on any
+    # other page, whose output is unchanged.
+    anchored = _layout_image_anchors(page, page_images)
+    box_starts = {box.first_line: box for box in boxes or []}
+    box_ends = {box.last_line for box in boxes or []}
 
+    ordinal = -1
     for raw_line in text.splitlines():
         line = raw_line.strip()
         if not line:
             continue
+        ordinal += 1
+        blocks.extend(_render_images(anchored.pop(ordinal, [])))
+        if ordinal in box_starts:
+            blocks.append(BOX_START_MARKER.format(box_starts[ordinal].id))
 
         if line in suppressed_body_lines:
-            continue
-
-        if has_endnotes and _NOTES_SECTION_HEADING_PATTERN.match(line):
-            continue
-
-        if pending and line == pending[0].text:
+            pass
+        elif has_endnotes and _NOTES_SECTION_HEADING_PATTERN.match(line):
+            pass
+        elif pending and line == pending[0].text:
             blocks.append(_render_heading(pending.pop(0)))
-            continue
+        else:
+            blocks.append(_substitute_markers(line, notes_by_anchor_text.get(line, [])))
 
-        line = _substitute_markers(line, notes_by_anchor_text.get(line, []))
-        blocks.append(line)
+        if ordinal in box_ends:
+            blocks.append(BOX_END_MARKER)
+    for leftover in sorted(anchored):
+        blocks.extend(_render_images(anchored[leftover]))
 
     for note in sorted(anchor_notes, key=lambda n: n.number):
         if note.note_type == NoteType.FOOTNOTE:
@@ -1323,6 +1345,37 @@ def _render_tables(tables: List[Table]) -> List[str]:
         if table.summary:
             blocks.append(f"<!-- table-summary: {table.summary} -->")
     return blocks
+
+
+def _layout_image_anchors(page: Page, images: List[Image]) -> Dict[int, List[Image]]:
+    """Where each of a scanned page's figures goes: before the first page line
+    that follows its picture in the Docling layout's reading order, keyed by
+    that line's position among the page's non-blank lines; a figure nothing
+    follows is keyed past the last line. Empty for a page with no layout."""
+    if not page.ocr_layout:
+        return {}
+    lines = page_text_lines(page.cleaned_text or page.raw_text)
+    found = layout_line_indices(page.ocr_layout, lines)
+    anchors: Dict[int, List[Image]] = {}
+    ordered = sorted(images, key=lambda i: i.document_order if i.document_order is not None else 10**9)
+    for image in ordered:
+        anchor = len(lines)
+        position = _picture_position(page, image)
+        if position is not None:
+            anchor = next((index for index in found[position + 1:] if index is not None), anchor)
+        anchors.setdefault(anchor, []).append(image)
+    return anchors
+
+
+def _picture_position(page: Page, image: Image) -> Optional[int]:
+    """Index in the page layout of the picture this image was cropped from."""
+    if image.bbox is None:
+        return None
+    box = (image.bbox.x0, image.bbox.y0, image.bbox.x1, image.bbox.y1)
+    for index, item in enumerate(page.ocr_layout):
+        if item.label == "picture" and all(abs(a - b) <= 1.0 for a, b in zip(item.bbox, box)):
+            return index
+    return None
 
 
 def _render_images(images: List[Image]) -> List[str]:

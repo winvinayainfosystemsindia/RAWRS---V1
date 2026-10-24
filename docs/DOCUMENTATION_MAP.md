@@ -135,6 +135,8 @@ architecture", which is a different and still-valid use of the word.
 * `CHECKLIST_COMPLIANCE.md` — every remediation-checklist item, how RAWRS meets it, and its audit check (`src/validation/checklist_audit.py`).
 * `DEPLOYMENT.md` — rewritten: three routes with verified prices and limits. Since 2026-10-21 the frontend is hosted at https://rawrs-v1.vercel.app and reaches a server on the owner's laptop on request.
 * `LEARNING_LOOP.md` (2026-10-21) — the learning loop (proposal verdicts with Wilson intervals, reviewer edits, finished-in-Word DOCX diffs, `/insights`) and the OCR result cache; neither changes output.
+* `OCR_QUALITY.md` (2026-10-24) — garble detection and GLM-OCR re-reading of garbled OCR regions.
+* `SCAN_STRUCTURE.md` (2026-10-24) — scanned pages: printed page numbers, chapter number, heading levels by printed size, boxes, figure crops.
 * `MASTER_IMPLEMENTATION_BACKLOG.md` — supersedes `TASKS.md` (retired, now in `archive/`). Its July figures (suite 1727 passed) are history; CI on 2026-09-28 shows 2537 backend passed / 5 failed.
 * `AGENT_HANDOFF.md` — its Phase 2 ladder is an August snapshot; its ground rules were corrected to "commit, then push".
 * The Phase 2 Engineering Blueprint and Remediation Gap Audit are described above as stored on the Desktop; that was **not re-checked** in this pass.

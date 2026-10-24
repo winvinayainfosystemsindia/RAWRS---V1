@@ -93,7 +93,17 @@ from typing import Dict, List, Optional, Set, Tuple, Union
 import fitz  # PyMuPDF
 from loguru import logger
 
-from src.models.contracts import AltTextStatus, BoundingBox, Document, Figure, Image, TextBlock
+from src.models.contracts import (
+    AltTextStatus,
+    BoundingBox,
+    Document,
+    ExtractionMethod,
+    Figure,
+    Image,
+    Page,
+    TextBlock,
+)
+from src.utils.page_lines import layout_line_indices, page_text_lines
 
 DEFAULT_OUTPUT_DIR = Path("outputs/images")
 
@@ -234,6 +244,11 @@ def _extract_images_from_pdf(
     extracted_images: List[Image] = []
     seen_digests: Set[bytes] = set()
     filtered_count = 0
+    layout_pages = {
+        page.page_number: page
+        for page in document.pages
+        if page.extraction_method == ExtractionMethod.DOCLING and page.ocr_layout
+    }
 
     try:
         document_output_dir.mkdir(parents=True, exist_ok=True)
@@ -248,6 +263,14 @@ def _extract_images_from_pdf(
             # reconstruction classifier and the per-image filter see the
             # same list (get_image_info is re-scanned otherwise).
             infos = list(page.get_image_info(xrefs=True))
+
+            if page_number in layout_pages:
+                pictures, skipped = _extract_layout_pictures(
+                    page, layout_pages[page_number], infos, document_output_dir
+                )
+                extracted_images.extend(pictures)
+                filtered_count += skipped
+                continue
             recon_indices = _page_reconstruction_indices(
                 infos, page_rect.width, page_rect.height
             )
@@ -462,6 +485,140 @@ def _extract_single_image(
         )
 
 
+def _extract_layout_pictures(
+    pdf_page: "fitz.Page", page: Page, infos: List[Dict], output_dir: Path
+) -> Tuple[List[Image], int]:
+    """A scanned page's figures: the regions Docling's layout model labelled
+    ``picture``, cropped from the rendered page. Returns (images, skipped).
+
+    On such a page the PDF's embedded images are the scan itself - whole, or
+    in fragments: Bryman's chapter is 112 image objects (page bands, gradient
+    strips, the six boxes of Figure 2.1 as six images), O'Leary's four
+    "images" were all fragments of page 6 while Figures 3.1, 3.3 and 3.4 went
+    missing. The layout says where the figures are, so they are cut from the
+    page there, at the scan's own resolution. A picture under an inch on its
+    short side is an icon or a set glyph, and one mostly covering a table is
+    the table's frame; neither is a figure."""
+    rect = pdf_page.rect
+    page_area = rect.width * rect.height
+    tables = [item.bbox for item in page.ocr_layout if item.label == "table"]
+    # A caption the figure takes is suppressed from the body by exact line, so
+    # it carries the page line it became (e.g. with a list marker), not the
+    # layout item's own text.
+    lines = page_text_lines(page.cleaned_text)
+    captions = [
+        (item, lines[index] if index is not None else item.text)
+        for item, index in zip(page.ocr_layout, layout_line_indices(page.ocr_layout, lines))
+        if not item.furniture and _CAPTION_PATTERN.match(item.text)
+    ]
+    claimed: Set[int] = set()
+    images: List[Image] = []
+    skipped = 0
+    for item in page.ocr_layout:
+        if item.label != "picture":
+            continue
+        x0, y0, x1, y1 = item.bbox
+        area = (x1 - x0) * (y1 - y0)
+        if (
+            min(x1 - x0, y1 - y0) < _MIN_FIGURE_SIDE_PT
+            or area >= _BACKGROUND_AREA_FRACTION * page_area
+            or any(_box_overlap(item.bbox, table) > 0.5 * area for table in tables)
+        ):
+            skipped += 1
+            continue
+        image = _crop_picture(pdf_page, item.bbox, infos, page.page_number, len(images) + 1, output_dir)
+        if not image.extraction_failed:
+            image.figure = _layout_figure(image, item, captions, claimed)
+        images.append(image)
+    return images, skipped
+
+
+# A figure is at least an inch on its short side; Bryman's box icons and its
+# chapter numeral are 48-51 pt, its smallest figure 174 pt.
+_MIN_FIGURE_SIDE_PT = 72.0
+_CROP_DPI_DEFAULT = 200
+_CROP_DPI_RANGE = (150, 300)
+
+
+def _box_overlap(a, b) -> float:
+    width = min(a[2], b[2]) - max(a[0], b[0])
+    height = min(a[3], b[3]) - max(a[1], b[1])
+    return max(width, 0.0) * max(height, 0.0)
+
+
+def _crop_dpi(bbox, infos: List[Dict]) -> int:
+    """The scan's own resolution under ``bbox`` (the densest embedded image
+    there), clamped to a sensible range; a default when nothing is there."""
+    densities = []
+    for info in infos:
+        box = info.get("bbox")
+        if not box or not info.get("width") or box[2] - box[0] <= 0 or _box_overlap(bbox, box) <= 0:
+            continue
+        densities.append(info["width"] / (box[2] - box[0]) * 72.0)
+    if not densities:
+        return _CROP_DPI_DEFAULT
+    low, high = _CROP_DPI_RANGE
+    return int(min(max(max(densities), low), high))
+
+
+def _crop_picture(
+    pdf_page: "fitz.Page", bbox, infos: List[Dict], page_number: int, index: int, output_dir: Path
+) -> Image:
+    image_id = uuid.uuid4().hex
+    path = output_dir / f"page{page_number}_fig{index}_{image_id}.png"
+    box = BoundingBox(x0=bbox[0], y0=bbox[1], x1=bbox[2], y1=bbox[3])
+    try:
+        pix = pdf_page.get_pixmap(clip=fitz.Rect(*bbox), dpi=_crop_dpi(bbox, infos))
+        pix.save(str(path))
+        return Image(
+            image_id=image_id, page_number=page_number, file_path=str(path),
+            width=pix.width, height=pix.height, bbox=box, extraction_failed=False,
+        )
+    except Exception as exc:
+        logger.error("Failed to crop figure on page {}: {}", page_number, exc)
+        return Image(image_id=image_id, page_number=page_number, file_path=str(path), bbox=box, extraction_failed=True)
+
+
+def _layout_figure(image: Image, picture, captions: List[Tuple], claimed: Set[int]) -> Figure:
+    """The picture's Figure. Its caption is the "Figure N" text Docling read
+    inside the picture (Bryman prints captions within the figure's panel) -
+    joined to the next line when that text is the label alone - or else the
+    nearest unclaimed caption line within reach, which is then a line of the
+    page text the markdown must not repeat (caption_source_text)."""
+    caption: Optional[str] = None
+    source: Optional[str] = None
+    for index, child in enumerate(picture.children):
+        if _CAPTION_PATTERN.match(child):
+            caption = child
+            if len(child.split()) <= 3 and index + 1 < len(picture.children):
+                caption = f"{child} {picture.children[index + 1]}"
+            break
+    if caption is None and image.bbox is not None:
+        nearby = sorted(
+            (_vertical_distance(image.bbox, BoundingBox(x0=c.bbox[0], y0=c.bbox[1], x1=c.bbox[2], y1=c.bbox[3])), i)
+            for i, (c, _) in enumerate(captions)
+            if i not in claimed
+        )
+        if nearby and nearby[0][0] <= _CAPTION_PROXIMITY_PT:
+            claimed.add(nearby[0][1])
+            item, source = captions[nearby[0][1]]
+            caption = item.text
+    if caption is None:
+        return Figure(
+            alt_text=_build_placeholder_alt_text(image.page_number, None),
+            alt_text_status=AltTextStatus.PENDING_REVIEW,
+        )
+    number_token = _CAPTION_PATTERN.match(caption).group(1)
+    return Figure(
+        label=f"Figure {number_token}",
+        number=int(number_token.split(".")[0]),
+        caption=caption,
+        alt_text=_build_placeholder_alt_text(image.page_number, caption),
+        alt_text_status=AltTextStatus.PENDING_REVIEW,
+        caption_source_text=source,
+    )
+
+
 def _group_blocks_by_page(blocks: List[TextBlock]) -> Dict[int, List[TextBlock]]:
     grouped: Dict[int, List[TextBlock]] = {}
     for block in blocks:
@@ -477,10 +634,12 @@ def _link_figures(images: List[Image], blocks_by_page: Dict[int, List[TextBlock]
     used_blocks: Set[Tuple[int, int]] = set()  # (page_number, order) already claimed
 
     for image in images:
-        if image.extraction_failed:
+        # A scanned page's picture arrives with its Figure already linked from
+        # the layout (_extract_layout_pictures()).
+        if image.extraction_failed or image.figure is not None:
             continue
 
-        caption_block = _find_caption_block(image, blocks_by_page.get(image.page_number, []), used_blocks)
+        caption_block =_find_caption_block(image, blocks_by_page.get(image.page_number, []), used_blocks)
 
         if caption_block is not None:
             used_blocks.add((caption_block.page_number, caption_block.order))

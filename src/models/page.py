@@ -42,6 +42,27 @@ class OCRReread(BaseModel):
     reason: str = ""
 
 
+class OCRLayoutItem(BaseModel):
+    """One item of a scanned page's layout as Docling's layout model read it
+    (src/ocr/docling_engine.py).
+
+    ``label`` is Docling's (``text``, ``section_header``, ``page_footer``,
+    ``picture``, ...); ``furniture`` is True for the running headers and page
+    numbers Docling keeps out of the page text. ``bbox`` is in PDF points,
+    top-left origin, like OCRReread. ``children`` holds the text Docling read
+    inside a picture (a figure's caption and labels), which is never part of
+    the page text either. src/ocr/scan_structure.py reads these for printed
+    page numbers, chapter numbers, heading sizes and boxes; the image
+    extractor reads the pictures.
+    """
+
+    label: str
+    text: str = ""
+    bbox: List[float]
+    furniture: bool = False
+    children: List[str] = Field(default_factory=list)
+
+
 class PageType(str, Enum):
     """Result of deterministic page-level extraction-quality classification.
 
@@ -202,6 +223,10 @@ class Page(BaseModel):
     # only: cleaned_text changes when the correction rail applies an accepted
     # reading (src/verification/ocr_text.py), so the change is undoable.
     ocr_rereads: List[OCRReread] = Field(default_factory=list)
+    # Every item of the page's Docling layout, in reading order, including
+    # the furniture and pictures the page text leaves out. Empty for a page
+    # Docling did not read.
+    ocr_layout: List[OCRLayoutItem] = Field(default_factory=list)
     ocr_confidence: Optional[OCRConfidence] = None
     footnote_references: List[str] = Field(default_factory=list)
     endnote_references: List[str] = Field(default_factory=list)

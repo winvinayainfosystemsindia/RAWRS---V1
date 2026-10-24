@@ -36,6 +36,7 @@ from src.models.contracts import (
     Document,
     ExtractionMethod,
     OCRConfidence,
+    OCRLayoutItem,
     OCRReread,
     Page,
     RoutingDecision,
@@ -211,12 +212,15 @@ class _DoclingPage:
     # Every text-bearing item with where it sits; the garble check runs over
     # these so a garbled paragraph can be cropped and read again.
     text_items: Optional[List[TextItem]] = None
+    # The whole layout, furniture and pictures included (OCRLayoutItem fields
+    # as plain dicts, so the cache can keep them).
+    layout_items: Optional[List[Dict]] = None
     from_cache: bool = False
 
 
 def _cached_page(pdf_path: Path, page_number: int) -> Optional[_DoclingPage]:
     entry = ocr_cache.lookup("docling", pdf_path, page_number)
-    if entry is None or "header_items" not in entry or "text_items" not in entry:
+    if entry is None or any(key not in entry for key in ("header_items", "text_items", "layout_items")):
         return None
     items = entry["header_items"]
     text_items = entry["text_items"]
@@ -224,6 +228,7 @@ def _cached_page(pdf_path: Path, page_number: int) -> Optional[_DoclingPage]:
         text=entry["text"],
         header_items=None if items is None else [(i[0], i[1], i[2]) for i in items],
         text_items=None if text_items is None else [(i[0], list(i[1])) for i in text_items],
+        layout_items=entry["layout_items"],
         from_cache=True,
     )
 
@@ -240,14 +245,63 @@ def _convert_page(
         result.document.export_to_text(),
         _header_items(result.document),
         _text_items(result.document),
+        _layout_items(result.document),
     )
     ocr_cache.store(
         "docling",
         pdf_path,
         page_number,
-        {"text": page.text, "header_items": page.header_items, "text_items": page.text_items},
+        {
+            "text": page.text,
+            "header_items": page.header_items,
+            "text_items": page.text_items,
+            "layout_items": page.layout_items,
+        },
     )
     return page
+
+
+def _layout_items(docling_document) -> Optional[List[Dict]]:
+    """Every positioned item of the page in reading order - body and
+    furniture, pictures with the text Docling read inside them as their
+    children. None when the structure cannot be read, which costs the page
+    its structure, never its text."""
+    try:
+        from docling_core.types.doc.document import ContentLayer
+
+        items: List[Dict] = []
+        picture_depth: Optional[int] = None
+        for item, depth in docling_document.iterate_items(
+            traverse_pictures=True,
+            included_content_layers={ContentLayer.BODY, ContentLayer.FURNITURE},
+        ):
+            text, _ = sanitize_xml_text(normalize_whitespace(getattr(item, "text", "") or ""))
+            text = text.strip()
+            if picture_depth is not None and depth > picture_depth:
+                if text:
+                    items[-1]["children"].append(text)
+                continue
+            picture_depth = None
+            provenance = getattr(item, "prov", None) or []
+            if not provenance:
+                continue
+            label = str(getattr(getattr(item, "label", None), "value", "") or "")
+            prov = provenance[0]
+            height = docling_document.pages[prov.page_no].size.height
+            box = prov.bbox.to_top_left_origin(page_height=height)
+            items.append({
+                "label": label,
+                "text": text,
+                "bbox": [box.l, box.t, box.r, box.b],
+                "furniture": getattr(item, "content_layer", None) == ContentLayer.FURNITURE,
+                "children": [],
+            })
+            if label == "picture":
+                picture_depth = depth
+        return items
+    except Exception as exc:  # structure is a bonus on top of the text
+        logger.warning("Could not read Docling layout: {}", exc)
+        return None
 
 
 def _text_items(docling_document) -> Optional[List[TextItem]]:
@@ -396,6 +450,7 @@ def _run_single_page(
             for region in _garbled_regions(converted.text_items, cleaned)
             if region.original not in page.ocr_heading_levels
         ]
+        page.ocr_layout = [OCRLayoutItem(**item) for item in converted.layout_items or []]
         page.ocr_confidence = OCRConfidence.MEDIUM
         logger.info(
             "Page {} → Docling OCR in {:.2f}s ({} chars recovered{})",

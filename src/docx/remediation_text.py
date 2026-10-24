@@ -14,6 +14,11 @@ finished DOCX that the generator answered while writing it.
 import re
 from typing import Callable, List
 
+# A textbook box is set as a one-cell table (docx_generator._wrap_in_box)
+# whose table title starts with this word; the auditor reads inside such a
+# table as body content rather than checking it as a data table.
+BOX_TABLE_CAPTION = "Box"
+
 # URLs are copied through untouched: a comma or bracket inside one is part
 # of its address, not punctuation.
 URL_PATTERN = re.compile(r"(?:https?://|www\.)[^\s<>\"]+[^\s<>\".,;:!?)\]]", re.IGNORECASE)

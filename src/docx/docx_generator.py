@@ -115,6 +115,7 @@ from lxml import etree
 from PIL import Image as PILImage
 
 from src.docx.remediation_text import (
+    BOX_TABLE_CAPTION,
     URL_PATTERN,
     is_bullet_glyph,
     is_label,
@@ -122,7 +123,7 @@ from src.docx.remediation_text import (
     remediate_prose,
 )
 from src.docx.equation_render import EquationRender
-from src.markdown.markdown_builder import PAGE_BREAK_MARKER
+from src.markdown.markdown_builder import BOX_END_MARKER, PAGE_BREAK_MARKER
 from src.models.content_stream import ContentKind
 from src.structure.content_stream import build_content_stream
 from src.models.contracts import Document, ExtractionMethod, Footnote, FrontMatter, NoteType
@@ -362,6 +363,7 @@ _TABLE_ID_COMMENT_PATTERN = re.compile(r"^<!-- table-id: (.+) -->$")
 # to perform; this pattern exists only so the comment itself is skipped
 # rather than rendered as literal body text.
 _LIST_ID_COMMENT_PATTERN = re.compile(r"^<!-- list-id: (.+) -->$")
+_BOX_START_PATTERN = re.compile(r"^<!-- box-start: (.+) -->$")
 _EQUATION_ID_COMMENT_PATTERN = re.compile(r"^<!-- equation-id: (.+) -->$")
 
 # Semantic list detection (FEATURE_016C): lines starting with a bullet
@@ -995,6 +997,7 @@ def generate_docx(
         if page.extraction_method in (ExtractionMethod.DOCLING, ExtractionMethod.SURYA)
     }
     list_line_limit = -1
+    box_start: Optional[int] = None
 
     def flush_pipe_table() -> None:
         nonlocal pipe_table_rows, pipe_table_header_count, pending_table_id
@@ -1199,6 +1202,18 @@ def generate_docx(
         # Any non-table-row line: flush a pending pipe table first.
         flush_pipe_table()
 
+        # A scanned page's box (src/ocr/scan_structure.py): what renders
+        # between the fences is moved into a one-cell table at box-end, so
+        # every renderer below writes to the body exactly as it always does.
+        if _BOX_START_PATTERN.match(line):
+            box_start = len(_body_content(docx_document))
+            continue
+        if line == BOX_END_MARKER:
+            if box_start is not None:
+                _wrap_in_box(docx_document, box_start)
+                box_start = None
+            continue
+
         # Table-id anchor. It existed so this module could recover *which*
         # Table a run of pipe rows was; the TABLE node answers that now, and
         # on a stream page the comment is consumed and nothing more. Off the
@@ -1222,6 +1237,9 @@ def generate_docx(
                 continue
 
         if line == PAGE_BREAK_MARKER:
+            # A box never crosses a page: a fence left open (an edited
+            # markdown) must not swallow the pages after it.
+            box_start = None
             # A page fence, no longer a page fact: the break itself and the
             # page's identity are emitted by open_page() from the traversal.
             if stream_knows_pages:
@@ -2025,6 +2043,43 @@ def _build_decorative_set(document: Document) -> set:
         ):
             result.add(image.image_id)
     return result
+
+
+def _body_content(docx_document: DocxDocument) -> list:
+    """The body's block elements, without the trailing section properties."""
+    return [child for child in docx_document.element.body if child.tag != qn("w:sectPr")]
+
+
+def _wrap_in_box(docx_document: DocxDocument, start: int) -> None:
+    """Set every body element from ``start`` on inside one bordered cell, the
+    way the remediated benchmark DOCX sets a textbook's boxes ("Research in
+    focus 2.1", pull quotes): a 1x1 table, its title a real heading inside it
+    so the TOC and a screen reader's heading list still reach it, and no
+    floating text box (the checklist's "no text boxes")."""
+    elements = _body_content(docx_document)[start:]
+    if not elements:
+        return
+    try:
+        table = docx_document.add_table(rows=1, cols=1, style="Table Grid")
+    except KeyError:  # "Table Grid" not in this template
+        table = docx_document.add_table(rows=1, cols=1)
+    cell = table.rows[0].cells[0]._tc
+    for empty in list(cell.iterchildren(qn("w:p"))):
+        cell.remove(empty)
+    elements[0].addprevious(table._tbl)
+    for element in elements:
+        cell.append(element)
+    if cell[-1].tag != qn("w:p"):  # a cell must end with a paragraph
+        cell.append(OxmlElement("w:p"))
+    # The table's title (what a screen reader announces for it) names the box,
+    # and marks it as a box, not a data table, for the checklist audit.
+    first = elements[0]
+    style = first.find(f"{qn('w:pPr')}/{qn('w:pStyle')}") if first.tag == qn("w:p") else None
+    title = "".join(t.text or "" for t in first.iter(qn("w:t"))).strip()
+    caption = OxmlElement("w:tblCaption")
+    is_heading = style is not None and style.get(qn("w:val"), "").startswith("Heading")
+    caption.set(qn("w:val"), f"{BOX_TABLE_CAPTION}: {title}" if is_heading and title else BOX_TABLE_CAPTION)
+    table._tbl.tblPr.append(caption)
 
 
 def _add_pipe_table(

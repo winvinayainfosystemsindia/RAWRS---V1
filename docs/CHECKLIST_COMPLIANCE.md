@@ -68,8 +68,11 @@ Statuses: **pass**, **fail**, **warn** (look at it), **manual** (needs a person 
 | Lists | Docling list items keep Word list styles |
 | Alt text | Decorative: no edges, repeats on 2+ pages, or < 50 px a side. Others: `qwen2.5vl:3b` via local Ollama (`RAWRS_OLLAMA_URL`, `RAWRS_OLLAMA_MODEL`); charts/graphs/tables get a "This means…" statistics explanation; status `AI_GENERATED`, still reviewable |
 | Page placement | OCR text per page aligns Mathpix blocks to pages (was: all piled on the last page) |
-| Heading outline | `src/headings/hierarchy.py`: quotes/attributions demoted to text, list glyphs stripped, lone chapter number merged ("3 - Title"), flat outlines inferred H1/H2/H3 |
-| Evidence | O'Leary scan: 28 pass / 0 fail; 98.9 % of OCR words present |
+| Heading outline | `src/headings/hierarchy.py`: quotes/attributions demoted to text, list glyphs stripped, lone chapter number merged ("3 - Title"), flat outlines inferred H1/H2/H3. Before that, `src/ocr/scan_structure.py` levels headings by printed size and joins a chapter number set beside or above the title |
+| Page numbers | Printed folios from Docling's page header/footer; misreads take the sequence and raise PAGE_007/008 |
+| Boxes | Tinted panels → one-cell table with the title as a heading inside |
+| Figures | Docling picture crops with their captions; icons and scan fragments skipped |
+| Evidence | O'Leary scan: 28 pass / 0 fail; 98.9 % of OCR words present. Bryman: heading levels 43/44 match the gold, 20/20 boxes, 3 images (was 112) — `docs/SCAN_STRUCTURE.md` |
 
 ## Human edits
 

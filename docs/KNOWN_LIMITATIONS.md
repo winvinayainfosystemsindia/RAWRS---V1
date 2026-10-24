@@ -6,7 +6,8 @@
 |---|---|---|
 | Alt text is CPU-slow | ~2.5 min per image with `qwen2.5vl:3b`; 7B needs 14 GB RAM | `src/ai/providers/ollama.py` |
 | Markdown edits bypass the object model | A saved edit wins over later object reviews until discarded | `src/api/markdown_edits.py` |
-| Heading level inference is a textbook convention | First = H1, capitals = H2, rest = H3 when the source gives one level | `src/headings/hierarchy.py` |
+| Heading level inference is a textbook convention | First = H1, capitals = H2, rest = H3 when the source gives one level. Scanned pages are levelled by printed size first; this rule still decides when all headings print at one size (O'Leary "Chapter Preview" H3, gold H2) | `src/headings/hierarchy.py`, `docs/SCAN_STRUCTURE.md` |
+| Scanned boxes need a tint | A box drawn with a border and no fill is not detected; Mathpix-route callouts are still not rendered | `src/ocr/scan_structure.py` |
 | Frontend lint | 9 pre-existing React-Compiler errors (CI lint is informational) | `npx eslint .` |
 | **CI is red** | 5 failures in `tests/test_pipeline.py` (run 36454387742). 3 trace to a stale assertion: `IMAGE_004` fires only for *pending* alt text, and automatic alt text (`054a891`) means images are no longer pending. 2 (`TestStructureDetectionDoesNotChangeExistingOutputs`) undiagnosed | `docs/STATUS_REPORT_2026-09-30.md` §4 |
 | No authentication, one in-memory worker, no concurrency control | Blocks any multi-user hosting | `docs/DEPLOYMENT.md` |

@@ -71,6 +71,7 @@ from src.ocr.docling_engine import OCRTimingMetrics, run_docling_ocr
 from src.ocr.extractor import extract_text
 from src.ocr.router import route_pages
 from src.ocr.reread import reread_garbled_regions
+from src.ocr.scan_structure import apply_scan_structure
 from src.ocr.surya_engine import run_surya_ocr
 from src.parser.pdf_parser import parse_pdf
 from src.structure.structure_detector import detect_structure
@@ -292,6 +293,12 @@ def run_pipeline(
         # left for a reviewer. Either way the CorrectionRecord is the audit
         # trail, and reject/undo through the corrections API restores the line.
         if not _mathpix_path:
+            # Scanned pages: printed page numbers, chapter number, boxes and
+            # heading levels from the Docling layout (src/ocr/scan_structure.py).
+            # After detect_structure, which sets printed_label from the text
+            # layer a scan does not have; before everything that reads the
+            # page text or the heading levels.
+            apply_scan_structure(document)
             document = detect_footnotes(document)
             document = extract_front_matter(document)
             document.tables = extract_tables(document, pdf_path)

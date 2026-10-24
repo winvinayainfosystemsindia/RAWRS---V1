@@ -26,6 +26,7 @@ from src.models.metadata import Metadata
 from src.models.page import (
     ExtractionMethod,
     OCRConfidence,
+    OCRLayoutItem,
     OCRReread,
     Page,
     PageLabelSection,
@@ -89,6 +90,7 @@ __all__ = [
     "ObjectLifecycleStatus",
     "NoteType",
     "OCRConfidence",
+    "OCRLayoutItem",
     "OCRReread",
     "Page",
     "PageLabelSection",

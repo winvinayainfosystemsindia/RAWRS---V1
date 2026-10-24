@@ -32,6 +32,7 @@ from docx.text.run import Run
 from lxml import etree
 
 from src.docx.remediation_text import (
+    BOX_TABLE_CAPTION,
     URL_PATTERN,
     is_label,
     is_unformatted_numbered_heading,
@@ -112,12 +113,31 @@ class _Block:
     table: Optional[Table] = None
 
 
-def _body_blocks(doc) -> Iterator[_Block]:
-    for child in doc.element.body.iterchildren():
+def _body_blocks(doc, open_boxes: bool = False) -> Iterator[_Block]:
+    """The body's paragraphs and tables in order. With ``open_boxes`` a box -
+    a one-cell table titled as one (src/docx/docx_generator.py::_wrap_in_box),
+    not a data table - yields what is inside it instead, so its heading,
+    figures and prose are audited like any other body content and a table
+    inside it is still checked as a table."""
+    yield from _blocks_in(doc.element.body, doc, open_boxes)
+
+
+def _blocks_in(container, doc, open_boxes: bool) -> Iterator[_Block]:
+    for child in container.iterchildren():
         if child.tag == qn("w:p"):
             yield _Block("p", paragraph=Paragraph(child, doc))
         elif child.tag == qn("w:tbl"):
+            cells = child.findall(f"{qn('w:tr')}/{qn('w:tc')}")
+            if open_boxes and len(cells) == 1 and _is_box(child):
+                yield from _blocks_in(cells[0], doc, open_boxes)
+                continue
             yield _Block("table", table=Table(child, doc))
+
+
+def _is_box(tbl) -> bool:
+    caption = tbl.find(f"{qn('w:tblPr')}/{qn('w:tblCaption')}")
+    value = caption.get(qn("w:val"), "") if caption is not None else ""
+    return value == BOX_TABLE_CAPTION or value.startswith(f"{BOX_TABLE_CAPTION}: ")
 
 
 def _text(p: Paragraph) -> str:
@@ -252,7 +272,7 @@ class _Audit:
         self.doc = open_docx(str(docx_path))
         self.pdf_path = pdf_path
         self.expected_pages = expected_pages
-        self.blocks = list(_body_blocks(self.doc))
+        self.blocks = list(_body_blocks(self.doc, open_boxes=True))
         self.paragraphs = [b.paragraph for b in self.blocks if b.kind == "p"]
         self.pages = self._split_pages()
         self.results: List[CheckResult] = []

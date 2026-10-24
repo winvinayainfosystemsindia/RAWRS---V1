@@ -8,7 +8,7 @@ RAWRS is a local-first, accessibility remediation platform for academic PDFs, bu
 
 ## What it does
 
-- **PDF-native path:** extracts text from born-digital PDFs (PyMuPDF) with OCR fallback (Docling → Surya); scanned/image PDFs get headings and lists from Docling's layout model. Garbled OCR regions (bold lead-ins RapidOCR mangles) are detected and read again by GLM-OCR; agreeing readings auto-apply as undoable corrections, the rest are flagged (`docs/OCR_QUALITY.md`).
+- **PDF-native path:** extracts text from born-digital PDFs (PyMuPDF) with OCR fallback (Docling → Surya); scanned/image PDFs get headings and lists from Docling's layout model. Garbled OCR regions (bold lead-ins RapidOCR mangles) are detected and read again by GLM-OCR; agreeing readings auto-apply as undoable corrections, the rest are flagged (`docs/OCR_QUALITY.md`). Scanned pages also get their printed page numbers, chapter number, H1/H2/H3 by printed size, boxes (a one-cell table in the DOCX) and real figure crops instead of scan fragments (`docs/SCAN_STRUCTURE.md`).
 - **Checklist-compliant DOCX:** every export is audited against both remediation checklists (`docs/CHECKLIST_COMPLIANCE.md`); alt text is written automatically by a local vision model (Ollama `qwen2.5vl:3b`), with statistics explained for charts and tables.
 - **Mathpix import path:** imports a Mathpix MMD file as the primary extraction source; RAWRS provides verification, enrichment, and accessibility output. Every proposed correction is recorded as a `CorrectionRecord` (audit trail) — Mathpix extraction is never silently overwritten.
 - Detects headings (H1–H6), footnotes/endnotes, images, tables, lists, callouts (boxed asides), and front matter.
@@ -128,6 +128,7 @@ result = run_pipeline(
 | `docs/CHECKLIST_COMPLIANCE.md` | Every remediation-checklist item, how RAWRS meets it, and the audit check |
 | `docs/DEPLOYMENT.md` | Hosting routes and what each one costs; how the hosted frontend reaches a server on the owner's laptop |
 | `docs/OCR_QUALITY.md` | Garble detection, GLM-OCR re-reading of garbled regions, OCR_004 — with the O'Leary/Bryman measurements |
+| `docs/SCAN_STRUCTURE.md` | Scanned pages: printed page numbers, chapter number, heading levels by size, boxes, figure crops — with the O'Leary/Bryman measurements |
 | `docs/LEARNING_LOOP.md` | How RAWRS learns from remediators (proposal verdicts, workspace edits, finished-in-Word DOCX diffs) and the OCR result cache |
 
 (Note: `docs/CURRENT_STATE.md` was removed from the working tree on 2026-10-05 pending replacement — `PHASE_STATUS.md` and `docs/STATUS_REPORT_2026-09-30.md` cover the same ground. The root-level `techstack.md` and `HOW_IT_WORKS.md` are the new orientation docs.)
