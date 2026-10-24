@@ -38,7 +38,7 @@ import re
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional
 
 from loguru import logger
 
@@ -238,9 +238,3 @@ def _ollama_read(png: bytes, original_length: int) -> str:
     )
     with urllib.request.urlopen(request, timeout=_TIMEOUT_SECONDS) as response:
         return json.loads(response.read())["response"]
-
-
-def summary(document: Document) -> Tuple[int, int, int]:
-    """(garbled regions, read again, accepted) across the document."""
-    regions = [r for page in document.pages for r in page.ocr_rereads]
-    return len(regions), sum(r.reading is not None for r in regions), sum(r.accepted for r in regions)

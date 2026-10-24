@@ -267,11 +267,14 @@ class CrossSourceVerificationEngine:
         # batch handed to a reviewer are two different judgements — "RAWRS
         # decided this" and "RAWRS is asking about this" — so undoing the
         # first must not disturb the second. Hence two ids, not one.
-        if auto:
+        # Each asset type's autonomous batch is its own judgement too:
+        # undoing "suppress 34 running headers" must not also revert the
+        # OCR text repairs recorded in the same run.
+        for asset_type in dict.fromkeys(f.asset_type for f in auto):
             first_new = len(document.corrections)
             self.findings_to_corrections(
                 document,
-                auto,
+                [f for f in auto if f.asset_type == asset_type],
                 provider=provider,
                 status=CorrectionStatus.AUTO_APPLIED,
                 transaction_id=str(uuid.uuid4()),

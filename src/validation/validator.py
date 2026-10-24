@@ -911,7 +911,10 @@ def _check_garbled_ocr_text(document: Document) -> List[ValidationIssue]:
         if reasons:
             why = f" A second reading was rejected: {'; '.join(reasons)}."
         elif any(r.reading is None for r in page.ocr_rereads):
-            why = " No second reading was available (OCR re-reading needs Ollama with glm-ocr:q8_0)."
+            why = (
+                " No second reading was obtained (OCR re-reading needs Ollama serving "
+                "glm-ocr:q8_0 and RAWRS_OCR_REREAD on)."
+            )
         else:
             why = ""
         issues.append(
