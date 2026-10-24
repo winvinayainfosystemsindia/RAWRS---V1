@@ -35,7 +35,9 @@ import hashlib
 import json
 import os
 import re
+import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
@@ -44,7 +46,7 @@ from loguru import logger
 
 from src.models.contracts import Document, OCRReread
 from src.ocr import cache as ocr_cache
-from src.ocr.quality import agreement, is_garbled
+from src.ocr.quality import agreement, is_garbled, readable_words
 from src.utils.text_sanitization import sanitize_xml_text
 
 _DEFAULT_MODEL = "glm-ocr:q8_0"
@@ -52,7 +54,11 @@ _OFF_VALUES = frozenset({"0", "off", "false", "no"})
 _PROMPT = "Text Recognition:"  # GLM-OCR's own task prompt for plain text
 _DPI = 200
 _PADDING_PT = 4.0
-_TIMEOUT_SECONDS = 600
+_TIMEOUT_SECONDS = 180  # measured 4-20 s per region; a stalled server must not hold a job
+# The whole stage, per document: past it (or after this many failed reads in
+# a row) the remaining regions stay flagged instead of blocking the pipeline.
+BUDGET_SECONDS = 900
+MAX_CONSECUTIVE_FAILURES = 3
 _PROBE_TIMEOUT_SECONDS = 3
 
 # Acceptance: measured on the 13 O'Leary regions, every correct reading kept
@@ -62,6 +68,14 @@ _PROBE_TIMEOUT_SECONDS = 3
 MIN_AGREEMENT = 0.85
 MAX_LENGTH_RATIO = 2.0
 MIN_LENGTH_RATIO = 0.7
+# Agreement needs words to agree on: an original that is all garble gives the
+# check nothing, so a hallucinated reading would pass it. 2, not more: the
+# sparsest real garble in the corpus (O'Leary p13, "Do ¿s s as s s ... can the
+# skills be developed?") has exactly 2, and its reading was right.
+MIN_READABLE_WORDS = 2
+# Leading symbols worth carrying over when the VLM drops them (checkboxes,
+# bullets); anything else at the start of a garbled original is noise.
+_CARRIED_SYMBOLS = "☐☑☒✓✔•▪■□►➢"
 
 Reader = Callable[[bytes, int], str]
 
@@ -108,6 +122,8 @@ def reread_garbled_regions(document: Document, reader: Optional[Reader] = None) 
         return document
 
     accepted = 0
+    deadline = time.monotonic() + BUDGET_SECONDS
+    failures = 0
     with pdf:
         by_page: Dict[int, List[OCRReread]] = {}
         for page, region in pending:
@@ -119,9 +135,13 @@ def reread_garbled_regions(document: Document, reader: Optional[Reader] = None) 
                 key = _region_key(region)
                 reading = cached.get(key)
                 if reading is None:
+                    if time.monotonic() > deadline or failures >= MAX_CONSECUTIVE_FAILURES:
+                        continue  # stays flagged (OCR_004)
                     reading = _read_region(pdf, page_number, region, reader)
                     if reading is None:
+                        failures += 1
                         continue
+                    failures = 0
                     fresh[key] = reading
                 _judge(region, reading, engine_name)
                 accepted += region.accepted
@@ -139,11 +159,13 @@ def clean_reading(reading: str, original: str) -> str:
     did not have are dropped; a leading symbol the original had (a ☑ the VLM
     skipped) is kept."""
     text = re.sub(r"\s+", " ", reading).strip()
-    text = re.sub(r"(\*\*|__)", "", text)
+    text = re.sub(r"^#{1,6}\s+", "", text)  # markdown heading marker
+    text = re.sub(r"(\*\*|__|`)", "", text)
+    text = re.sub(r"(?<![\w*])\*(?=\S)([^*]+?)(?<=\S)\*(?![\w*])", r"\1", text)  # *italic*
     text = re.sub(r"^(?:[-*•]\s+)", "", text) if not re.match(r"^[-*•]\s", original) else text
-    # Non-ASCII symbols only: a garbled original often starts with ASCII junk
-    # ("-  l   sdd") that must not be carried over.
-    symbols = re.match(r"^((?:(?![\w\s])[^\x00-\x7f])+)", original)
+    # Checkbox/bullet symbols only: a garbled original often starts with junk
+    # ("-  l   sdd", a stray "©") that must not be carried over.
+    symbols = re.match(f"^([{_CARRIED_SYMBOLS}]+)", original.lstrip())
     if symbols and not text.startswith(symbols.group(1)):
         text = f"{symbols.group(1)} {text}"
     cleaned, _ = sanitize_xml_text(text)
@@ -158,6 +180,8 @@ def _judge(region: OCRReread, raw_reading: str, engine_name: str) -> None:
     ratio = len(reading) / max(len(region.original), 1)
     if not reading:
         region.reason = "the second reading was empty"
+    elif len(readable_words(region.original)) < MIN_READABLE_WORDS:
+        region.reason = "the original has too few readable words to check the second reading against"
     elif is_garbled(reading):
         region.reason = "the second reading is garbled too"
     elif region.agreement < MIN_AGREEMENT:
@@ -211,6 +235,9 @@ def _ollama_url() -> str:
 
 
 def _unavailable_reason() -> Optional[str]:
+    # Page crops are document content: only ever POST them over http(s).
+    if urllib.parse.urlparse(_ollama_url()).scheme not in ("http", "https"):
+        return f"RAWRS_OLLAMA_URL must be an http(s) URL, got {_ollama_url()!r}"
     try:
         with urllib.request.urlopen(f"{_ollama_url()}/api/tags", timeout=_PROBE_TIMEOUT_SECONDS) as response:
             models = {m.get("name") for m in json.loads(response.read()).get("models", [])}

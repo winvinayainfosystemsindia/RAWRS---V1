@@ -269,7 +269,8 @@ class CrossSourceVerificationEngine:
         # first must not disturb the second. Hence two ids, not one.
         # Each asset type's autonomous batch is its own judgement too:
         # undoing "suppress 34 running headers" must not also revert the
-        # OCR text repairs recorded in the same run.
+        # OCR text repairs recorded in the same run. Order (and so LIFO undo
+        # order) is run_inspection's, i.e. verifier registration order.
         for asset_type in dict.fromkeys(f.asset_type for f in auto):
             first_new = len(document.corrections)
             self.findings_to_corrections(

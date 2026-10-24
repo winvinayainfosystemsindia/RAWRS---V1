@@ -20,6 +20,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+from loguru import logger
+
 from src.models.correction import CorrectionRecord
 from src.models.verification import Finding, RuleSpec
 from src.verification.base import SemanticVerifier
@@ -59,7 +61,7 @@ class OcrTextVerifier(SemanticVerifier):
         findings: List[Finding] = []
         for page in getattr(document, "pages", []):
             for region in page.ocr_rereads:
-                if not region.accepted or not region.reading or region.original not in page.cleaned_text:
+                if not region.accepted or not region.reading or page.cleaned_text.count(region.original) != 1:
                     continue
                 findings.append(
                     Finding(
@@ -96,16 +98,21 @@ class OcrTextVerifier(SemanticVerifier):
         }
 
     def apply(self, document: Any, correction: CorrectionRecord) -> None:
-        """Replace the region's text in the page text, once. A page whose text
-        no longer holds the expected value (edited since) is left alone: the
-        audit row survives, the mutation has nothing to act on."""
+        """Replace the region's text in the page text, only when the expected
+        value occurs exactly once. A page edited since (no occurrence) or one
+        where it repeats (which occurrence?) is left alone: the audit row
+        survives, the mutation has nothing it can safely act on. ``revert``
+        replays this with the values swapped, so undo gets the same guard."""
         page = _page(document, correction.object_id)
         if page is None or not correction.original_value:
             return
-        if correction.original_value in page.cleaned_text:
-            page.cleaned_text = page.cleaned_text.replace(
-                correction.original_value, correction.proposed_value, 1
+        count = page.cleaned_text.count(correction.original_value)
+        if count != 1:
+            logger.warning(
+                "OCR text correction on {} left unapplied: its text occurs {} time(s)", correction.object_id, count
             )
+            return
+        page.cleaned_text = page.cleaned_text.replace(correction.original_value, correction.proposed_value, 1)
 
 
 def _register() -> None:

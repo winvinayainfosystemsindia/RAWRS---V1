@@ -83,7 +83,8 @@ def garbled_lines(text: str) -> List[str]:
     return [line.strip() for line in text.splitlines() if line.strip() and is_garbled(line)]
 
 
-def _clean_words(text: str) -> List[str]:
+def readable_words(text: str) -> List[str]:
+    """The 4+ letter, non-nonsense words of ``text``, lower-cased."""
     return [
         token.lower().rstrip(".")
         for token in _tokens(text)
@@ -101,9 +102,9 @@ def agreement(original: str, reading: str) -> float:
     that paraphrases, truncates or invents scores low. 1.0 when the original
     has no readable words to check against.
     """
-    wanted = Counter(_clean_words(original))
+    wanted = Counter(readable_words(original))
     if not wanted:
         return 1.0
-    have = Counter(_clean_words(reading))
+    have = Counter(readable_words(reading))
     found = sum(min(count, have[word]) for word, count in wanted.items())
     return found / sum(wanted.values())

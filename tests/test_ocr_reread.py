@@ -187,6 +187,42 @@ class TestReread:
         reread.reread_garbled_regions(document, reader=_Reader(READING * 3))
         assert "length" in document.pages[0].ocr_rereads[0].reason
 
+    def test_an_all_garble_original_cannot_vouch_for_any_reading(self) -> None:
+        # Nothing readable to agree on: a hallucination would pass agreement.
+        document = _scanned_document(original="In nde o o ad ie ef o n")
+        reread.reread_garbled_regions(document, reader=_Reader("Indicate the nature of the evidence here"))
+        region = document.pages[0].ocr_rereads[0]
+        assert not region.accepted
+        assert "too few readable words" in region.reason
+
+    def test_failing_reads_stop_after_a_few_in_a_row(self) -> None:
+        document = _scanned_document()
+        page = document.pages[0]
+        page.ocr_rereads = [
+            OCRReread(original=f"{GARBLED} {i}", bbox=[100.0, 150.0 + i, 480.0, 200.0]) for i in range(6)
+        ]
+        calls: List[bytes] = []
+
+        def broken(png: bytes, original_length: int) -> str:
+            calls.append(png)
+            raise TimeoutError("stalled")
+
+        reread.reread_garbled_regions(document, reader=broken)
+        assert len(calls) == reread.MAX_CONSECUTIVE_FAILURES
+        assert all(region.reading is None for region in page.ocr_rereads)
+
+    def test_past_the_budget_the_rest_stay_flagged(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(reread, "BUDGET_SECONDS", -1)
+        reader = _Reader(READING)
+        document = _scanned_document()
+        reread.reread_garbled_regions(document, reader=reader)
+        assert reader.calls == []
+        assert document.pages[0].ocr_rereads[0].reading is None
+
+    def test_a_non_http_ollama_url_is_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("RAWRS_OLLAMA_URL", "file:///etc")
+        assert "http(s)" in reread._unavailable_reason()
+
     def test_a_region_without_a_position_is_not_read(self) -> None:
         document = _scanned_document(bbox=None)
         reader = _Reader(READING)
@@ -234,6 +270,15 @@ class TestCleanReading:
     def test_ascii_junk_at_the_start_of_the_original_is_not_carried_over(self) -> None:
         assert reread.clean_reading("A well-articulated question", "-  l   sdd  d") == "A well-articulated question"
 
+    def test_stray_non_ascii_noise_is_not_carried_over(self) -> None:
+        assert reread.clean_reading("Hypothesis: a hunch", "© Hyp s o l") == "Hypothesis: a hunch"
+
+    def test_markdown_markers_are_stripped(self) -> None:
+        assert reread.clean_reading("## *Hypothesis*: a `hunch`", "Hyp s o l") == "Hypothesis: a hunch"
+
+    def test_arithmetic_asterisks_survive(self) -> None:
+        assert reread.clean_reading("2 * 3 = 6", "2 x o") == "2 * 3 = 6"
+
 
 # --- the correction rail ----------------------------------------------------
 
@@ -271,6 +316,22 @@ class TestOcrTextVerifier:
         document = _read_document()
         document.pages[0].cleaned_text = "Rewritten by a reviewer."
         assert OcrTextVerifier().inspect(document) == []
+
+    def test_a_repeated_text_is_never_guessed_at(self) -> None:
+        # Which occurrence is the region? Unknowable - so neither apply nor
+        # undo touches either.
+        document = _read_document()
+        page = document.pages[0]
+        correction_findings = OcrTextVerifier().inspect(document)
+        engine.record_findings(document, correction_findings, provider="rawrs_native")
+        page.cleaned_text = f"{READING}\n\n{page.cleaned_text}"  # the reading now occurs twice
+        engine.revert_correction(document, document.corrections[-1])
+        assert page.cleaned_text.count(READING) == 2
+        assert GARBLED not in page.cleaned_text
+
+        doubled = _read_document()
+        doubled.pages[0].cleaned_text += f"\n\n{GARBLED}"
+        assert OcrTextVerifier().inspect(doubled) == []
 
     def test_auto_batches_of_different_asset_types_are_separate_transactions(self) -> None:
         from src.models.verification import Finding
