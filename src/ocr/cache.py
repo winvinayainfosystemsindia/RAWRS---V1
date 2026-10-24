@@ -52,10 +52,14 @@ _OFF_VALUES = frozenset({"0", "off", "false", "no"})
 _ENGINE_PACKAGES = {
     "docling": ("docling", "docling-core", "docling-ibm-models", "rapidocr", "onnxruntime"),
     "surya": ("surya-ocr", "torch"),
+    # Served by Ollama, not a package: the model tag is checked per entry
+    # (src/ocr/reread.py), the prompt and crop settings via the source below.
+    "glm": (),
 }
 _ENGINE_SOURCES = {
     "docling": ("docling_config.py", "docling_engine.py"),
     "surya": ("surya_config.py", "surya_engine.py"),
+    "glm": ("reread.py",),
 }
 
 PathLike = Union[str, Path]

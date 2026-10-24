@@ -205,6 +205,8 @@ Examples:
 | EQUATION_002 / 003 / 004 | INFO | Reviewer edited an equation's LaTeX / number / description (correction-rail reason codes, not queue findings) |
 | OCR_001 | WARNING | Page OCR confidence is LOW (Surya fallback recovery) |
 | OCR_002 | WARNING | OCR-recovered text exceeds the unusable-character ratio threshold |
+| OCR_004 | WARNING | OCR page text still carries the garble signature (recognizer fragments like "In nde o o ad"); names why no second reading repaired it (docs/OCR_QUALITY.md) |
+| OCR_REREAD_001 | INFO | A garbled OCR region was read again by GLM-OCR and the agreeing reading auto-applied (correction-rail reason code `GARBLED_OCR_REREAD`, undoable; not a queue finding) |
 | NOTE_001 | INFO | Footnote detected |
 | NOTE_002 | INFO | Endnote detected |
 | TABLE_001 | WARNING | Table has no caption |

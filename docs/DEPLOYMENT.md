@@ -98,6 +98,7 @@ RAWRS_ALLOWED_ORIGINS=https://<your-project>.vercel.app
 docker compose up -d --build     # first build is long, mostly torch
 docker compose logs -f api       # wait for "Application startup complete"
 docker compose exec ollama ollama pull qwen2.5vl:3b   # ~3 GB, kept in the ollama-models volume
+docker compose exec ollama ollama pull glm-ocr:q8_0   # ~1.8 GB, re-reads garbled OCR regions
 ```
 
 Without the model RAWRS still exports; images are flagged for a human to write alt text. No firewall rule or open port is needed — the tunnel dials out.

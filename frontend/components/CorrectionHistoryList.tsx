@@ -42,8 +42,12 @@ function statusTone(status: string): "success" | "danger" | "info" | "neutral" |
   }
 }
 
+const OBJECT_TYPE_LABEL: Record<string, string> = {
+  ocr_text: "OCR text",
+};
+
 function objectTypeLabel(objectType: string): string {
-  return objectType.charAt(0).toUpperCase() + objectType.slice(1);
+  return OBJECT_TYPE_LABEL[objectType] ?? objectType.charAt(0).toUpperCase() + objectType.slice(1);
 }
 
 const OBJECT_TYPE_TONE: Record<string, "info" | "warning" | "success" | "danger" | "neutral"> = {
@@ -53,6 +57,7 @@ const OBJECT_TYPE_TONE: Record<string, "info" | "warning" | "success" | "danger"
   footnote: "neutral",
   reading_order: "danger",
   metadata: "neutral",
+  ocr_text: "warning",
 };
 
 function confidenceLabel(confidence: number): { text: string; tone: string } {
@@ -77,6 +82,7 @@ const ACCESSIBILITY_IMPACT: Record<string, string> = {
   paragraph: "Correct text structure keeps reading order and flow intelligible to non-visual readers.",
   caption: "Captions must be programmatically tied to their figure or table to be reachable by assistive technology.",
   front_matter: "Front-matter structure orients assistive-technology users at the start of the document.",
+  ocr_text: "Garbled recognition is read aloud as nonsense; the repaired text must match the printed page.",
 };
 
 // Every object type explains why it matters — no silent fallback (P2-8). A

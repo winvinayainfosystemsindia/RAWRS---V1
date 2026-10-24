@@ -149,9 +149,8 @@ Yes for **machine minutes** — but unevenly, and not for what matters most. Run
 
 ## What's honest-but-imperfect today
 
-- 5 backend tests fail (3 stale assertions, 2 undiagnosed) — CI red because of them
-- The PDF-only path ships without cross-source verification (verifiers skip when no Mathpix source exists)
-- OCR garbles bold/italic text on some flattened PDFs, and fallback escalation only triggers on *empty* pages — root-caused and researched, fix plan written (`docs/RAWRS_PDF_ONLY_RECONSTRUCTION_RESEARCH.md`)
+- The PDF-only path has only one cross-source verifier (OCR text vs a GLM-OCR second reading); the others skip when no Mathpix source exists
+- OCR garbles bold/italic text on some flattened PDFs — now detected and re-read by GLM-OCR with undoable auto-corrections; garbled headings are flagged, not repaired (`docs/OCR_QUALITY.md`)
 - PDF-only documents don't get equations yet (Mathpix path does)
 - Nothing deployed — packaging exists, hosting undecided
 

@@ -23,6 +23,25 @@ class OCRConfidence(str, Enum):
     LOW = "low"
 
 
+class OCRReread(BaseModel):
+    """One garbled OCR region and its second reading (src/ocr/reread.py).
+
+    ``original`` is the Docling item text exactly as it appears in the page
+    text; ``bbox`` is where it sits on the page (PDF points, top-left origin,
+    like BoundingBox). ``reading`` stays None until a second recognizer has
+    read the crop; ``accepted`` says whether that reading passed the
+    agreement checks, and ``reason`` says why not when it did not.
+    """
+
+    original: str
+    bbox: Optional[List[float]] = None
+    reading: Optional[str] = None
+    engine: Optional[str] = None
+    agreement: Optional[float] = None
+    accepted: bool = False
+    reason: str = ""
+
+
 class PageType(str, Enum):
     """Result of deterministic page-level extraction-quality classification.
 
@@ -178,6 +197,11 @@ class Page(BaseModel):
     # cleaned_text -> heading level, 1 for the title) instead of discarding
     # it with the rest of the structure when the page is flattened to text.
     ocr_heading_levels: Dict[str, int] = Field(default_factory=dict)
+    # Docling text items whose recognition looked garbled (src/ocr/quality.py),
+    # each with the second reading src/ocr/reread.py obtained for it. Evidence
+    # only: cleaned_text changes when the correction rail applies an accepted
+    # reading (src/verification/ocr_text.py), so the change is undoable.
+    ocr_rereads: List[OCRReread] = Field(default_factory=list)
     ocr_confidence: Optional[OCRConfidence] = None
     footnote_references: List[str] = Field(default_factory=list)
     endnote_references: List[str] = Field(default_factory=list)

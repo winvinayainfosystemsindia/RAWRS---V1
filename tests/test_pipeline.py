@@ -27,6 +27,7 @@ import pytest
 
 from conftest import a_scanned_pdf
 from src.models.contracts import ExtractionMethod, OCRConfidence, PageType, ProcessingStatus
+from src.models.figure import AltTextStatus
 from src.pipeline.phase1_pipeline import run_pipeline
 
 SAMPLE_PDF_DIR = Path(__file__).resolve().parents[1] / "samples" / "benchmark" / "pdfs"
@@ -921,7 +922,15 @@ class TestAltTextDoesNotChangeExistingOutputsOutsideImages:
         # silent behavior change to anything pre-existing.
         pending_with = [i for i in result_with.validation_issues if i.rule_id == "IMAGE_004"]
         pending_without = [i for i in result_without.validation_issues if i.rule_id == "IMAGE_004"]
-        assert len(pending_with) == len(result_with.document.images)
+        # Automatic alt text settles decorative images, so only images
+        # still awaiting review are flagged.
+        still_pending = [
+            image.image_id
+            for image in result_with.document.images
+            if image.figure is not None
+            and image.figure.alt_text_status == AltTextStatus.PENDING_REVIEW
+        ]
+        assert len(pending_with) == len(still_pending)
         assert pending_without == []
 
 

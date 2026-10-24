@@ -196,9 +196,9 @@ Candidate replacements researched (GLM-OCR: MIT; PaddleOCR-VL-1.6 / Granite-Docl
 
 ## 10. Honest gaps (what a tech lead should know on day one)
 
-1. **5 failing backend tests** in `tests/test_pipeline.py` — 3 stale assertions, 2 undiagnosed; CI is red because of them (`docs/STATUS_REPORT_2026-09-30.md` §4).
-2. **OCR quality on emphasized runs** — RapidOCR garbles bold/italic text; escalation only fires on empty pages; Surya-2 fixes it but is CPU-prohibitive at ~6 min/page. Research + 6-experiment plan written up, not yet implemented (`docs/RAWRS_PDF_ONLY_RECONSTRUCTION_RESEARCH.md`).
-3. **PDF-only path has no verification safety net** (verifiers gate on `import_provider is None`).
+1. ~~5 failing backend tests~~ — **fixed 2026-10-24**: the last 3 were an IMAGE_004 assertion that predated automatic alt text (decorative images are no longer pending review); CI green on `feat/ocr-reread`.
+2. **OCR quality on emphasized runs** — **mostly closed 2026-10-24**: garbled regions are detected (17/17, 0 false of 368) and re-read by GLM-OCR (4–20 s/region); O'Leary 4-gram recall 94.8% → 98.5%. Heading lines and Surya pages are flagged (OCR_004), not repaired (`docs/OCR_QUALITY.md`).
+3. **PDF-only path has a thin verification safety net** — the OCR-text verifier (GLM reading as second source) runs without Mathpix; the figure/table/heading/list/footnote/callout verifiers still gate on `import_provider`.
 4. **Equations panel** is built and tested (Mathpix route) but **not yet validated against real docs in the UI**, and the PDF-only route has no equations at all.
 5. **Batch upload cancel** has known limits.
 6. **Nothing is deployed** — Docker packaging exists, hosting is undecided (`docs/DEPLOYMENT.md`).

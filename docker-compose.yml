@@ -30,6 +30,7 @@ services:
   # Local vision model for alt text (qwen2.5vl:3b, ~3 GB RAM; CPU is fine,
   # ~2.5 min per image). Pull the model once after the first start:
   #   docker compose exec ollama ollama pull qwen2.5vl:3b
+  #   docker compose exec ollama ollama pull glm-ocr:q8_0   # OCR re-reading
   # Without it RAWRS still exports; images are flagged for human alt text.
   ollama:
     image: ollama/ollama:latest
