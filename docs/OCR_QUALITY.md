@@ -1,6 +1,6 @@
 # OCR quality: garble detection and GLM-OCR re-reading
 
-Added 2026-10-24. Closes gaps 2 and 3 of `techstack.md` §10 and implements Experiments 1b/2/4/5 of `docs/RAWRS_PDF_ONLY_RECONSTRUCTION_RESEARCH.md` on the PDF-only path.
+Added 2026-10-24. Closes most of gap 2 of `techstack.md` §10 (and is the first verifier on the PDF-only path, gap 3) and implements Experiments 1b/2/4/5 of `docs/RAWRS_PDF_ONLY_RECONSTRUCTION_RESEARCH.md` on the PDF-only path.
 
 ## The problem
 
@@ -27,7 +27,8 @@ The stage is skipped when `RAWRS_OCR_REREAD=off`, in AI stub mode (tests/CI), or
 | O'Leary: garbled regions re-read / accepted | 12 / 12; 4–20 s each; OCR_004 issues 12 → 0 |
 | O'Leary 4-gram recall vs human-remediated DOCX | 94.8% → **98.5%** (Mathpix MMD scores 97.0%) |
 | O'Leary 4-gram precision vs human-remediated DOCX | 94.0% → **96.7%** |
-| Born-digital documents | Untouched: no OCR pages means no regions (Markdown is byte-identical, see test suite) |
+| Bryman: garbled regions re-read / accepted | 5 / 5; 4-gram recall 96.1% → 96.2% (the garble was 5 short paragraphs) |
+| 8 born-digital PDFs, main vs branch, OCR on | 0 garbled regions; Markdown identical apart from random image-file ids |
 
 ## Limits
 

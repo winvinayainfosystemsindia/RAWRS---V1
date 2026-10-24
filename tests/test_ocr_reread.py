@@ -86,7 +86,10 @@ class TestGarbleSignature:
 
 class TestAgreement:
     def test_a_correct_reading_keeps_the_readable_words(self) -> None:
-        assert agreement(GARBLED, READING) == 1.0
+        # 8 of 9: "adhn" is a garble fragment with a vowel, so it counts as
+        # readable and the correct reading cannot contain it.
+        assert agreement(GARBLED, READING) == pytest.approx(8 / 9)
+        assert agreement(GARBLED, READING) >= reread.MIN_AGREEMENT
 
     def test_a_paraphrase_or_truncation_scores_low(self) -> None:
         assert agreement(GARBLED, "Indicate whether you foresee a relationship.") < 0.3
@@ -161,7 +164,7 @@ class TestReread:
         assert region.accepted and region.reason == ""
         assert region.reading == READING
         assert region.engine == reread.model()
-        assert region.agreement == 1.0
+        assert region.agreement == pytest.approx(8 / 9, abs=0.001)
         assert GARBLED in document.pages[0].cleaned_text  # evidence only
 
     @pytest.mark.parametrize(
@@ -271,12 +274,13 @@ class TestOcrTextVerifier:
 
     def test_auto_batches_of_different_asset_types_are_separate_transactions(self) -> None:
         from src.models.verification import Finding
+        from src.verification import artifacts  # registers the text_block verifier
 
         document = _read_document()
-        other = Finding(asset_type="text_block", kind="suppress_artifact", object_id="missing", auto_apply=True)
+        other = Finding(asset_type=artifacts.ASSET_TYPE, kind="suppress_artifact", object_id="missing", auto_apply=True)
         engine.record_findings(document, OcrTextVerifier().inspect(document) + [other], provider="rawrs_native")
         transactions = {c.object_type: c.transaction_id for c in document.corrections}
-        assert transactions[ASSET_TYPE] != transactions["text_block"]
+        assert transactions[ASSET_TYPE] != transactions[artifacts.ASSET_TYPE]
 
 
 # --- OCR_004 ----------------------------------------------------------------
@@ -305,7 +309,7 @@ class TestGarbledOcrRule:
 
     def test_native_text_pages_are_out_of_scope(self) -> None:
         document = _scanned_document()
-        document.pages[0].extraction_method = ExtractionMethod.DIRECT_TEXT
+        document.pages[0].extraction_method = ExtractionMethod.DIRECT_TEXT_EXTRACTION
         assert _ocr_004(document) == []
 
     def test_clean_ocr_is_not_flagged(self) -> None:

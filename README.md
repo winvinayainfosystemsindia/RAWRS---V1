@@ -8,7 +8,7 @@ RAWRS is a local-first, accessibility remediation platform for academic PDFs, bu
 
 ## What it does
 
-- **PDF-native path:** extracts text from born-digital PDFs (PyMuPDF) with OCR fallback (Docling → Surya); scanned/image PDFs get headings and lists from Docling's layout model.
+- **PDF-native path:** extracts text from born-digital PDFs (PyMuPDF) with OCR fallback (Docling → Surya); scanned/image PDFs get headings and lists from Docling's layout model. Garbled OCR regions (bold lead-ins RapidOCR mangles) are detected and read again by GLM-OCR; agreeing readings auto-apply as undoable corrections, the rest are flagged (`docs/OCR_QUALITY.md`).
 - **Checklist-compliant DOCX:** every export is audited against both remediation checklists (`docs/CHECKLIST_COMPLIANCE.md`); alt text is written automatically by a local vision model (Ollama `qwen2.5vl:3b`), with statistics explained for charts and tables.
 - **Mathpix import path:** imports a Mathpix MMD file as the primary extraction source; RAWRS provides verification, enrichment, and accessibility output. Every proposed correction is recorded as a `CorrectionRecord` (audit trail) — Mathpix extraction is never silently overwritten.
 - Detects headings (H1–H6), footnotes/endnotes, images, tables, lists, callouts (boxed asides), and front matter.
@@ -73,6 +73,7 @@ python -m venv .venv
 pip install -r requirements.lock     # reproducible install (preferred)
 pip install -r requirements-ai.txt   # optional — only needed for real AI alt text/table analysis
 ollama pull qwen2.5vl:3b             # optional — automatic alt text (https://ollama.com)
+ollama pull glm-ocr:q8_0             # optional — re-reads garbled OCR regions (docs/OCR_QUALITY.md)
 
 # Run the backend
 uvicorn src.api.main:app --reload
@@ -126,6 +127,7 @@ result = run_pipeline(
 | `docs/EQUATION_DESIGN.md` | How equations and `\ce` chemistry are remediated, and what real data showed |
 | `docs/CHECKLIST_COMPLIANCE.md` | Every remediation-checklist item, how RAWRS meets it, and the audit check |
 | `docs/DEPLOYMENT.md` | Hosting routes and what each one costs; how the hosted frontend reaches a server on the owner's laptop |
+| `docs/OCR_QUALITY.md` | Garble detection, GLM-OCR re-reading of garbled regions, OCR_004 — with the O'Leary/Bryman measurements |
 | `docs/LEARNING_LOOP.md` | How RAWRS learns from remediators (proposal verdicts, workspace edits, finished-in-Word DOCX diffs) and the OCR result cache |
 
 (Note: `docs/CURRENT_STATE.md` was removed from the working tree on 2026-10-05 pending replacement — `PHASE_STATUS.md` and `docs/STATUS_REPORT_2026-09-30.md` cover the same ground. The root-level `techstack.md` and `HOW_IT_WORKS.md` are the new orientation docs.)
@@ -166,7 +168,7 @@ Equation tests are `tests/test_equation_*.py`. Most need `pandoc` (PATH or `pypa
 
 Core: `pydantic`, `pymupdf`, `python-docx`, `docling` (+ `onnxruntime`, its OCR backend), `surya-ocr`, `rapidocr`, `loguru`, `beautifulsoup4`, `fastapi`, `uvicorn`, `python-multipart`.
 
-Automatic alt text uses a local [Ollama](https://ollama.com) server (`RAWRS_OLLAMA_URL`, `RAWRS_OLLAMA_MODEL`, default `qwen2.5vl:3b`, ~2.5 min per image on CPU). Without it RAWRS still exports and flags images for a human to write alt text. The in-process Qwen provider (`requirements-ai.txt`: `torch`, `transformers`, `qwen-vl-utils`, `psutil`) is the alternative; `GET /api/ai/status` reports availability, and a startup RAM/VRAM preflight (`src/ai/providers/qwen.py`) checks hardware before loading. Note that `torch` and `transformers` are pulled in as *base* dependencies of `docling` regardless — see `requirements-ai.txt`.
+Automatic alt text uses a local [Ollama](https://ollama.com) server (`RAWRS_OLLAMA_URL`, `RAWRS_OLLAMA_MODEL`, default `qwen2.5vl:3b`, ~2.5 min per image on CPU). Without it RAWRS still exports and flags images for a human to write alt text. The same server re-reads garbled OCR regions with `glm-ocr:q8_0` (MIT, 4–20 s per region on CPU; `RAWRS_OCR_REREAD=off` disables it, `RAWRS_OCR_REREAD_MODEL` overrides the model). The in-process Qwen provider (`requirements-ai.txt`: `torch`, `transformers`, `qwen-vl-utils`, `psutil`) is the alternative; `GET /api/ai/status` reports availability, and a startup RAM/VRAM preflight (`src/ai/providers/qwen.py`) checks hardware before loading. Note that `torch` and `transformers` are pulled in as *base* dependencies of `docling` regardless — see `requirements-ai.txt`.
 
 **Licences to be aware of before any commercial or networked use:** `pymupdf` is AGPL-3.0 (or a paid Artifex licence); the Surya model weights and `qwen2.5vl:3b` (Qwen Research licence) carry non-commercial or revenue-capped terms. Details and questions in `docs/STATUS_REPORT_2026-09-30.md` §7. The repository has no `LICENSE` file yet.
 
