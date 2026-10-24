@@ -13,8 +13,9 @@ Docling's recognizer (RapidOCR, PP-OCRv6) garbles bold and italic runs on scanne
 | Detect | `src/ocr/quality.py` | A line is garbled when a 6-token window holds ≥3 nonsense tokens (1–2 letters that aren't English words, or vowelless), or when ≥2 irregular spacing gaps come with ≥1 nonsense token. Lexicon-free. |
 | Mark | `src/ocr/docling_engine.py` | Each garbled Docling text item, with its bbox, is stored on `Page.ocr_rereads`. Heading lines are skipped. |
 | Re-read | `src/ocr/reread.py` | Only the garbled crop (200 DPI) goes to `glm-ocr:q8_0` (MIT, 0.9B) on the local Ollama. Readings are cached per PDF page. |
-| Judge | `reread._judge` | A reading is accepted only if it isn't garbled itself, keeps ≥85% of the original's readable words (the anti-hallucination check), and is 0.7–2× the original's length. |
-| Apply | `src/verification/ocr_text.py` | Each accepted reading becomes an `AUTO_APPLIED` CorrectionRecord (`OCR_REREAD_001`), undoable in the Corrections panel. Each asset type now gets its own undo transaction. |
+| Judge | `reread._judge` | A reading is accepted only if the original has ≥2 readable words to anchor it, the reading isn't garbled itself, it keeps ≥85% of those words (the anti-hallucination check), and it is 0.7–2× the original's length. |
+| Bound | `reread.BUDGET_SECONDS` | The stage gets 15 min per document, 180 s per region, and stops after 3 failed reads in a row. Unread regions stay flagged. |
+| Apply | `src/verification/ocr_text.py` | Each accepted reading becomes an `AUTO_APPLIED` CorrectionRecord (`OCR_REREAD_001`), undoable in the Corrections panel. It is applied, and undone, only while its text occurs exactly once on the page. Each asset type gets its own undo transaction. |
 | Flag | validator `OCR_004` | Any line still garbled (reading rejected, or no model available) is a warning that says why. |
 
 The stage is skipped when `RAWRS_OCR_REREAD=off`, in AI stub mode (tests/CI), or when Ollama or the model is missing. In those cases OCR_004 still flags the lines. Model: `RAWRS_OCR_REREAD_MODEL`, default `glm-ocr:q8_0`.
