@@ -832,6 +832,18 @@ No force-push, reset or rebase at any step. Rollback: `backup/main-pre-reconcile
 | 5 | Saved Markdown edits override the generated export until discarded | Direct editing with a live DOCX view | `src/api/markdown_edits.py` |
 | 6 | Heading outlines repaired after extraction, for every route | Mathpix/Docling give one flat level | `src/headings/hierarchy.py` |
 
+## Part 27 — Automation-rate metrics (2026-11-01)
+
+| # | Decision | Why | Where |
+|---|---|---|---|
+| 1 | Two numbers, never combined: (a) decided without asking a human, (b) reviewer kept unchanged | The public number must survive scrutiny; (a) is measurable now, (b) needs real reviews | `src/metrics/automation.py` |
+| 2 | (b) reads "not measured yet" below `MIN_REVIEWED_DOCS = 5` human-reviewed documents | No headline from one or two reviews | same |
+| 3 | Headline = median across documents; Wilson bound labelled item-level/overconfident; floor rates, ceil durations | Items in one document are correlated; rounding never flatters RAWRS | same |
+| 4 | Per-job sidecar `outputs/reports/<id>.metrics.json`; review buckets recomputed from the live Document | Local-first, no database; the Document stays the single source of truth, no `_persist` site touched | pipeline stage 8, `learning_routes.py` |
+| 5 | Review time: in-tab active seconds, strict (60 s idle) and loose (300 s idle), each POST capped at 300 s; quote loose | Remediators read without input; no UI, nothing sent anywhere but the RAWRS backend | `frontend/lib/hooks/useReviewTimer.ts` |
+| 6 | Similarity to the human-remediated DOCX is an estimate, kept apart in CLI/API/panel | It measures likeness to an independent remediation, not reviewer behaviour | `scripts/run_corpus_metrics.py` |
+| 7 | No new dependency | stdlib `statistics`/`math`; Wilson helper reused from `src/learning/decisions.py` | — |
+
 ---
 
 ## How to add a new entry

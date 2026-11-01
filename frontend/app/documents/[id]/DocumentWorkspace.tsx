@@ -53,6 +53,9 @@ import { PageLabelManagerPanel } from "@/components/PageLabelManagerPanel";
 import { CorrectionsPanel } from "@/components/CorrectionsPanel";
 import { ChecklistAuditPanel } from "@/components/ChecklistAuditPanel";
 import { FinalDocxPanel } from "@/components/FinalDocxPanel";
+import { AutomationPanel } from "@/components/AutomationPanel";
+import { useReviewTimer } from "@/lib/hooks/useReviewTimer";
+import { DEMO_JOB_ID } from "@/lib/api";
 import { ReadinessPanel } from "@/components/ReadinessPanel";
 
 // Naive positional line diff for the "flash changed lines" signal after a
@@ -107,6 +110,8 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
   const [docxRefresh, setDocxRefresh] = useState(0);
   const shortcutsDialogRef = useRef<HTMLDialogElement>(null);
   const elapsed = useElapsedSeconds(state.job);
+  // Active review time, only once there is a finished document to review.
+  useReviewTimer(jobId, jobId !== DEMO_JOB_ID && state.job?.status === "complete");
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -428,6 +433,7 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
               </h2>
               <DownloadControls job={job!} />
             </section>
+            <AutomationPanel jobId={jobId} />
             <FinalDocxPanel jobId={jobId} />
           </div>
         );

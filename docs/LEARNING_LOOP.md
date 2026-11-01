@@ -60,3 +60,7 @@ Three signals. All of them were already being recorded (or are recorded now), an
 
 - Dev `outputs/documents` contains sidecars written by tests, so insights there mix test data with real reviews.
 - Insights are aggregate advice. Turning a recommendation into a pipeline change is a deliberate code change with its own tests, never automatic.
+
+## Related
+
+- Automation-rate metrics (decided without a human, reviewer kept unchanged, review time): `src/metrics/automation.py`, `python -m src.metrics`, `docs/AUTOMATION_RATE_2026-11-01.md`. They reuse `decisions.outcome()` and `wilson_interval()` from this loop.

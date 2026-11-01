@@ -5,9 +5,11 @@ GET    /api/documents/{job_id}/final-docx   that comparison, as stored
 DELETE /api/documents/{job_id}/final-docx   forget it
 GET    /api/learning/insights               everything learned, across documents
 GET    /api/learning/dataset                the same as labelled JSON Lines
+GET    /api/documents/{job_id}/metrics      automation metrics (src/metrics/automation.py)
+POST   /api/documents/{job_id}/review-time  add active review time to the metrics sidecar
 
 Read-only with respect to the Document: nothing here changes a document, an
-export or the pipeline (docs/LEARNING_LOOP.md).
+export or the pipeline (review-time writes only the metrics sidecar) (docs/LEARNING_LOOP.md).
 """
 
 import json
@@ -18,12 +20,14 @@ from typing import Dict, Optional
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from loguru import logger
+from pydantic import BaseModel, Field
 
 from src.api.document_store import DOCUMENTS_DIR
 from src.api.routes import _ensure_current_export, _require_job
 from src.learning import store
 from src.learning.docx_diff import diff_docx
 from src.learning.insights import build_insights, iter_dataset
+from src.metrics.automation import add_review_time, job_metrics, sidecar_path
 from src.pipeline.phase1_pipeline import DEFAULT_OUTPUT_ROOT
 
 router = APIRouter(prefix="/api")
@@ -144,3 +148,31 @@ def download_learning_dataset() -> StreamingResponse:
         media_type="application/x-ndjson",
         headers={"Content-Disposition": 'attachment; filename="rawrs-learning-dataset.jsonl"'},
     )
+
+
+class ReviewTimeIn(BaseModel):
+    """One flush of active review time from the workspace (useReviewTimer)."""
+
+    strict_seconds: float = Field(..., ge=0)
+    loose_seconds: float = Field(..., ge=0)
+
+
+@router.get("/documents/{job_id}/metrics")
+def get_document_metrics(job_id: str) -> Dict:
+    """Automation metrics for one job: measured (a)/(b), checks, timing,
+    review time, and the separate estimate (src/metrics/automation.py)."""
+    _require_job(job_id)
+    metrics = job_metrics(DEFAULT_OUTPUT_ROOT, job_id)
+    if metrics is None:
+        raise HTTPException(status_code=404, detail="No metrics for this job (processed before metrics were recorded).")
+    return metrics
+
+
+@router.post("/documents/{job_id}/review-time")
+def post_review_time(job_id: str, body: ReviewTimeIn) -> Dict:
+    """Add active review time; each value is capped at 300 s per call."""
+    _require_job(job_id)
+    totals = add_review_time(sidecar_path(DEFAULT_OUTPUT_ROOT, job_id), body.strict_seconds, body.loose_seconds)
+    if totals is None:
+        raise HTTPException(status_code=404, detail="No metrics for this job (processed before metrics were recorded).")
+    return totals

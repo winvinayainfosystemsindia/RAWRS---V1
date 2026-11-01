@@ -64,6 +64,7 @@ from src.headings.hierarchy import repair_headings
 from src.images.auto_alt_text import apply_automatic_alt_text
 from src.images.image_extractor import _extract_images_from_pdf, extract_images
 from src.markdown.markdown_builder import build_markdown
+from src.metrics.automation import sidecar_path, write_pipeline_metrics
 from src.structure.paragraph_assembly import assemble_paragraphs
 from src.structure.relationships import link_document
 from src.models.contracts import Document, ProcessingStatus, Severity, ValidationIssue
@@ -112,6 +113,8 @@ class PipelineResult:
     # correction type that should invalidate a cached export.
     markdown_generated_at_version: Optional[int] = None
     docx_generated_at_version: Optional[int] = None
+    # Wall-clock seconds per named stage (src/metrics/automation.py).
+    stage_seconds: Dict[str, float] = field(default_factory=dict)
 
 
 def run_pipeline(
@@ -180,6 +183,17 @@ def run_pipeline(
     output_root = Path(output_root)
     stem = pdf_path.stem
     start_time = perf_counter()
+    stage_seconds: Dict[str, float] = {}
+    stage_mark = [start_time]
+
+    def _stage_done(name: str) -> None:
+        # ponytail: repair_headings has no stage name, so its time folds into
+        # generate_markdown; name it if it ever needs its own number.
+        now = perf_counter()
+        stage_seconds[name] = now - stage_mark[0]
+        stage_mark[0] = now
+        if on_stage_complete:
+            on_stage_complete(name)
 
     logger.info("=== Starting Phase 1 pipeline for '{}' ===", pdf_path)
 
@@ -187,7 +201,7 @@ def run_pipeline(
     try:
         document = parse_pdf(pdf_path)
         logger.info("Stage 1/8 (Parse PDF) complete: {} page(s)", len(document.pages))
-        if on_stage_complete: on_stage_complete("parse_pdf")
+        _stage_done("parse_pdf")
     except Exception as exc:
         logger.error("Stage 1/8 (Parse PDF) failed: {}", exc)
         return _build_result(
@@ -241,7 +255,7 @@ def run_pipeline(
             "Stage 2/8 (Extract Text) complete [{}]",
             "mathpix" if _mathpix_path else "rawrs-native",
         )
-        if on_stage_complete: on_stage_complete("extract_text")
+        _stage_done("extract_text")
     except Exception as exc:
         logger.error("Stage 2/8 (Extract Text) failed: {}", exc)
         document.processing_status = ProcessingStatus.FAILED
@@ -310,7 +324,7 @@ def run_pipeline(
             "found" if document.front_matter and document.front_matter.title else "not found",
             len(document.tables),
         )
-        if on_stage_complete: on_stage_complete("detect_structure")
+        _stage_done("detect_structure")
     except Exception as exc:
         logger.error("Stage 3/8 (Detect Structure) failed: {}", exc)
         document.processing_status = ProcessingStatus.FAILED
@@ -357,7 +371,7 @@ def run_pipeline(
             document, output_root / "alt_text_dataset" / f"{stem}.json"
         )
         logger.info("Stage 4/8 (Extract Images) complete: {} image(s)", len(document.images))
-        if on_stage_complete: on_stage_complete("extract_images")
+        _stage_done("extract_images")
     except Exception as exc:
         logger.error("Stage 4/8 (Extract Images) failed: {}", exc)
         document.processing_status = ProcessingStatus.FAILED
@@ -448,7 +462,7 @@ def run_pipeline(
         )
 
         logger.info("Stage 5/8 (Detect Headings) complete: {} heading(s)", len(document.headings))
-        if on_stage_complete: on_stage_complete("detect_headings")
+        _stage_done("detect_headings")
     except Exception as exc:
         logger.error("Stage 5/8 (Detect Headings) failed: {}", exc)
         document.processing_status = ProcessingStatus.FAILED
@@ -481,7 +495,7 @@ def run_pipeline(
         markdown_generated_at_version = document.version
         document.processing_status = ProcessingStatus.MARKDOWN_COMPLETE
         logger.info("Stage 6/8 (Generate Markdown) complete: {}", markdown_path)
-        if on_stage_complete: on_stage_complete("generate_markdown")
+        _stage_done("generate_markdown")
     except Exception as exc:
         logger.error("Stage 6/8 (Generate Markdown) failed: {}", exc)
         document.processing_status = ProcessingStatus.FAILED
@@ -508,7 +522,7 @@ def run_pipeline(
         docx_generated_at_version = document.version
         document.processing_status = ProcessingStatus.DOCX_COMPLETE
         logger.info("Stage 7/8 (Generate DOCX) complete: {}", docx_path)
-        if on_stage_complete: on_stage_complete("generate_docx")
+        _stage_done("generate_docx")
     except Exception as exc:
         logger.error("Stage 7/8 (Generate DOCX) failed: {}", exc)
         document.processing_status = ProcessingStatus.FAILED
@@ -536,8 +550,8 @@ def run_pipeline(
             document, issues, output_root / "reports" / f"{stem}.json"
         )
         logger.info("Stage 8/8 (Run Validation) complete: {} issue(s)", len(issues))
-        _write_checklist_report(document, docx_path, output_root / "reports" / f"{stem}.checklist.json")
-        if on_stage_complete: on_stage_complete("run_validation")
+        checks = _write_checklist_report(document, docx_path, output_root / "reports" / f"{stem}.checklist.json")
+        _stage_done("run_validation")
     except Exception as exc:
         logger.error("Stage 8/8 (Run Validation) failed: {}", exc)
         document.processing_status = ProcessingStatus.FAILED
@@ -563,7 +577,10 @@ def run_pipeline(
         pdf_path,
         perf_counter() - start_time,
     )
-    return _build_result(
+    write_pipeline_metrics(
+        document, sidecar_path(output_root, stem), stage_seconds, perf_counter() - start_time, checks
+    )
+    result = _build_result(
         pdf_path,
         document=document,
         success=True,
@@ -579,6 +596,8 @@ def run_pipeline(
         ocr_metrics=ocr_metrics,
         surya_metrics=surya_metrics,
     )
+    result.stage_seconds = dict(stage_seconds)
+    return result
 
 
 def _build_result(
@@ -620,7 +639,7 @@ def _build_result(
     )
 
 
-def _write_checklist_report(document: Document, docx_path: Path, report_path: Path) -> None:
+def _write_checklist_report(document: Document, docx_path: Path, report_path: Path) -> Optional[Dict[str, int]]:
     """Audit the DOCX just written against the two remediation checklists
     (src/validation/checklist_audit.py) and save the verdict beside the
     validation report. An audit failure is logged, never fatal: the DOCX is
@@ -634,8 +653,10 @@ def _write_checklist_report(document: Document, docx_path: Path, report_path: Pa
         logger.info(
             "Checklist audit: {} - failing {}", report.summary, report.failing() or "none"
         )
+        return dict(report.summary)
     except Exception as exc:
         logger.error("Checklist audit failed for '{}': {}", docx_path, exc)
+        return None
 
 
 def _write_validation_report(

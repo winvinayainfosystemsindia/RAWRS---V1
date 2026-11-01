@@ -128,3 +128,15 @@ regression; several became visible only once ADR-020's projection gate existed.
 |---|---|
 | `running_header_suppression_accuracy` is structurally binary | The benchmark DOCX has zero repeated-line candidates, so `leak == r` always and the metric can only read 0.0 or 1.0. |
 | `TestStructureDetectionDoesNotChangeExistingOutputs`'s markdown assertion is vacuous | Both runs write the same path, so the second overwrites the first and both reads return the same bytes. The heading and validation assertions in that test are sound; the markdown one proves nothing. |
+
+### Automation metrics (2026-11-01)
+
+| Debt | Detail |
+|---|---|
+| Checks are self-graded | The 40 checklist items are RAWRS's own audit of RAWRS's own DOCX. Independent validation (veraPDF, PDF/UA-1) is Task 3. |
+| Corpus has no human review | Reviewer outcomes (b) and review time are "not measured yet" until 5 documents have human decisions. |
+| (b) counts only recorded decisions | Items a reviewer looked at and left alone without clicking approve stay in their pipeline bucket; edits made later in Word are not counted (the learning loop's final-DOCX diff covers those). |
+| Review time is in-tab active time only | Time reading the PDF in another app, or in Word after export, is not captured. |
+| Stage timing folds `repair_headings` into `generate_markdown` | That step reports no stage name. |
+| Jobs processed before 2026-11-01 have no sidecar | They are skipped by the aggregate, never guessed. |
+

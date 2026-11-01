@@ -374,6 +374,33 @@ export interface ChecklistChange {
   evidence: string;
 }
 
+export type MetricsBuckets = Record<string, Record<string, number>>;
+
+/** One rate from src/metrics/automation.py; only "measured" rates carry numbers. */
+export interface MetricsRate {
+  status: string;
+  documents: number;
+  items: number;
+  pooled_pct?: number;
+  median_document_pct?: number;
+  wilson_low_pct?: number;
+  wilson_note?: string;
+}
+
+export interface DocumentMetrics {
+  job_id: string;
+  total_seconds: number;
+  stage_seconds: Record<string, number>;
+  checks: Record<string, number> | null;
+  snapshot: MetricsBuckets;
+  live: MetricsBuckets;
+  review_seconds_strict: number;
+  review_seconds_loose: number;
+  estimate: Record<string, string | number> | null;
+  rates: { decided_without_human: MetricsRate; reviewer_kept_unchanged: MetricsRate; human_decisions: number };
+  definitions: Record<string, string>;
+}
+
 export interface FinalDocxReview {
   job_id: string;
   filename: string;
@@ -553,6 +580,27 @@ export const api = {
       if (err instanceof ApiError && err.status === 404) return null;
       throw err;
     }
+  },
+
+  /** Automation metrics (src/metrics/automation.py), or null for jobs processed before metrics existed. */
+  async getDocumentMetrics(jobId: string): Promise<DocumentMetrics | null> {
+    try {
+      return await request<DocumentMetrics>(`/api/documents/${jobId}/metrics`);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) return null;
+      throw err;
+    }
+  },
+
+  /** Add active review time; keepalive so it survives the tab closing. Never throws. */
+  postReviewTime(jobId: string, strictSeconds: number, looseSeconds: number): void {
+    if (jobId === DEMO_JOB_ID) return;
+    fetch(`${API_BASE_URL}/api/documents/${jobId}/review-time`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ strict_seconds: strictSeconds, loose_seconds: looseSeconds }),
+      keepalive: true,
+    }).catch(() => undefined);
   },
 
   async deleteFinalDocxReview(jobId: string): Promise<void> {
