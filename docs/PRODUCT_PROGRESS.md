@@ -8,12 +8,16 @@ Read this file and `git log` first after any context reset, then carry on from *
 
 | Task | State | Commit |
 |---|---|---|
-| 1 Automation rate | done; awaiting the user's review | see git log |
-| 2 Licence audit | not started | — |
+| 1 Automation rate | done | `e525188` |
+| 2 Licence audit | done | see `git log` (docs: licence audit) |
 | 3 Accessible PDF export | not started | — |
 | 4 Crawler + free audit report | not started | — |
 
-**Next:** the user reviews the Task 1 report (`docs/AUTOMATION_RATE_2026-11-01.md`). Task 2 starts only after the user says go.
+**Next:** wait for the user's go on Task 3. Task 2's results are in `docs/LICENSING_AUDIT.md`.
+- Recommended first swap: `qwen2.5vl:7b`. Then Surya → Docling/Tesseract + GLM-OCR regions. PyMuPDF needs a business decision.
+- Open: `qwen3-vl:4b` with `think: false` is not tested; `qwen2.5vl:7b` (5.7 GB loaded) is not tried on the 8 GB reference machine.
+- Codespace: the gold DOCX copies and every bench JSON were deleted on 2026-11-05 (`CLEANED`), and the Codespace was stopped.
+- **Keeping the Codespace awake:** it has a 30 min idle timeout, and the 240 min default only applies to new Codespaces. Background polls from the laptop get stopped for low memory. Foreground `gh codespace ssh -- 'sleep 480; tail …'` calls worked. Make long runs resumable: `licence_bench.py alt` saves after every figure and skips figures already done.
 
 ## Task 1: automation rate (agreed changes, 2026-11-01)
 
@@ -97,3 +101,6 @@ Each report covers what changed, real numbers, what wasn't tested, open question
 | 2026-11-01 | Corpus note | `samples/benchmark/pdfs/` is TRACKED (for CI); only `remediated_docx/` is gitignored. Copied to the Codespace at `/tmp/rm/samples/benchmark/remediated_docx` (delete after the run) |
 | 2026-11-01 | Corpus run (10 docs, 546 items) | (a) median 84.6% / pooled 81.5% (Wilson low 78.0%); sensitivity 73.2%; (b) not measured yet (0 reviewed); checks pass median 79.1% / pooled 78.7% (self-graded); median 17.2 s, max 722.0 s; estimate heading F1 0.682 |
 | 2026-11-01 | Open questions | (1) Should (a) be published at all? 3 documents score 100% while one has heading F1 0.35. (2) Surya needs `llama-server` in the Codespace. (3) The panel has not been checked in a live app |
+| 2026-11-03 | `bench4.sh` | Codespace idled out after `qwen2.5vl:3b` (10/10) |
+| 2026-11-05 | `bench5.sh` OCR + `bench6.sh` alt text (resumable, 900 s production limit) | OCR: Docling 95.4/96.4% and 96.1/97.5%, Tesseract 92.5/89.2% and 91.6/90.9%. Alt overlap recall/precision: 3b 37.6/48.6, 7b 48.1/55.3, qwen3-vl:4b 47.6/44.3 (9/10), granite 33.1/24.7 (8/10). `CLEANED`, JSON deleted, Codespace stopped |
+| 2026-11-05 | Task 2 done | `docs/LICENSING_AUDIT.md` measured comparison + swap order; no new RAWRS dependency, so no DECISIONS_LOG entry (Tesseract was benchmark-only, installed in the Codespace) |
