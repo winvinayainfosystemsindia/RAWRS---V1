@@ -13,6 +13,8 @@ Read this file and `git log` first after any context reset, then carry on from *
 | 3 Accessible PDF export | not started | — |
 | 4 Crawler + free audit report | not started | — |
 
+**Startup plan (2026-11-06):** `docs/STARTUP_PLAN.md` covers the market, competitors, measured free-stack baseline, offer, 90-day go-to-market and risks. Key measurement: OpenDataLoader + pikepdf passes veraPDF PDF/UA-1 on 7/10 corpus PDFs for free, but the 2 scanned books pass with 0 characters of text. Task 3 should test Typst PDF/UA-1 against LibreOffice, and add a text-presence check next to veraPDF. The MiroShark simulation is waiting on an LLM key the user creates.
+
 **Next:** wait for the user's go on Task 3. Task 2's results are in `docs/LICENSING_AUDIT.md`.
 - Recommended first swap: `qwen2.5vl:7b`. Then Surya → Docling/Tesseract + GLM-OCR regions. PyMuPDF needs a business decision.
 - Open: `qwen3-vl:4b` with `think: false` is not tested; `qwen2.5vl:7b` (5.7 GB loaded) is not tried on the 8 GB reference machine.
@@ -104,3 +106,4 @@ Each report covers what changed, real numbers, what wasn't tested, open question
 | 2026-11-03 | `bench4.sh` | Codespace idled out after `qwen2.5vl:3b` (10/10) |
 | 2026-11-05 | `bench5.sh` OCR + `bench6.sh` alt text (resumable, 900 s production limit) | OCR: Docling 95.4/96.4% and 96.1/97.5%, Tesseract 92.5/89.2% and 91.6/90.9%. Alt overlap recall/precision: 3b 37.6/48.6, 7b 48.1/55.3, qwen3-vl:4b 47.6/44.3 (9/10), granite 33.1/24.7 (8/10). `CLEANED`, JSON deleted, Codespace stopped |
 | 2026-11-05 | Task 2 done | `docs/LICENSING_AUDIT.md` measured comparison + swap order; no new RAWRS dependency, so no DECISIONS_LOG entry (Tesseract was benchmark-only, installed in the Codespace) |
+| 2026-11-06 | Startup research + `scripts/pdfua_baseline.py` (Codespace: Java 17, veraPDF 1.30.3, opendataloader-pdf 2.5.19, pikepdf 10.17) | 0/10 → 7/10 pass PDF/UA-1; scans pass with 0 text chars; Granite model removed from the Codespace (disk 90%→84%) |
