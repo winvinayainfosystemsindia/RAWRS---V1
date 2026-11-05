@@ -45,7 +45,7 @@ services:
     environment:
       # Created in the Cloudflare Zero Trust dashboard; put it in .env next
       # to this file. Never commit it.
-      TUNNEL_TOKEN: "${TUNNEL_TOKEN:?set TUNNEL_TOKEN in .env}"
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:?set TUNNEL_TOKEN in .env}
     depends_on:
       - api
 
