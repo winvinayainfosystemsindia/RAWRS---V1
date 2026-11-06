@@ -88,7 +88,7 @@ Governments are about to pay to make their documents accessible. Cheap automatio
 | OpenDataLoader PDF (Apache-2.0) | Baseline and fallback auto-tagger; also the competitor's free floor | measured here |
 | OCRmyPDF (MPL-2.0) + Tesseract (Apache-2.0) | Text layer for scans when only a PDF fix is needed | to test |
 | ASU/AWS remediation tool (MIT) | Reference architecture; shows what free looks like | read only |
-| MiroFish/MiroShark (AGPL-3.0) | Internal use only: simulate buyer reactions to rehearse objections | **not run**, see §9 |
+| MiroFish/MiroShark (AGPL-3.0) | Internal use only: simulate buyer reactions to rehearse objections | run 2026-11-06, weak, see §9 |
 
 ## 8. Risks
 
@@ -101,11 +101,30 @@ Governments are about to pay to make their documents accessible. Cheap automatio
 | Compute: CPU alt text at 209 s per figure | GPU host or a paid vision API for production; cost it during pilots |
 | Overclaiming | Never say "compliant" or "certified"; show the measured numbers with n |
 
-## 9. Not done, and why
+## 9. MiroShark buyer simulation (2026-11-06): LLM role-play, not demand evidence
 
-- **MiroFish/MiroShark buyer simulation: not run.**
-  - It needs an LLM API key. Creating one in your Google AI Studio account was blocked by Claude Code's safety check, and I didn't work around it.
-  - To run it: create a key at aistudio.google.com/apikey and write it straight into `/workspaces/miroshark/.env` in the Codespace (not into chat), then tell me.
-  - Caution: it is LLM role-play. It can surface objections to rehearse, but it is **not** evidence of demand; the 15–20 real conversations in §6 are.
+**Setup:** MiroShark in the Codespace, `gemini-3.5-flash-lite` agents. Seed: the launch brief plus 12 **fictional** stakeholders (`docs/miroshark/seed.md`). Driver: `scripts/miroshark_run.py`. 19 agents, Twitter + Reddit, 10 one-hour rounds (MiroShark planned 336; cut to 10 for the free-tier quota). 39 posts and comments, all in `docs/miroshark/transcript_2026-11-06.txt`.
+
+| Run | Result |
+|---|---|
+| 1 (brief only) | Unusable: 4 agents, none of them buyers (RAWRS ×2, DOJ, NFB), off-topic personas ("13yo artist") |
+| 2 (brief + cast) | 19 agents; **at least 5 act out of role**: the $0.30 vendor's sales lead pitches RAWRS (R1), the RAWRS founder pitches the $0.30 tool (R1), the blind advocate speaks as WinVinaya staff (R1, R7), the agency owner's persona is a middle schooler, the "RAWRS" account argues against buying software (R10) |
+| Report | Both runs' auto-reports failed on Gemini free-tier HTTP 429; not retried. The transcript is the only output |
+
+**What it suggests (hypotheses to test in §6 conversations, n = 1 run):**
+
+| Signal | Evidence | Use |
+|---|---|---|
+| The "passes the checker, reads as silence" message lands, but with advocates and lawyers, not buyers | Ortiz R1/R8, Marsh R1/R4/R7, Oyelaran R7 | Lead with it; it's a pressure story, not a purchase trigger |
+| Official city and county accounts answer with non-committal "we are reviewing our processes" | Harlow Springs R10, Brennan County R10 | Expect stalling; ask for a named owner and a date in every meeting |
+| Procurement dismisses outside audits as "panic-inducing" consultant work | Kessler R4 | The free audit needs to read as the city's own checklist, not a sales scare |
+| A free audit from a new vendor reads as a "classic vendor pitch" | City of Port Alder R2 | Show the method and the raw PDF list; no hard sell in the report |
+| "Overseas human review" is raised as an objection | R1 (posted under the founder's name, out of role) | Prepare the answer: US entity, data handling, who the reviewers are |
+| Nobody stated a price or a willingness to pay $1.50–$6 | whole transcript | **The pricing question is unanswered**; only real buyer conversations can answer it |
+
+**Verdict:** weak. The role swaps mean no line can be read as "what an ADA coordinator would say". At most it is a list of objections to rehearse. To get more from it: use a stronger agent model (paid key), run the full 336 rounds, and run several seeds; even then it's still role-play.
+
+## 10. Not done, and why
+
 - No market-size dollar figure: there's no neutral count of documents. The 10k–50k per county figure is a vendor estimate.
 - Gross margin: unknown until review minutes are measured.

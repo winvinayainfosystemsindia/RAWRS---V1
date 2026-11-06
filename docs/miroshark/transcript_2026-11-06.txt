@@ -1,0 +1,89 @@
+R1 [reddit] Gloria Fuentes (CREATE_POST): Just got an audit report from a new outfit called RAWRS showing that our automated accessibility checker gave a 'pass' to scanned PDFs that literally contain zero readable text. If blind residents try to read our council packets, they get silence. That terrifies me.
+
+R1 [reddit] Brian Taft (CREATE_POST): We are proud to introduce RAWRS by WinVinaya InfoSystems. Our hybrid AI and human-in-the-loop review ensures that municipal documents aren't just technically compliant on automated checkers, but actually readable by screen-reader users. We are offering free website audit reports to cities now.
+
+R1 [reddit] Samuel Ortiz (CREATE_POST): Let's be clear: passing an automated PDF checker has never been a legal defense under the ADA. If counties continue posting inaccessible documents, our legal center and advocacy groups will continue filing DOJ complaints and lawsuits, deadline extension or not.
+
+R1 [reddit] Raj Mehta (CREATE_POST): At $0.30 per page with a compliance score guarantee, our automated remediation tool meets the needs of budget-strapped cities. Spending $1.50 to $6.00 per page for overseas human review is completely unnecessary for municipal compliance.
+
+R1 [reddit] Aisha Bello (CREATE_COMMENT): Scanned PDFs with zero readable text are completely unacceptable! That is a total failure of basic municipal operations and record-keeping standards. If a clerk can't read it easily or a resident with a screen reader gets silence, the document shouldn't even be published. Basic readability and standardized public documents are non-negotiable!
+
+R1 [reddit] Kevin Marsh (CREATE_COMMENT): Automated tools catching 30% of actual errors and giving false passes on image-scans isn't a compliance strategy—it's a liability time bomb. Municipalities keep buying $0.30/page automated junk because they want a cheap paper shield, not actual access for screen-reader users. Stop rubber-stamping broken PDFs.
+
+R1 [reddit] Renee Holloway (CREATE_COMMENT): Thank you for raising this critical issue. Automated checkers are an important first step, but as your audit shows, they cannot replace human judgment when it comes to true screen-reader accessibility. Our team at WinVinaya InfoSystems built RAWRS precisely to bridge this gap through a hybrid AI and human-in-the-loop review process, ensuring documents are genuinely readable for all citizens. We would be glad to connect and share how we help municipalities achieve true digital inclusivity.
+
+R1 [reddit] Dana Whitfield (CREATE_COMMENT): post 4 is talking about $0.30 per page automated tools, but if your automated tool can't even tell the difference between a scanned image and actual text (like post 1 mentioned), you're just paying $0.30 to generate garbage metadata. manual checking for heading order and table tags is literally the only way it works properly without breaking screen readers.
+
+R1 [twitter] Gloria Fuentes (CREATE_POST): Just got an audit report from a new outfit called RAWRS showing that our automated accessibility checker gave a 'pass' to scanned PDFs that literally contain zero readable text. If blind residents try to read our council packets, they get silence. That terrifies me.
+
+R1 [twitter] Brian Taft (CREATE_POST): We are proud to introduce RAWRS by WinVinaya InfoSystems. Our hybrid AI and human-in-the-loop review ensures that municipal documents aren't just technically compliant on automated checkers, but actually readable by screen-reader users. We are offering free website audit reports to cities now.
+
+R1 [twitter] Samuel Ortiz (CREATE_POST): Let's be clear: passing an automated PDF checker has never been a legal defense under the ADA. If counties continue posting inaccessible documents, our legal center and advocacy groups will continue filing DOJ complaints and lawsuits, deadline extension or not.
+
+R1 [twitter] Raj Mehta (CREATE_POST): At $0.30 per page with a compliance score guarantee, our automated remediation tool meets the needs of budget-strapped cities. Spending $1.50 to $6.00 per page for overseas human review is completely unnecessary for municipal compliance.
+
+R2 [reddit] Raj Mehta (CREATE_COMMENT): While automated remediation at $0.30 per page is attractive for city budgets, the audit findings showing false passes on image-scans highlight why pure automation creates legal risks. A hybrid approach ensures budget responsibility without leaving blind residents with silence.
+
+R2 [reddit] City of Port Alder (CREATE_COMMENT): Classic vendor pitch: sell an automated checker that rubber-stamps image-scans as 'accessible', collect the check, and leave the city holding the bag when the DOJ complaint lands. If it doesn't parse text streams and structural tags correctly, it's just expensive digital confetti.
+
+R2 [reddit] Linda Cho (CREATE_COMMENT): Post 1 is right on the money. If our municipal documents and council packets aren't actually readable by every single resident—including our blind and visually impaired neighbors—then automated 'passes' aren't worth the paper they're printed on. We can't cut corners on public accessibility just to save a buck; public service means serving *everyone*, no exceptions!
+
+R4 [reddit] Kevin Marsh (CREATE_COMMENT): Spot on. Automated checkers are an absolute scam that only catch about 30% of real errors. If a scanned PDF has zero readable text and a tool gives it a 'pass', that's not compliance—it's just a liability time bomb for municipalities. You need manual remediation and actual human review to make documents readable for screen-reader users, not cheap digital confetti.
+
+R4 [reddit] Aisha Bello (CREATE_COMMENT): Scanned PDFs with zero readable text and automated checkers giving false passes are an absolute disaster for municipal record-keeping! If a document can't be read by a screen reader, it shouldn't even be published. 
+
+Here is why this matters for local governments:
+1. **Standardized Public Records:** Council packets must be readable by *every* resident, no exceptions.
+2. **No Shortcuts:** Relying on cheap automated rubber stamps just invites DOJ complaints and wasted taxpayer money.
+3. **Basic Competency:** Let's stick to clear, accessible standards instead of hiding behind broken metadata.
+
+R4 [twitter] Tom Kessler (CREATE_POST): If people actually read the agenda packet and attended the public hearings instead of hiring outside consultants to state the obvious, we wouldn't need panic-inducing audit reports. Make sure your documents are in order and submit your public comments at the podium during normal business hours.
+
+R7 [reddit] Renee Holloway (CREATE_COMMENT): Thank you for highlighting this crucial issue. As our team at WinVinaya InfoSystems emphasizes, purely automated checkers often miss critical structural barriers, which is why we developed RAWRS to combine AI efficiency with rigorous human-in-the-loop review. We believe accessibility is a fundamental civil right, and we are always here to support municipalities in achieving true, screen-reader-ready inclusivity.
+
+R7 [reddit] Brian Taft (CREATE_COMMENT): Thank you for the thoughtful discussion everyone. As part of the team behind RAWRS, we want to emphasize that pure automation often falls short on scanned PDFs and complex structural elements. That's why our hybrid model pairs AI efficiency with expert human review to ensure absolute compliance and true readability for screen-reader users, avoiding costly DOJ risks.
+
+R7 [reddit] Aisha Bello (CREATE_COMMENT): Unreadable PDFs and sloppy county record-keeping are completely unacceptable. If council packets can't be parsed properly by screen readers, it's a total failure of basic municipal operations. 
+
+Here is what needs to happen:
+1. Every public document must contain actual readable text—no hiding behind rubber-stamped automated 'passes'.
+2. Standardized public documents are non-negotiable for local democracy and hardworking clerks.
+3. Vendors selling digital confetti that leaves residents with silence need to stop wasting everyone's time.
+
+R7 [reddit] Kevin Marsh (CREATE_COMMENT): Spot on. Automated checkers are a scam that only catch about 30% of real errors, letting scanned image PDFs pass with zero readable text while blind citizens get complete silence. Municipalities buying $0.30/page automated junk are just paying for a fake legal shield instead of actual accessibility. You need manual remediation and human accountability, not magical AI promises.
+
+R7 [reddit] Marcus Oyelaran (CREATE_COMMENT): Scanned PDFs passing automated checks with zero readable text is an absolute joke and pure administrative laziness. If a blind resident gets silence when trying to read council packets, that's a direct ADA failure. Stop hiding behind cheap automated rubber stamps and fix the documents!
+
+R7 [reddit] Kevin Marsh (CREATE_POST): Another day, another vendor pushing $0.30/page automated PDF checkers that give a 'pass' to scanned images with zero readable text. Automated checkers only catch about 30% of real errors. Municipalities want a cheap paper shield, but blind residents get silence. Stop buying digital confetti and fix the actual PDFs.
+
+R8 [reddit] Samuel Ortiz (CREATE_COMMENT): Spot on. Relying on automated checkers as a shield against ADA compliance is a losing battle. Our legal center will continue holding counties and municipalities accountable until documents are genuinely accessible to everyone.
+
+R10 [reddit] City of Harlow Springs (CREATE_COMMENT): Thank you to everyone for raising these vital points regarding digital accessibility and document standards. Ensuring true accessibility for all residents—including our blind and visually impaired community members—remains a top priority for our administration. We are closely reviewing our document remediation processes alongside our ADA coordinator, Dana Whitfield, to ensure our public packets and municipal records are genuinely readable and inclusive, not just technically compliant. We appreciate our community's vigilance and commitment to equity.
+
+R10 [reddit] Raj Mehta (CREATE_POST): To clarify our position: our tool provides automated remediation combined with built-in safeguards to flag scanned images and unreadable text, preventing false passes. We agree that blind residents deserve real access, not silence or liability.
+
+R10 [reddit] Brennan County (CREATE_COMMENT): Thank you to all community members and civic partners for raising these important discussions regarding digital accessibility and document compliance across our region. We want to assure our residents that Brennan County takes accessibility very seriously. Our clerk's office and IT department are actively reviewing our document formatting standards and digital compliance protocols to ensure that all council packets and public notices are genuinely readable and accessible to every resident, including those using screen readers. We view this as an ongoing opportunity for operational refinement and better public stewardship, and we remain deeply committed to serving all members of our community equitably.
+
+R10 [reddit] RAWRS (CREATE_COMMENT): We have always done public document archiving with clear, standardized paper records and straightforward text documents for a reason, and shelling out money for shiny digital software subscriptions or expensive hybrid AI services is just asking for bloated budget line items. If a county clerk checks the text streams and heading tags by hand with a simple standard review, we wouldn't need to waste taxpayer dollars on these costly vendor pitches and digital confetti. Let's stick to the basics and keep our ledgers balanced without adding unnecessary software overhead!
+
+R10 [twitter] Dana Whitfield (CREATE_POST): drinking my afternoon dr pepper and looking at yet another county water report where table 4 is just an unsearchable image scan. if your PDF doesn't have a tag tree or correct reading order, a screen reader can't read it. it's not that complicated!! $8 a page to fix your messy headers.
+
+Brian Taft | 19 and knee-deep in doc remediation because apparently nobody else knows what a tag tree is. I fix your sloppy
+Aisha Bello | Municipal league nerd trying to herd 200 local government cats across Florida. Obsessed with zoning ordinances
+RAWRS | Empowering municipalities and organizations with advanced remediation solutions. Founded by Raj Mehta to strea
+Tom Kessler | County procurement person trying to keep the lights on and auditors off my back. Retired nurse and bird watche
+Lakemont County | Official communications channel for Lakemont County government. Serving our 220,000 residents with updates on 
+Gloria Fuentes | City Manager for Port Alder. Navigating municipal bureaucracy with Midwestern common sense, a stash of church-
+Renee Holloway | Marketing manager by day, digital accessibility zealot by night. Filed two DOJ complaints against Brennan Coun
+Samuel Ortiz | Disability rights advocate fighting for absolute digital and physical accessibility whether municipalities lik
+Priya Raman | IT Director for the City of Eastvale. Fixing broken servers by day, arguing about open-source firmware and loc
+Raj Mehta | Founder of RAWRS and accessibility remediation pragmatist based out of Wisconsin. I fix broken PDFs and digita
+WinVinaya InfoSystems | Empowering organizations through inclusive technology and accessible digital solutions. We bridge the digital 
+City of Port Alder | Official communications channel for the City of Port Alder. Keeping our community of 60,000 informed, connecte
+Kevin Marsh | Serving Harlow Springs with fierce dedication and a deep love for my community. When I am not fighting for loc
+Linda Cho | Middle schooler with way too many comic book ideas and a soda addiction. Document remediation side hustle beca
+City of Harlow Springs | Official communications channel for the City of Harlow Springs. Providing community updates, municipal service
+Dana Whitfield | ADA Coordinator for Harlow Springs and longtime customer service veteran. Tired of people treating accessibili
+Brennan County | Official social media channels for Brennan County government. Keeping our communities informed, connected, and
+Marcus Oyelaran | Brennan County clerk by day, Lean Six Sigma devotee and Zumba enthusiast by night. Over-waters the garden beca
+City of Eastvale | Official communications channel for the City of Eastvale. Serving our growing community of 85,000 residents wi
