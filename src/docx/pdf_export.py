@@ -135,7 +135,7 @@ def parse_verapdf(report: Dict[str, Any]) -> Dict[str, Any]:
     return {"profile": result.get("profileName"), "compliant": bool(result["compliant"]), "failed_rules": failed}
 
 
-def _verapdf(pdf_path: Path) -> Optional[Dict[str, Any]]:
+def verapdf_verdict(pdf_path: Path) -> Optional[Dict[str, Any]]:
     binary = verapdf_binary()
     if binary is None:
         return None
@@ -175,7 +175,7 @@ def text_presence(pdf_path: Path) -> Optional[Dict[str, Any]]:
 
 
 def validate_pdf(pdf_path: Path) -> Dict[str, Any]:
-    return {"label": VALIDATION_LABEL, "verapdf": _verapdf(Path(pdf_path)), "text": text_presence(Path(pdf_path))}
+    return {"label": VALIDATION_LABEL, "verapdf": verapdf_verdict(Path(pdf_path)), "text": text_presence(Path(pdf_path))}
 
 
 def summary_of(validation: Dict[str, Any]) -> Dict[str, Any]:

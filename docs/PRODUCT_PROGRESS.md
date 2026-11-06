@@ -123,3 +123,14 @@ Each report covers what changed, real numbers, what wasn't tested, open question
 - [x] report `docs/PDF_EXPORT_2026-11-06.md`; DECISIONS_LOG (LibreOffice + veraPDF are external binaries, no pip dependency; pypdfium2 comes with docling); KNOWN_LIMITATIONS line "Checks are self-graded" → now independent; findings: OCR total failure is a silent success (checklist + veraPDF both pass)
 - [x] backend fast suite in Codespace, Ollama OFF: 2916 passed / 2 failed / 19 skipped. The 2 are `TestStructureDetectionDoesNotChangeExistingOutputs` (an extra FRONT_MATTER_001 in one run), the same 2 as the Task 1 baseline; they pass 10/10 in isolation, so it is order-dependent pollution, not Ollama (the Task 1 explanation looks wrong; not investigated). Committed (no push); Codespace copies deleted, Codespace stopped
 - Note: `docs/CURRENT_STATE.md` shows as deleted in the working tree — not by Task 3; leave it out of the commit and ask the user
+| 2026-11-06 | `docs/CURRENT_STATE.md` restored (user) | it had been deleted outside Task 3 |
+| 2026-11-06 | Task 4 code (uncommitted) | `src/audit/` (crawl: robots, sitemap → shallow crawl, same-site, 1 s delay, caps, honest UA, numbered downloads; score: PyMuPDF tags/title/lang/images + veraPDF + text; report: blocks → HTML + DOCX → tagged PDF), `tests/test_audit.py` 8/8 in Codespace |
+| 2026-11-06 | Task 4 findings while building | LibreOffice's HTML import tags `<h1>` wrongly (PDF/UA 7.4.2 fails even for plain h1/h2), so the report PDF goes through DOCX instead; Burlington VT (CivicPlus) serves PDFs without a `.pdf` suffix, so document-folder links are candidates, kept only if the bytes are `%PDF` |
+| 2026-11-06 | Hours estimate | not given: Task 1 measured no hand-remediation or review time (0 reviewed documents). The report shows the measured 81.5% (n=546/10 docs) and 17.2 s/document, labelled an estimate |
+
+### Task 4 resume checklist
+- [x] Burlington run in Codespace: `python -m src.audit https://www.burlingtonvt.gov --out /workspaces/audit`, log `/workspaces/audit.log`
+- [x] copy report.html/report.pdf back, look at them, then show the user (publish as an artifact?)
+- [x] docs: report summary in `docs/AUDIT_2026-11-06.md`, DECISIONS_LOG Part 29 (no new dependency: stdlib + PyMuPDF + veraPDF), PRODUCT_PROGRESS log
+- [x] test_audit + test_pdf_export 17/17 in Codespace (no pipeline change, so no full suite); downloaded PDFs deleted, Codespace stopped; committed (no push)
+| 2026-11-06 | Task 4 run (burlingtonvt.gov) | 40/40 PDFs failing, 0 pass PDF/UA-1, 2529 pages; report PDF passes PDF/UA-1; 5 bugs found by the real run and fixed; `docs/AUDIT_2026-11-06.md`, DECISIONS_LOG Part 29 |

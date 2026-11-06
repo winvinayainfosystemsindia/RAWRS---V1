@@ -13,25 +13,10 @@ import json
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from src.audit.score import check_of  # noqa: E402
+
 CHECKS = ("table headers", "alt text", "reading order", "language", "title", "equations", "other")
-
-
-def check_of(rule: dict) -> str:
-    """Checklist check for one failed veraPDF rule (PDF/UA-1 clause numbers, ISO 14289-1)."""
-    clause, text = rule["clause"], rule["description"].lower()
-    if clause == "7.7" or "formula" in text:
-        return "equations"
-    if clause == "7.5" or (clause == "7.2" and any(w in text for w in ("table", " th ", " td ", " tr "))):
-        return "table headers"
-    if clause == "7.3" or ("alternate" in text and clause != "7.18"):
-        return "alt text"
-    if "lang" in text or "natural language" in text:
-        return "language"
-    if "title" in text:
-        return "title"
-    if clause in ("7.1", "7.2", "7.4", "7.9"):  # tagging, artifacts, structure, headings, notes
-        return "reading order"
-    return "other"
 
 
 def row(report_path: Path) -> tuple[str, dict, dict]:

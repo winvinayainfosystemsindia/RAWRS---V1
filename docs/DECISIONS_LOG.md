@@ -858,6 +858,16 @@ No force-push, reset or rebase at any step. Rollback: `backup/main-pre-reconcile
 | Export runs after the timed pipeline stages and never fails the job; `RAWRS_PDF_EXPORT=off` turns it off (off in tests) | Keeps the Task 1 timings comparable; the PDF is an extra output, not part of the remediation |
 
 
+## Part 29 — Free PDF audit of a public website (2026-11-06)
+
+| Decision | Why |
+|---|---|
+| `src/audit/` uses the standard library only (urllib, robotparser, html.parser, ElementTree) plus PyMuPDF, veraPDF and pypdfium2 | No new dependency; a crawl capped at 150 pages does not need requests or Scrapy |
+| Discovery: sitemap first, else a shallow crawl (depth 2); same site only; robots.txt obeyed; 1 s between requests; caps on pages, PDFs and bytes; honest User-Agent with no contact address | Being polite to public-sector servers is part of the product's credibility |
+| Downloads are numbered (`0001.pdf`) in one folder and kept only if they start with `%PDF` | No path built from a URL, and nothing non-PDF is opened |
+| The report is written once as blocks, rendered to HTML and DOCX; the PDF comes from the DOCX via LibreOffice | A PDF made straight from the HTML fails PDF/UA-1 (7.4.2); the DOCX route passes |
+| No hours estimate | Nothing measured supports one yet (0 reviewed documents); measured figures are shown with n and labelled an estimate |
+
 ## How to add a new entry
 
 Append a new `###` section under the relevant Part, dated, with: the decision, the reasoning ("why"), where it's implemented (file/module), and its current status. Do not delete or rewrite existing entries even if later superseded — add a new entry that references and supersedes the old one.
