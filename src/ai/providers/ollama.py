@@ -3,7 +3,7 @@
 Qwen2.5-VL-7B through transformers needs ~14 GB of memory, which most
 reviewer machines (8 GB here) do not have, so ``QwenProvider`` reports
 itself unavailable and every image kept its placeholder alt text. Ollama
-runs a 4-bit ``qwen2.5vl:3b`` (3.2 GB) on CPU, locally and for free, and
+runs a 4-bit ``qwen2.5vl:7b`` (6.0 GB; Apache-2.0, unlike the non-commercial 3b) on CPU, locally and for free, and
 this provider speaks to it over its HTTP API with the standard library -
 no new dependency. It reuses QwenProvider's prompt and parser, so the two
 produce the same structured result and nothing downstream can tell them
@@ -11,7 +11,7 @@ apart.
 
 Configuration (environment):
   RAWRS_OLLAMA_URL    default http://localhost:11434
-  RAWRS_OLLAMA_MODEL  default qwen2.5vl:3b
+  RAWRS_OLLAMA_MODEL  default qwen2.5vl:7b (docs/TAGGED_GOLD_2026-11-06.md)
 """
 
 import base64
@@ -28,7 +28,7 @@ from loguru import logger
 from src.ai.provider import AICapability, AIProvider
 
 _DEFAULT_URL = "http://localhost:11434"
-_DEFAULT_MODEL = "qwen2.5vl:3b"
+_DEFAULT_MODEL = "qwen2.5vl:7b"
 # CPU inference measured at 150-180 s per figure on the 8 GB reference
 # machine; the timeout leaves headroom for a slower one.
 _GENERATE_TIMEOUT_SECONDS = 900

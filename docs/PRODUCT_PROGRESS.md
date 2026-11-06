@@ -134,3 +134,4 @@ Each report covers what changed, real numbers, what wasn't tested, open question
 - [x] docs: report summary in `docs/AUDIT_2026-11-06.md`, DECISIONS_LOG Part 29 (no new dependency: stdlib + PyMuPDF + veraPDF), PRODUCT_PROGRESS log
 - [x] test_audit + test_pdf_export 17/17 in Codespace (no pipeline change, so no full suite); downloaded PDFs deleted, Codespace stopped; committed (no push)
 | 2026-11-06 | Task 4 run (burlingtonvt.gov) | 40/40 PDFs failing, 0 pass PDF/UA-1, 2529 pages; report PDF passes PDF/UA-1; 5 bugs found by the real run and fixed; `docs/AUDIT_2026-11-06.md`, DECISIONS_LOG Part 29 |
+| 2026-11-06 | No-reviewer gold (PDF/UA Reference Suite, 6 of 9 kept) + detailed alt text | Headings: recall 56%, precision 65%, step agreement 47% (487 gold); alt text 7b detailed prompt recall 53.7% (was 48.1%), median 94 words; default model now 7b; JPEG 2000 and parser fixes; `docs/TAGGED_GOLD_2026-11-06.md`, DECISIONS_LOG Part 30 |

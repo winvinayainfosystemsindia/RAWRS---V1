@@ -137,10 +137,24 @@ def test_parse_response_missing_field_raises():
         "PURPOSE: y.\n"
         "CONFIDENCE: 0.5\n"
         "WARNINGS: None\n"
-        # VISIBLE_TEXT and IMAGE_TYPE are missing
+        # IMAGE_TYPE is missing (VISIBLE_TEXT too, but that one is optional)
     )
-    with pytest.raises(AltTextGenerationError, match="VISIBLE_TEXT"):
+    with pytest.raises(AltTextGenerationError, match="IMAGE_TYPE"):
         _parse_response(raw)
+
+
+def test_parse_response_accepts_a_detailed_answer_without_purpose_and_with_wrapped_text():
+    """qwen2.5vl:7b with the detailed prompt skipped PURPOSE and listed the
+    image's text one label per line (benchmark figure O'Leary #2, 2026-11-06)."""
+    from src.ai.providers.qwen import _parse_response
+
+    result = _parse_response(
+        "IMAGE_TYPE: DIAGRAM\nDESCRIPTION: A three-tier pyramid.\nVISIBLE_TEXT: Researchable Questions\n"
+        "Generating Questions\nCONFIDENCE: 1.0\nWARNINGS: None\n"
+    )
+    assert result.description == "A three-tier pyramid."
+    assert result.visible_text == "Researchable Questions Generating Questions"
+    assert result.purpose == ""
 
 
 def test_parse_response_multiple_warnings():

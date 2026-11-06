@@ -722,3 +722,27 @@ class TestPlaceholderAltText:
             assert image.figure is not None
             assert image.figure.alt_text
             assert image.figure.alt_text_status == AltTextStatus.PENDING_REVIEW
+
+
+def test_jpeg2000_images_are_stored_as_png(tmp_path):
+    """JPEG 2000 streams Pillow cannot decode left images without alt text
+    and out of the DOCX (PDF/UA Reference Suite brochure); they are now
+    decoded by MuPDF and stored as PNG."""
+    import io
+
+    import fitz
+    from PIL import Image as PILImage
+
+    from src.images.image_extractor import _extract_single_image
+
+    buffer = io.BytesIO()
+    PILImage.new("RGB", (40, 30), (200, 30, 30)).save(buffer, "JPEG2000")
+    doc = fitz.open()
+    doc.new_page().insert_image(fitz.Rect(10, 10, 90, 70), stream=buffer.getvalue())
+    xref = doc[0].get_images(full=True)[0][0]
+    assert doc.extract_image(xref)["ext"] == "jpx"
+
+    image = _extract_single_image(doc, xref, 1, 1, tmp_path)
+
+    assert not image.extraction_failed and image.file_path.endswith(".png")
+    assert PILImage.open(image.file_path).size == (40, 30)

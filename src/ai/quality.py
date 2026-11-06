@@ -48,7 +48,7 @@ class QualityResult:
 # Minimum word count for a useful alt text description.
 _MIN_WORDS = 8
 # Maximum word count before verbosity becomes a problem.
-_MAX_WORDS = 150
+_MAX_WORDS = 300  # detailed descriptions are wanted (user, 2026-11-06); this only flags runaway output
 # If description shares > this fraction of caption's words → restatement.
 _CAPTION_SIMILARITY_THRESHOLD = 0.65
 # Minimum overall_score to pass quality check.

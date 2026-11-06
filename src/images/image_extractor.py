@@ -452,8 +452,18 @@ def _extract_single_image(
     try:
         image_data = pdf_document.extract_image(xref)
         extension = image_data["ext"]
-        output_path = intended_path.with_suffix(f".{extension}")
-        output_path.write_bytes(image_data["image"])
+        if extension == "jpx":
+            # Pillow cannot decode many JPEG 2000 streams ("broken data stream"),
+            # which left those images without alt text and out of the DOCX;
+            # MuPDF decodes them, so store a PNG (PDF/UA Reference Suite brochure).
+            output_path = intended_path.with_suffix(".png")
+            pixmap = fitz.Pixmap(pdf_document, xref)
+            if pixmap.n - pixmap.alpha > 3:  # CMYK and similar: PNG needs RGB
+                pixmap = fitz.Pixmap(fitz.csRGB, pixmap)
+            pixmap.save(str(output_path))
+        else:
+            output_path = intended_path.with_suffix(f".{extension}")
+            output_path.write_bytes(image_data["image"])
 
         return Image(
             image_id=image_id,

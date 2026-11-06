@@ -27,7 +27,7 @@ The frontend fits Vercel; the API needs a real machine.
 | **B. Paid VPS (Hetzner CX43, x86, 16 GB)** | €15.99/mo + ~€0.50 IPv4 | Yes (payment method) | 24×7 | Team use, after auth exists |
 | **C. Oracle Always Free** | $0 | **Yes** — identity verification | 24×7 | Only if the company supplies a card; allowance is now **2 OCPU / 12 GB** (was 4 / 24) |
 
-The machine needs ≥ 8 GB RAM to run at all (API ~4 GB + Ollama `qwen2.5vl:3b` ~3 GB, per earlier measurements — not re-measured). 16 GB is comfortable; the 7.7 GB development laptop runs out of memory on full-corpus runs.
+The machine needs ≥ 8 GB RAM to run at all (API ~4 GB + Ollama `qwen2.5vl:7b` 6.0 GB on disk, 5.7 GB loaded in the 2026-11-04 licence benchmark). 8 GB is NOT enough with 7b (not tried; set `RAWRS_OLLAMA_MODEL=qwen2.5vl:3b` there, non-commercial use only). 16 GB is comfortable; the 7.7 GB development laptop runs out of memory on full-corpus runs.
 
 ---
 
@@ -54,7 +54,7 @@ To show RAWRS to someone on another computer, use Route A below: a tunnel, plus 
 
 Redeploy after frontend changes: `cd frontend; vercel --prod`. The project is not connected to GitHub, so a push does not deploy.
 
-**Sample document.** `frontend/public/demo/` holds the API responses for the sample job, captured from a real RAWRS run with the job id rewritten to `demo`. `lib/api.ts` (`demoFile`, `fileUrl`) serves the `demo` job from these files and refuses every edit. To refresh it after a pipeline change, run RAWRS on the PDF (in a Codespace if the laptop runs short of memory, with Ollama `qwen2.5vl:3b`), generate alt text for the two figures, check each draft against the figure and approve it (edited where the draft is wrong, as a reviewer would; the 2026-10-21 Figure 1 draft misread the chart), then save each `GET /api/documents/{id}/…` response as `<endpoint>.json`, the source PDF, downloads and image files under the same names, then replace the id with `demo`.
+**Sample document.** `frontend/public/demo/` holds the API responses for the sample job, captured from a real RAWRS run with the job id rewritten to `demo`. `lib/api.ts` (`demoFile`, `fileUrl`) serves the `demo` job from these files and refuses every edit. To refresh it after a pipeline change, run RAWRS on the PDF (in a Codespace if the laptop runs short of memory, with Ollama `qwen2.5vl:7b`), generate alt text for the two figures, check each draft against the figure and approve it (edited where the draft is wrong, as a reviewer would; the 2026-10-21 Figure 1 draft misread the chart), then save each `GET /api/documents/{id}/…` response as `<endpoint>.json`, the source PDF, downloads and image files under the same names, then replace the id with `demo`.
 
 ---
 
@@ -97,7 +97,7 @@ RAWRS_ALLOWED_ORIGINS=https://<your-project>.vercel.app
 ```bash
 docker compose up -d --build     # first build is long, mostly torch
 docker compose logs -f api       # wait for "Application startup complete"
-docker compose exec ollama ollama pull qwen2.5vl:3b   # ~3 GB, kept in the ollama-models volume
+docker compose exec ollama ollama pull qwen2.5vl:7b   # ~6 GB, kept in the ollama-models volume
 docker compose exec ollama ollama pull glm-ocr:q8_0   # ~1.8 GB, re-reads garbled OCR regions
 ```
 

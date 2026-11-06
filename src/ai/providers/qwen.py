@@ -260,9 +260,20 @@ Figure context:
 IMPORTANT: Do NOT simply restate the caption. The caption is provided as context only.
 Your DESCRIPTION must describe what is visually shown in the image.
 
+Write for a blind reader who must be able to picture the image from your words alone.
+Be thorough, not brief: a one-line label is a failure. Describe, as they apply:
+- what kind of image it is and its main subject, first;
+- the layout: what is where (left, right, top, bottom, foreground, background) and
+  how the parts connect (arrows, lines, groupings, order);
+- people: how many, what they are doing, posture, expression, clothing, age if clear;
+- objects, setting, colours and sizes when they carry meaning;
+- every label and every piece of text in the image, word for word.
+Only describe what you can actually see; never guess or invent details. Do not start
+with "Image of" or "Picture of".
+
 If the image shows numbers - a chart, graph, table or any statistic - a screen reader
 user cannot see them, so the DESCRIPTION must carry them: say what is measured, give
-the key values with their units or percentages, and explain what they mean in plain
+every value shown, with its units or percentages (when there are too many to list, the range, the extremes and the axis labels), and explain what they mean in plain
 words. Name the largest and smallest values and any clear trend (rising, falling, a
 gap between groups), then END the description with a sentence that starts "This means"
 and says what the numbers show. For example: "A bar chart of teachers' views: 45% agree,
@@ -272,7 +283,7 @@ disagree, and fewer than a quarter reject rote learning."
 Analyze the image and respond in EXACTLY this format (no other text before or after),
 with every field on a single line:
 IMAGE_TYPE: <CHART|GRAPH|PHOTOGRAPH|DIAGRAM|EQUATION|SCREENSHOT|TABLE|OTHER>
-DESCRIPTION: <what the image shows: one or two sentences, up to four for charts, graphs and tables so the key figures and their meaning fit>
+DESCRIPTION: <the full description, as many sentences as the image needs, on one line>
 PURPOSE: <why this figure appears in the document — what argument or data it supports>
 VISIBLE_TEXT: <any text legible inside the image itself, or None>
 CONFIDENCE: <a number from 0.0 to 1.0 reflecting how certain you are>
@@ -337,16 +348,25 @@ def _parse_response(text: str) -> "AltTextResult":
     from src.ai.alt_text_generator import AltTextGenerationError, AltTextResult
 
     fields: dict = {}
+    current = None
     for line in text.strip().splitlines():
         m = re.match(
-            r"^(IMAGE_TYPE|DESCRIPTION|PURPOSE|VISIBLE_TEXT|CONFIDENCE|WARNINGS):\s*(.+)$",
+            r"^(IMAGE_TYPE|DESCRIPTION|PURPOSE|VISIBLE_TEXT|CONFIDENCE|WARNINGS):\s*(.*)$",
             line.strip(),
         )
         if m:
-            fields[m.group(1)] = m.group(2).strip()
+            current = m.group(1)
+            fields[current] = m.group(2).strip()
+        elif current and line.strip():
+            # Detailed answers wrap (e.g. VISIBLE_TEXT listing each label on its own line).
+            fields[current] = f"{fields[current]} {line.strip()}".strip()
 
-    required = {"IMAGE_TYPE", "DESCRIPTION", "PURPOSE", "VISIBLE_TEXT", "CONFIDENCE", "WARNINGS"}
-    missing = required - set(fields)
+    # Only the type and the description are essential; a detailed answer that
+    # skips PURPOSE (seen with qwen2.5vl:7b, 2026-11-06) is still usable.
+    for optional, default in (("PURPOSE", ""), ("VISIBLE_TEXT", "None"), ("CONFIDENCE", "0.5"), ("WARNINGS", "None")):
+        fields.setdefault(optional, default)
+    required = {"IMAGE_TYPE", "DESCRIPTION"}
+    missing = {k for k in required if not fields.get(k)}
     if missing:
         raise AltTextGenerationError(
             f"Model response missing required fields: {', '.join(sorted(missing))}. "

@@ -868,6 +868,16 @@ No force-push, reset or rebase at any step. Rollback: `backup/main-pre-reconcile
 | The report is written once as blocks, rendered to HTML and DOCX; the PDF comes from the DOCX via LibreOffice | A PDF made straight from the HTML fails PDF/UA-1 (7.4.2); the DOCX route passes |
 | No hours estimate | Nothing measured supports one yet (0 reviewed documents); measured figures are shown with n and labelled an estimate |
 
+## Part 30 — Gold from tagged PDFs; detailed alt text; 7b default (2026-11-06)
+
+| Decision | Why |
+|---|---|
+| Measure against PDFs people already tagged (PDF/UA Reference Suite), not reviewers | No human review is possible for a while; tags hold human headings and alt text. Vetted: must pass veraPDF, ≥ 3 headings, no filler alt |
+| Heading levels also scored as "step agreement" | One H1 per section and one per document are both valid; exact levels punish a convention, not an error |
+| Alt text asks for full visual detail, no sentence cap | User: a blind reader must be able to picture the image. Recall vs human 48.1% → 53.7% on 10 figures |
+| Default alt-text model `qwen2.5vl:7b` | Better on both measurements and Apache-2.0; 3b is non-commercial. Cost: ~6 GB memory, ~4 min per image on CPU |
+| No new dependency | pypdfium2 and PyMuPDF already installed |
+
 ## How to add a new entry
 
 Append a new `###` section under the relevant Part, dated, with: the decision, the reasoning ("why"), where it's implemented (file/module), and its current status. Do not delete or rewrite existing entries even if later superseded — add a new entry that references and supersedes the old one.
