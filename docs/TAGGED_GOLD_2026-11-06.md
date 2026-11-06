@@ -32,6 +32,11 @@ Prompt change: the description was capped at "one or two sentences"; it now asks
 |---|---|---|---|---|---|
 | Old prompt (licence audit, 2026-11-04) | 48.1% | 55.3% | not kept | 10/10 | 209 s |
 | **Detailed prompt** | **53.7%** | 40.5% | **94** (human 73) | 10/10 (9 before the parser fix) | 238 s |
+| Detailed + caption and nearby text, as production sends them (A, kept) | 55.1% | 40.3% | 98 | 10/10 | 238 s |
+| A + "one sentence on what the image is meant to show" (B, rejected) | 50.3% | 39.6% | 92 | 10/10 | 81 s |
+
+- A vs B: B lower on 6 of 10 figures and higher on 2, so the rule "keep B only if it wins on the benchmark and on held-out" failed on the first set; held-out B run stopped. The purpose sentence displaces visual description. B's lower time was not explained.
+- Held-out, A only (reference-suite book chapter, 13 figures, gold mean 28 words): 12 alts, 85 words mean, recall 23.3%, precision 10.1%. Short gold caps both numbers; use it to compare prompts, not as a quality score.
 
 - More of what the person wrote is covered, and descriptions are longer than the human ones. Precision falls because the model adds visual detail people left out (colours, icons, layout); word overlap cannot tell true extra detail from invented detail.
 - Read by hand: the flowchart description lists all six steps and their order; the research-cycle diagram names the book, gears and light bulb, but its arrow directions differ from the person's account (not checked against the image).

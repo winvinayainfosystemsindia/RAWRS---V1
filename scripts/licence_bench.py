@@ -166,6 +166,24 @@ def gold_figures(docx: Path) -> list[tuple[str, bytes, str]]:
     return out
 
 
+def figure_contexts(docx: Path) -> dict:
+    """name -> (label, caption, nearby text) for each picture, like production's
+    context: the caption and the closest paragraphs (up to 5), never the alt text."""
+    xml = zipfile.ZipFile(docx).read("word/document.xml").decode("utf-8")
+    paras = re.findall(r"<w:p[ >].*?</w:p>", xml, re.S)
+    texts = ["".join(re.findall(r"<w:t[^>]*>([^<]*)</w:t>", p)).strip() for p in paras]
+    out, number = {}, 0
+    for k, para in enumerate(paras):
+        for _ in re.findall(r"<w:drawing>", para):
+            number += 1
+            order = sorted(range(max(0, k - 3), min(len(paras), k + 4)), key=lambda j: abs(j - k))
+            near = [texts[j] for j in order if texts[j]][:5]
+            caption = next((x for x in near if re.match(r"(fig(ure)?|table|chart|diagram|exhibit)\.?\s*\d", x, re.I)), "")
+            label = re.match(r"\S+\s*[\d.]+", caption).group(0) if caption else "Unknown"
+            out[f"{docx.stem[:30]}#{number}"] = (label, caption or "None provided", near)
+    return out
+
+
 def content_words(text: str) -> set[str]:
     return {w for w in _words(text) if len(w) > 2 and w not in STOP}
 
@@ -179,7 +197,8 @@ def run_alt(args) -> dict:
     from src.ai.providers.ollama import _GENERATE_TIMEOUT_SECONDS
 
     figures = [f for d in sorted(Path(args.gold_dir).glob("*.docx")) for f in gold_figures(d)]
-    prompt = _PROMPT_TEMPLATE.format(figure_label="Unknown", caption="None provided", nearby_text="None")
+    contexts = {} if args.no_context else {k: v for d in sorted(Path(args.gold_dir).glob("*.docx"))
+                                           for k, v in figure_contexts(d).items()}
     # Resume: an idle Codespace shutdown kills the run, so keep every figure already scored.
     out = Path(args.out)
     result = json.loads(out.read_text(encoding="utf-8")) if out.exists() else {"figures": len(figures), "models": {}}
@@ -189,6 +208,8 @@ def run_alt(args) -> dict:
         for name, data, human in figures:
             if name in done:
                 continue
+            label, caption, near = contexts.get(name, ("Unknown", "None provided", []))
+            prompt = _PROMPT_TEMPLATE.format(figure_label=label, caption=caption, nearby_text="; ".join(near) or "None")
             buf = io.BytesIO()
             Image.open(io.BytesIO(data)).convert("RGB").save(buf, "PNG")
             start = time.perf_counter()
@@ -228,6 +249,7 @@ def main() -> int:
     a = sub.add_parser("alt")
     a.add_argument("--gold-dir", required=True)
     a.add_argument("--models", required=True)
+    a.add_argument("--no-context", action="store_true", help="as the 2026-11-04 run: no caption or nearby text")
     for p in (o, a):
         p.add_argument("--out", required=True)
     args = parser.parse_args()
