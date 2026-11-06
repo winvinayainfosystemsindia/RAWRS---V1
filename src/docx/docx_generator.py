@@ -1858,6 +1858,9 @@ def _add_hyperlink(paragraph: Paragraph, address: str, bold: bool, italic: bool)
     relationship_id = paragraph.part.relate_to(target, RT.HYPERLINK, is_external=True)
     hyperlink = OxmlElement("w:hyperlink")
     hyperlink.set(qn("r:id"), relationship_id)
+    # The ScreenTip becomes the link's description in a tagged PDF
+    # (PDF/UA-1 rules 7.18.1 and 7.18.5; src/docx/pdf_export.py).
+    hyperlink.set(qn("w:tooltip"), target)
     run = _add_formatted_run(paragraph, address, bold, italic)
     run.font.color.rgb = RGBColor.from_string(_HYPERLINK_COLOR)
     run.font.underline = True

@@ -37,6 +37,9 @@ def _print(report: dict) -> None:
     print(f"  timing: median {t['median_total_seconds']} s, max {t['max_total_seconds']} s per document; "
           f"median per stage {t['median_stage_seconds']}")
     print(f"  review time: {m['review_time']}")
+    i = m["independent"]
+    print(f"  {i['label']}: {i['pdfua1_compliant']}/{i['documents_validated']} pass PDF/UA-1, "
+          f"{i['documents_with_no_text']} with no text (exported: {i['documents_exported']})")
     print("  items at pipeline end, by category:")
     for category, buckets in m["snapshot_by_category"].items():
         print(f"    {category:<14} {buckets}")

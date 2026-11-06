@@ -34,6 +34,7 @@ from src.api.document_store import (
 from src.pipeline.phase1_pipeline import DEFAULT_OUTPUT_ROOT
 from src.api.jobs import Job, JobStatus, create_job, get_job, list_jobs, start_job, _lock
 from src.api import markdown_edits
+from src.docx import pdf_export
 from src.api.schemas import (
     MarkdownEditRequest,
     AIStatusResponse,
@@ -2267,7 +2268,9 @@ def get_checklist(job_id: str) -> dict:
         docx_path, document.source_pdf_path, expected_pages=len(document.pages),
         equations=document.equations,
     )
-    return report.to_dict()
+    # veraPDF's verdict on the exported PDF, kept apart from RAWRS's own audit.
+    return {**report.to_dict(), "independent": pdf_export.stored_verdict(
+        pdf_export.report_path(DEFAULT_OUTPUT_ROOT, job_id), Path(docx_path))}
 
 
 @router.get("/documents/{job_id}/download/docx")
@@ -2286,6 +2289,29 @@ def download_docx(job_id: str) -> FileResponse:
 
     snapshot_export(DEFAULT_OUTPUT_ROOT, job_id, path)
     return _download(path, job.filename, ".docx")
+
+
+@router.get("/documents/{job_id}/download/pdf")
+def download_pdf(job_id: str) -> FileResponse:
+    """Tagged PDF/UA-1 of the DOCX a reader would download right now
+    (src/docx/pdf_export.py). Rebuilt only when that DOCX is newer."""
+    job = _require_job(job_id)
+    if job.result is None:
+        raise HTTPException(status_code=404, detail="This output was not generated for this document.")
+    docx_path = _ensure_current_export(job, "docx") or job.result.docx_path
+    if docx_path is None or not Path(docx_path).is_file():
+        raise HTTPException(status_code=404, detail="This document has no DOCX to export.")
+    pdf_path = Path(docx_path).with_suffix(".pdf")
+    if not pdf_path.is_file() or pdf_path.stat().st_mtime < Path(docx_path).stat().st_mtime:
+        try:
+            pdf_export.docx_to_pdf(Path(docx_path), pdf_path)
+        except pdf_export.PdfExportUnavailable as exc:
+            raise HTTPException(status_code=503, detail=f"PDF export is not available on this server: {exc}")
+        except Exception as exc:
+            logger.error("PDF export failed for job {}: {}", job_id, exc)
+            if not pdf_path.is_file():
+                raise HTTPException(status_code=500, detail="The PDF could not be built.")
+    return _download(pdf_path, job.filename, ".pdf")
 
 
 @router.get("/documents/{job_id}/download/report")
@@ -2545,6 +2571,8 @@ def _to_summary(job: Job) -> JobSummary:
         info_count=sum(1 for i in issues if i.severity == Severity.INFO) if document else None,
         markdown_available=bool(job.result and job.result.markdown_path and job.result.markdown_path.is_file()),
         docx_available=bool(job.result and job.result.docx_path and job.result.docx_path.is_file()),
+        pdf_available=bool(job.result and job.result.docx_path and job.result.docx_path.is_file()
+                           and pdf_export.soffice_binary()),
         report_available=bool(job.result and job.result.report_path and job.result.report_path.is_file()),
         has_front_matter=bool(document and document.front_matter and document.front_matter.title is not None),
         document_version=document.version if document else None,

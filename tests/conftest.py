@@ -33,6 +33,9 @@ os.environ.setdefault("RAWRS_OCR_CACHE", "off")
 # Every download snapshots the DOCX into outputs/learning; tests that download
 # must not leave copies in the real output tree (tests opt in with tmp_path).
 os.environ.setdefault("RAWRS_LEARNING_SNAPSHOT", "off")
+# A machine with LibreOffice would otherwise add a PDF export + veraPDF run to
+# every pipeline test; tests/test_pdf_export.py exercises it directly.
+os.environ.setdefault("RAWRS_PDF_EXPORT", "off")
 
 BENCHMARK_DIR = Path(__file__).resolve().parents[1] / "samples" / "benchmark" / "pdfs"
 MANIFEST_PATH = Path(__file__).resolve().parents[1] / "samples" / "benchmark" / "manifest.json"

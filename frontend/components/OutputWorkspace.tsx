@@ -181,6 +181,11 @@ export function DownloadControls({ job }: DownloadControlsProps) {
         : undefined,
     },
     {
+      label: "Accessible PDF (PDF/UA)",
+      href: job.pdf_available ? api.downloadUrl(job.job_id, "pdf") : undefined,
+      available: job.pdf_available,
+    },
+    {
       label: "Accessible Markdown",
       href: job.markdown_available ? api.downloadUrl(job.job_id, "markdown") : undefined,
       available: job.markdown_available,

@@ -524,6 +524,7 @@ function DocumentWorkspaceContent({ jobId }: { jobId: string }) {
             }}
             jobId={jobId}
             docxAvailable={job.docx_available}
+            pdfAvailable={job.pdf_available}
             markdownAvailable={job.markdown_available}
             reportAvailable={job.report_available}
             docxStale={job.docx_generated_at_version !== null && job.docx_generated_at_version !== job.document_version}

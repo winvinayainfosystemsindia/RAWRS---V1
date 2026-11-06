@@ -40,6 +40,8 @@ class JobSummary(BaseModel):
 
     markdown_available: bool = False
     docx_available: bool = False
+    # A tagged PDF can be built on request (LibreOffice is installed here).
+    pdf_available: bool = False
     report_available: bool = False
     has_front_matter: bool = False
 

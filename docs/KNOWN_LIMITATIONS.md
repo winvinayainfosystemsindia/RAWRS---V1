@@ -133,7 +133,9 @@ regression; several became visible only once ADR-020's projection gate existed.
 
 | Debt | Detail |
 |---|---|
-| Checks are self-graded | The 40 checklist items are RAWRS's own audit of RAWRS's own DOCX. Independent validation (veraPDF, PDF/UA-1) is Task 3. |
+| Checks are self-graded | The 40 checklist items are RAWRS's own audit of RAWRS's own DOCX. Since 2026-11-06 the exported PDF is also checked independently (veraPDF PDF/UA-1 + text presence, `docs/PDF_EXPORT_2026-11-06.md`); the DOCX itself still has no independent validator. |
+| A total OCR failure is a "successful" job | Measured 2026-11-06: 17 characters for a 13-page scan, and both the checklist (24 pass) and veraPDF (PASS) accepted it. Only the PDF text check flags it, and only when LibreOffice is installed. |
+| PDF export needs system binaries | LibreOffice ≥ 25.2 (7.4 fails rules 7.9/7.18.3/7.3) and veraPDF; without them `pdf_available` is false or the verdict is "not validated". |
 | Corpus has no human review | Reviewer outcomes (b) and review time are "not measured yet" until 5 documents have human decisions. |
 | (b) counts only recorded decisions | Items a reviewer looked at and left alone without clicking approve stay in their pipeline bucket; edits made later in Word are not counted (the learning loop's final-DOCX diff covers those). |
 | Review time is in-tab active time only | Time reading the PDF in another app, or in Word after export, is not captured. |

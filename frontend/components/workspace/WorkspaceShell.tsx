@@ -61,6 +61,7 @@ interface WorkspaceShellProps {
   onOpenSearch?: () => void;
   jobId?: string;
   docxAvailable?: boolean;
+  pdfAvailable?: boolean;
   markdownAvailable?: boolean;
   reportAvailable?: boolean;
   docxStale?: boolean;
@@ -129,6 +130,7 @@ const TOOL_BUTTON_ON = "bg-accent/15 text-text-primary";
 function ExportMenu({
   jobId,
   docxAvailable,
+  pdfAvailable,
   markdownAvailable,
   reportAvailable,
   docxStale,
@@ -136,6 +138,7 @@ function ExportMenu({
 }: {
   jobId: string;
   docxAvailable: boolean;
+  pdfAvailable: boolean;
   markdownAvailable: boolean;
   reportAvailable: boolean;
   docxStale: boolean;
@@ -151,6 +154,11 @@ function ExportMenu({
         {docxAvailable && (
           <a href={api.downloadUrl(jobId, "docx")} download className="block px-3 py-1.5 text-xs text-text-primary hover:bg-hover-row">
             Accessible DOCX{docxStale ? " (stale)" : ""}
+          </a>
+        )}
+        {pdfAvailable && (
+          <a href={api.downloadUrl(jobId, "pdf")} download className="block px-3 py-1.5 text-xs text-text-primary hover:bg-hover-row">
+            Accessible PDF (PDF/UA){docxStale ? " (stale)" : ""}
           </a>
         )}
         {markdownAvailable && (
@@ -210,6 +218,7 @@ export function WorkspaceShell({
   onOpenSearch,
   jobId,
   docxAvailable,
+  pdfAvailable,
   markdownAvailable,
   reportAvailable,
   docxStale,
@@ -370,6 +379,7 @@ export function WorkspaceShell({
             <ExportMenu
               jobId={jobId}
               docxAvailable={!!docxAvailable}
+              pdfAvailable={!!pdfAvailable}
               markdownAvailable={!!markdownAvailable}
               reportAvailable={!!reportAvailable}
               docxStale={!!docxStale}

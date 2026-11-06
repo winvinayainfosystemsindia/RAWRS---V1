@@ -40,6 +40,26 @@ function StatusBadge({ status }: { status: ChecklistStatus }) {
   );
 }
 
+type Independent = NonNullable<ChecklistReport["independent"]>;
+
+/** veraPDF's verdict on the exported PDF: someone other than RAWRS checking RAWRS. */
+function IndependentLine({ verdict }: { verdict: Independent }) {
+  const result =
+    verdict.pdfua1_compliant === null
+      ? "not validated (veraPDF not installed)"
+      : verdict.pdfua1_compliant
+        ? "passes PDF/UA-1"
+        : `fails PDF/UA-1 (${verdict.failed_rules.join(", ")})`;
+  const emptyPages = verdict.pages_without_text ? ` · ${verdict.pages_without_text} page(s) with no readable text` : "";
+  return (
+    <p className="text-xs text-text-secondary">
+      Independent check of the PDF: {result}
+      {emptyPages}
+      {verdict.stale ? " · checked before your latest edits" : ""}
+    </p>
+  );
+}
+
 function ItemRow({ item }: { item: ChecklistItem }) {
   return (
     <li className="flex items-start gap-3 px-3 py-2">
@@ -130,6 +150,7 @@ export function ChecklistAuditPanel({ jobId }: { jobId: string }) {
             {report.summary.pass} pass · {report.summary.fail} fail · {report.summary.warn} to check ·{" "}
             {report.summary.manual} manual · {report.summary.not_applicable} not applicable
           </p>
+          {report.independent && <IndependentLine verdict={report.independent} />}
 
           {attention.length > 0 ? (
             <ul aria-label="Checklist items needing attention" className="divide-y divide-border rounded-lg border border-border bg-surface-panel">

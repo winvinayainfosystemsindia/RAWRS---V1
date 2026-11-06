@@ -313,14 +313,23 @@ def add_review_time(path: Path, strict_seconds: float, loose_seconds: float) -> 
     return {"review_seconds_strict": data["review_seconds_strict"], "review_seconds_loose": data["review_seconds_loose"]}
 
 
-def set_estimate(path: Path, estimate: Dict[str, Any]) -> bool:
+def _set(path: Path, key: str, value: Any) -> bool:
     with _lock:
         data = _read(path)
         if data is None:
             return False
-        data["estimate"] = {"label": ESTIMATE_LABEL, **estimate}
+        data[key] = value
         _write(path, data)
     return True
+
+
+def set_estimate(path: Path, estimate: Dict[str, Any]) -> bool:
+    return _set(path, "estimate", {"label": ESTIMATE_LABEL, **estimate})
+
+
+def set_independent_validation(path: Path, summary: Optional[Dict[str, Any]]) -> bool:
+    """veraPDF + text check of the exported PDF (src/docx/pdf_export.summary_of)."""
+    return _set(path, "independent", summary)
 
 
 # --------------------------------------------------------------------------- #
@@ -404,6 +413,19 @@ def _estimate_view(jobs: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
+def _independent_view(jobs: List[Dict[str, Any]]) -> Dict[str, Any]:
+    checked = [j["independent"] for j in jobs if j.get("independent")]
+    validated = [c for c in checked if c.get("pdfua1_compliant") is not None]
+    return {
+        "label": checked[0]["label"] if checked else "independent check of the exported PDF",
+        "documents_exported": len(checked),
+        "documents_validated": len(validated),
+        "pdfua1_compliant": sum(1 for c in validated if c["pdfua1_compliant"]),
+        "documents_with_no_text": sum(1 for c in checked if c.get("characters") == 0),
+        "status": "measured" if checked else NOT_MEASURED,
+    }
+
+
 def aggregate(output_root: Path) -> Dict[str, Any]:
     """Every job with a sidecar under ``output_root/reports``. Measured (a),
     (b), checks, timing and review time stay apart from the estimate."""
@@ -428,6 +450,7 @@ def aggregate(output_root: Path) -> Dict[str, Any]:
             "checks": _checks_view(jobs),
             "timing": _timing_view(jobs),
             "review_time": _review_time_view(jobs),
+            "independent": _independent_view(jobs),
             "snapshot_by_category": _sum_categories(j["snapshot"] for j in jobs),
             "live_by_category": _sum_categories(j["live"] for j in jobs),
         },

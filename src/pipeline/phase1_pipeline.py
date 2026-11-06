@@ -64,7 +64,8 @@ from src.headings.hierarchy import repair_headings
 from src.images.auto_alt_text import apply_automatic_alt_text
 from src.images.image_extractor import _extract_images_from_pdf, extract_images
 from src.markdown.markdown_builder import build_markdown
-from src.metrics.automation import sidecar_path, write_pipeline_metrics
+from src.docx import pdf_export
+from src.metrics.automation import set_independent_validation, sidecar_path, write_pipeline_metrics
 from src.structure.paragraph_assembly import assemble_paragraphs
 from src.structure.relationships import link_document
 from src.models.contracts import Document, ProcessingStatus, Severity, ValidationIssue
@@ -580,6 +581,12 @@ def run_pipeline(
     write_pipeline_metrics(
         document, sidecar_path(output_root, stem), stage_seconds, perf_counter() - start_time, checks
     )
+    # Accessible PDF + independent check (veraPDF), after the timed stages so
+    # the automation timings stay comparable; never fails the job.
+    if pdf_export.enabled():
+        set_independent_validation(sidecar_path(output_root, stem), pdf_export.export_and_validate(
+            docx_path, docx_path.with_suffix(".pdf"), pdf_export.report_path(output_root, stem)
+        ))
     result = _build_result(
         pdf_path,
         document=document,

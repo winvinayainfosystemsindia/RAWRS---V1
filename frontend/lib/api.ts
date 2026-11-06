@@ -30,6 +30,8 @@ export interface JobSummary {
   info_count: number | null;
   markdown_available: boolean;
   docx_available: boolean;
+  /** A tagged PDF/UA file can be built (LibreOffice is installed on the server). */
+  pdf_available: boolean;
   report_available: boolean;
   has_front_matter: boolean;
   document_version: number | null;
@@ -484,7 +486,7 @@ class ApiError extends Error {
 // explored while the processing server is off. It is read-only.
 export const DEMO_JOB_ID = "demo";
 export const DEMO_READ_ONLY_MESSAGE = "This is a read-only sample document. Changes cannot be saved in the preview.";
-const DEMO_DOWNLOADS = { markdown: "document.md", docx: "document.docx", report: "report.json" } as const;
+const DEMO_DOWNLOADS = { markdown: "document.md", docx: "document.docx", pdf: "document.pdf", report: "report.json" } as const;
 
 /** The static file that stands in for a demo-document API path, or null. */
 export function demoFile(path: string): string | null {
@@ -701,7 +703,7 @@ export const api = {
     return `${API_BASE_URL}/api/documents/${jobId}/images/${imageId}/file`;
   },
 
-  downloadUrl(jobId: string, kind: "markdown" | "docx" | "report"): string {
+  downloadUrl(jobId: string, kind: "markdown" | "docx" | "pdf" | "report"): string {
     if (jobId === DEMO_JOB_ID) return `/demo/download/${DEMO_DOWNLOADS[kind]}`;
     return `${API_BASE_URL}/api/documents/${jobId}/download/${kind}`;
   },
@@ -1017,6 +1019,16 @@ export interface ChecklistReport {
   passed: boolean;
   summary: Record<ChecklistStatus, number>;
   results: ChecklistItem[];
+  /** veraPDF's PDF/UA-1 verdict on the exported PDF (src/docx/pdf_export.py); null when never exported. */
+  independent?: {
+    label: string;
+    pdfua1_compliant: boolean | null;
+    failed_rules: string[];
+    characters: number | null;
+    pages: number | null;
+    pages_without_text: number | null;
+    stale: boolean;
+  } | null;
 }
 
 // --- Accessibility Readiness (backend-driven) ------------------------------

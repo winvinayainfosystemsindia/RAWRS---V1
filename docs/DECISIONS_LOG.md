@@ -846,6 +846,18 @@ No force-push, reset or rebase at any step. Rollback: `backup/main-pre-reconcile
 
 ---
 
+## Part 28 — Accessible PDF export, independently checked (2026-11-06)
+
+| Decision | Why |
+|---|---|
+| DOCX → PDF with LibreOffice's own tagged PDF/UA-1 export (`src/docx/pdf_export.py`); no PDF tags written by hand | Tags come from the DOCX styles RAWRS already gets right; 10/10 benchmark PDFs pass veraPDF (`docs/PDF_EXPORT_2026-11-06.md`) |
+| New dependencies: none in pip. LibreOffice ≥ 25.2 (`soffice`) and veraPDF are optional system binaries found on PATH or via `RAWRS_SOFFICE` / `RAWRS_VERAPDF` | No installed tool writes tagged PDF (python-docx can't, and PyMuPDF has no PDF/UA tagging); there is no independent PDF/UA validator in Python. pypdfium2 is already installed with docling |
+| Heading 6 page markers become a plain "Page Number" paragraph in the PDF copy only | PDF/UA-1 7.4.2 forbids an H6 before the first H1; the DOCX keeps the remediation-checklist convention |
+| Link ScreenTip = the link's address | PDF/UA-1 7.18.1/7.18.5 need a link description; LibreOffice takes it from the ScreenTip |
+| A text-presence check (under 20 characters on a page = no text) sits beside veraPDF | A PDF with no readable text passes PDF/UA-1 (measured: O'Leary with failed OCR) |
+| Export runs after the timed pipeline stages and never fails the job; `RAWRS_PDF_EXPORT=off` turns it off (off in tests) | Keeps the Task 1 timings comparable; the PDF is an extra output, not part of the remediation |
+
+
 ## How to add a new entry
 
 Append a new `###` section under the relevant Part, dated, with: the decision, the reasoning ("why"), where it's implemented (file/module), and its current status. Do not delete or rewrite existing entries even if later superseded — add a new entry that references and supersedes the old one.
