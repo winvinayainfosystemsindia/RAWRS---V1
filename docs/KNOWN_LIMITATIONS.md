@@ -4,6 +4,7 @@
 
 | Limitation | Effect | Where |
 |---|---|---|
+| Alt-text quality is measured only by word overlap | 55.1% recall / 40.3% precision vs 10 human alt texts (2026-11-07); overlap cannot tell true extra detail from invented detail, and no figure has been checked against the image by a person | `docs/TAGGED_GOLD_2026-11-06.md` |
 | Alt text is CPU-slow | ~4 min per image with `qwen2.5vl:7b` and the detailed prompt (median 238 s, 2026-11-06); 7b in-process via transformers needs 14 GB RAM | `src/ai/providers/ollama.py` |
 | Markdown edits bypass the object model | A saved edit wins over later object reviews until discarded | `src/api/markdown_edits.py` |
 | Heading level inference is a textbook convention | First = H1, capitals = H2, rest = H3 when the source gives one level. Scanned pages are levelled by printed size first; this rule still decides when all headings print at one size (O'Leary "Chapter Preview" H3, gold H2) | `src/headings/hierarchy.py`, `docs/SCAN_STRUCTURE.md` |

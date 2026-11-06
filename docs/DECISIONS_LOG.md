@@ -877,6 +877,8 @@ No force-push, reset or rebase at any step. Rollback: `backup/main-pre-reconcile
 | Alt text asks for full visual detail, no sentence cap | User: a blind reader must be able to picture the image. Recall vs human 48.1% → 53.7% on 10 figures |
 | Default alt-text model `qwen2.5vl:7b` | Better on both measurements and Apache-2.0; 3b is non-commercial. Cost: ~6 GB memory, ~4 min per image on CPU |
 | No new dependency | pypdfium2 and PyMuPDF already installed |
+| (2026-11-07) Keep prompt A; reject the "what the image is meant to show" sentence | Rule set before the run: adopt only if better on the benchmark and on held-out. It lost on the benchmark (50.3% vs 55.1% recall, worse on 6 of 10 figures) |
+| (2026-11-07) Alt bench sends caption + nearby text | Matches what production sends; checked that no gold alt text appears in that context |
 
 ## How to add a new entry
 
